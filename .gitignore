@@ -6,3 +6,6 @@ data/
 .env.local
 *.tsbuildinfo
 next-env.d.ts
+
+# Original-Logodateien (Quellen, nicht ausliefern)
+assets-src/

@@ -4,8 +4,12 @@ import { CARRIER_IDS, CARRIERS, type CarrierId } from '../lib/shipping.ts';
 /** Marke eines Anbieters: offizielles Logo, sobald unter public/brands/ hinterlegt – sonst neutrale Schriftmarke. */
 function Mark({ name, logo, className = '' }: { name: string; logo: string | null; className?: string }) {
   if (logo) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img className={`brand-mark brand-mark--logo ${className}`} src={logo} alt={name} height={22} />;
+    return (
+      <span className={`brand-mark brand-mark--logo ${className}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logo} alt={name} loading="lazy" decoding="async" />
+      </span>
+    );
   }
   return <span className={`brand-mark ${className}`}>{name}</span>;
 }

@@ -19,14 +19,14 @@ export const CARRIERS: Record<CarrierId, Carrier> = {
     id: 'dhl',
     name: 'DHL',
     service: 'Versand mit Sendungsverfolgung',
-    logo: null,
+    logo: '/brands/dhl.png',
     trackingUrl: (nr) => `https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=${encodeURIComponent(nr)}`,
   },
   ups: {
     id: 'ups',
     name: 'UPS',
     service: 'Versand mit Sendungsverfolgung',
-    logo: null,
+    logo: '/brands/ups.png',
     trackingUrl: (nr) => `https://www.ups.com/track?loc=de_DE&tracknum=${encodeURIComponent(nr)}`,
   },
 };

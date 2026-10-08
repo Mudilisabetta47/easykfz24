@@ -6,12 +6,12 @@ export const PAYMENT_METHOD_IDS = ['visa', 'mastercard', 'paypal', 'klarna', 'ap
 export type PaymentMethodId = (typeof PAYMENT_METHOD_IDS)[number];
 
 export const PAYMENT_METHODS: Record<PaymentMethodId, { name: string; logo: string | null }> = {
-  visa: { name: 'Visa', logo: null },
-  mastercard: { name: 'Mastercard', logo: null },
-  paypal: { name: 'PayPal', logo: null },
-  klarna: { name: 'Klarna', logo: null },
-  apple_pay: { name: 'Apple Pay', logo: null },
-  google_pay: { name: 'Google Pay', logo: null },
+  visa: { name: 'Visa', logo: '/brands/visa.png' },
+  mastercard: { name: 'Mastercard', logo: '/brands/mastercard.png' },
+  paypal: { name: 'PayPal', logo: '/brands/paypal.png' },
+  klarna: { name: 'Klarna', logo: '/brands/klarna.png' },
+  apple_pay: { name: 'Apple Pay', logo: '/brands/apple-pay.png' },
+  google_pay: { name: 'Google Pay', logo: '/brands/google-pay.png' },
 };
 
 export const PAYMENT_STATUS = ['offen', 'bezahlt', 'erstattet'] as const;

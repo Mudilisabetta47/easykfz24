@@ -1219,9 +1219,32 @@
   white-space: nowrap;
 }
 .brand-mark--logo {
-  padding: 4px 10px;
-  block-size: 30px;
+  min-block-size: 34px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+.brand-mark--logo img {
+  block-size: 18px;
   inline-size: auto;
+  max-inline-size: 72px;
+  object-fit: contain;
+}
+.brand-mark--dhl img {
+  block-size: 14px;
+  max-inline-size: 96px;
+}
+.brand-mark--ups img {
+  block-size: 24px;
+}
+.choice--carrier .brand-mark--logo {
+  min-block-size: 40px;
+}
+.choice--carrier .brand-mark--logo img {
+  block-size: 22px;
+  max-inline-size: 120px;
+}
+.choice--carrier .brand-mark--ups img {
+  block-size: 30px;
 }
 .on-dark .brand-row__label {
   color: rgb(255 255 255 / 0.55);
@@ -1230,6 +1253,10 @@
   background: rgb(255 255 255 / 0.06);
   border-color: rgb(255 255 255 / 0.14);
   color: rgb(255 255 255 / 0.85);
+}
+.on-dark .brand-mark--logo {
+  background: #ffffff;
+  border-color: transparent;
 }
 .site-footer__partners {
   display: flex;
