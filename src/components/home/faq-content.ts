@@ -27,7 +27,15 @@ export const HOME_FAQ: FaqItem[] = [
   },
   {
     q: 'Wie erhalte ich meine Kennzeichen?',
-    a: 'Du wählst im Vorgang zwischen Versand per Einschreiben und Abholung. Geprägte Schilder kannst du direkt mitbestellen oder eigene verwenden.',
+    a: 'Du wählst im Vorgang zwischen Versand mit DHL oder UPS – inklusive Sendungsverfolgung in deiner Statusabfrage – und Abholung. Geprägte Schilder kannst du direkt mitbestellen oder eigene verwenden.',
+  },
+  {
+    q: 'Wie kann ich bezahlen?',
+    a: 'Sicher über unseren Zahlungsdienstleister mit Visa, Mastercard, PayPal, Klarna, Apple Pay oder Google Pay. Du bezahlst nur unsere Servicekosten; amtliche Gebühren werden getrennt nach Beleg abgerechnet.',
+  },
+  {
+    q: 'Was ist in den Komplett-Paketen enthalten?',
+    a: 'Leistung, Reservierung deines Wunschkennzeichens, zwei geprägte Kennzeichenschilder und der Versand – zu einem Paketpreis, der günstiger ist als die Einzelpositionen. Wählst du diese Bausteine im Vorgang, gilt der Paketpreis automatisch.',
   },
   {
     q: 'Kann ich auch ein Fahrzeug abmelden?',

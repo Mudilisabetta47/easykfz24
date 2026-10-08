@@ -6,7 +6,7 @@ import { formatRetryAfter } from '../../lib/rate-limit.ts';
 import { passwordMatches } from '../../lib/session.ts';
 import { adminConfig, endSession, requireAdmin, startSession } from '../../server/auth.ts';
 import { clientIp, limits } from '../../server/limits.ts';
-import { addNote, changeStatus, setAssignedPlate, setChecklistItem, type ActionResult } from '../../server/orders.ts';
+import { addNote, changeStatus, setAssignedPlate, setChecklistItem, setPaymentStatus, setShipment, type ActionResult } from '../../server/orders.ts';
 
 export type LoginState = { error?: string };
 
@@ -79,4 +79,18 @@ export async function noteAction(form: FormData): Promise<void> {
   const id = orderId(form);
   const result = addNote(id, String(form.get('text') ?? ''));
   back(id, result, 'Notiz gespeichert');
+}
+
+export async function shipmentAction(form: FormData): Promise<void> {
+  await requireAdmin();
+  const id = orderId(form);
+  const result = setShipment(id, String(form.get('carrier') ?? ''), String(form.get('tracking') ?? ''));
+  back(id, result, 'Versanddaten gespeichert');
+}
+
+export async function paymentAction(form: FormData): Promise<void> {
+  await requireAdmin();
+  const id = orderId(form);
+  const result = setPaymentStatus(id, String(form.get('payment') ?? ''), String(form.get('ref') ?? '').trim().slice(0, 80));
+  back(id, result, 'Zahlungsstatus gespeichert');
 }

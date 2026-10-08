@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { SITE } from '../lib/site.ts';
 import { Logo } from './Logo.tsx';
 import { Ph } from './Ph.tsx';
+import { CarrierMarks, PaymentMarks } from './Brands.tsx';
 
 export function SiteFooter() {
   return (
@@ -41,6 +42,10 @@ export function SiteFooter() {
               <li><Link href="/kfz-anmelden/vollmacht">Vollmacht (Vorlage)</Link></li>
             </ul>
           </div>
+        </div>
+        <div className="site-footer__partners">
+          <PaymentMarks />
+          <CarrierMarks />
         </div>
         <div className="site-footer__bottom">
           <span>

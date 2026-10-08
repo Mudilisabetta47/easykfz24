@@ -9,8 +9,8 @@ import { SITE } from '../../../../../lib/site.ts';
 
 export const metadata: Metadata = { title: 'Auftrag eingegangen', robots: { index: false } };
 
-export default async function BestaetigungPage({ searchParams }: { searchParams: Promise<{ nr?: string; l?: string; r?: string }> }) {
-  const { nr = '', l = '', r = '' } = await searchParams;
+export default async function BestaetigungPage({ searchParams }: { searchParams: Promise<{ nr?: string; l?: string; r?: string; zahlung?: string }> }) {
+  const { nr = '', l = '', r = '', zahlung = '' } = await searchParams;
   const number = normalizeOrderNumber(nr);
   const def = isServiceId(l) ? SERVICES[l] : null;
 
@@ -35,6 +35,9 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
           {def ? ` Leistung: ${def.title}.` : ''}
         </p>
 
+        {zahlung === 'ok' ? (
+          <p className="alert alert--ok">Vielen Dank – Ihre Zahlung wurde übermittelt. Die Bestätigung erscheint in wenigen Minuten in der Statusabfrage.</p>
+        ) : null}
         {r === '1' ? (
           <p className="alert alert--ok">Ihr Neukundenrabatt von 10 % auf die Servicepauschale wurde berücksichtigt.</p>
         ) : r === '0' ? (

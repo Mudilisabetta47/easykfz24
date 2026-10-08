@@ -2,14 +2,17 @@ import type { Metadata } from 'next';
 import '../../../../styles/forms.css';
 import { OrderWizard } from '../../../../components/order/OrderWizard.tsx';
 import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
+import { checkPlate } from '../../../../lib/validation.ts';
+import { paymentsEnabled } from '../../../../server/payments.ts';
 
 export const metadata: Metadata = {
   title: 'Vorgang starten',
   description: 'Kfz-Zulassung, Ummeldung, Wiederzulassung oder Abmeldung online beauftragen.',
 };
 
-export default async function AuftragPage({ searchParams }: { searchParams: Promise<{ leistung?: string }> }) {
-  const { leistung = '' } = await searchParams;
+export default async function AuftragPage({ searchParams }: { searchParams: Promise<{ leistung?: string; wunsch?: string; paket?: string }> }) {
+  const { leistung = '', wunsch = '', paket = '' } = await searchParams;
+  const wish = checkPlate(wunsch.slice(0, 20));
   return (
     <>
       <header className="page-head page-head--compact">
@@ -25,7 +28,7 @@ export default async function AuftragPage({ searchParams }: { searchParams: Prom
         </div>
       </header>
       <div className="shell wizard-shell">
-        <OrderWizard initial={leistung.slice(0, 30)} />
+        <OrderWizard initial={leistung.slice(0, 30)} wish={wish.ok ? wish.value : ''} payOnline={paymentsEnabled()} bundle={paket === '1'} />
       </div>
     </>
   );

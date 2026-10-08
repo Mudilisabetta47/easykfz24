@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { CarSvg } from '../CarSvg.tsx';
 import { ArrowRight, Check, Doc, Receipt, Shield } from '../icons.tsx';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
+import { PlateTrigger } from '../plate/PlateConfigurator.tsx';
 import { Split } from '../Split.tsx';
 import { PromoBadge, promoActive } from '../Promo.tsx';
 import { formatEuro } from '../../lib/format.ts';
@@ -80,8 +81,10 @@ export function Hero() {
                 <span className="hero__act-text">{a.text}</span>
                 {i === ACTS.length - 1 ? (
                   <div className="hero__ready" data-ready>
-                    <div className="hero__plate" data-plate data-plate-scene aria-hidden="true">
-                      <GermanLicensePlate id="hero-kz" cityCode="HB" letters="EZ" numbers="24" size="clamp(270px, 31vw, 480px)" perspective={10} tone="dark" showSealPlaceholder />
+                    <div className="hero__plate" data-plate data-plate-scene>
+                      <PlateTrigger>
+                        <GermanLicensePlate id="hero-kz" cityCode="HB" letters="EZ" numbers="24" size="clamp(270px, 31vw, 480px)" perspective={10} tone="dark" />
+                      </PlateTrigger>
                     </div>
                     <Link href="/kfz-anmelden/auftrag" className="btn btn--lg btn--light" data-magnetic="0.22" data-cursor="Start">
                       Jetzt Fahrzeug zulassen

@@ -5,6 +5,7 @@ import { formatDateTime, formatEuro } from '../../lib/format.ts';
 import { SERVICES } from '../../lib/services.ts';
 import { STATUS_IDS, STATUSES } from '../../lib/status.ts';
 import { maskIban } from '../../lib/validation.ts';
+import { PAYMENT_STATUS_LABEL } from '../../lib/payment.ts';
 import { requireAdmin } from '../../server/auth.ts';
 import { getStats, listOrders } from '../../server/orders.ts';
 
@@ -80,6 +81,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
                 <th scope="col">FIN / Kennzeichen</th>
                 <th scope="col">IBAN</th>
                 <th scope="col">Status</th>
+                <th scope="col">Zahlung</th>
                 <th scope="col" className="num">
                   Service
                 </th>
@@ -88,7 +90,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="table__empty">
+                  <td colSpan={9} className="table__empty">
                     Keine Aufträge für diese Auswahl.
                   </td>
                 </tr>
@@ -113,6 +115,11 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
                     <td className="mono">{o.iban ? maskIban(o.iban) : '–'}</td>
                     <td>
                       <StatusBadge status={o.status} service={o.service} />
+                    </td>
+                    <td>
+                      <span className={`badge badge--${o.payment_status === 'bezahlt' ? 'green' : o.payment_status === 'erstattet' ? 'slate' : 'amber'}`}>
+                        {PAYMENT_STATUS_LABEL[o.payment_status]}
+                      </span>
                     </td>
                     <td className="num">{formatEuro(o.total_cents)}</td>
                   </tr>

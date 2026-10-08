@@ -5,8 +5,9 @@ import { formatRetryAfter } from '../../../lib/rate-limit.ts';
 import { checkEmail } from '../../../lib/validation.ts';
 import { clientIp, limits } from '../../../server/limits.ts';
 import { lookupStatus, type PublicStatus } from '../../../server/orders.ts';
+import { paymentsEnabled } from '../../../server/payments.ts';
 
-export type StatusState = { result?: PublicStatus; error?: string; nr?: string; email?: string };
+export type StatusState = { result?: PublicStatus; error?: string; nr?: string; email?: string; payOnline?: boolean };
 
 export async function lookupAction(_prev: StatusState, form: FormData): Promise<StatusState> {
   const nrRaw = String(form.get('nr') ?? '').slice(0, 40);
@@ -22,5 +23,5 @@ export async function lookupAction(_prev: StatusState, form: FormData): Promise<
 
   const result = lookupStatus(nr, email.value);
   if (!result) return { ...keep, error: 'Zu dieser Kombination aus Auftragsnummer und E-Mail-Adresse wurde kein Auftrag gefunden.' };
-  return { ...keep, result };
+  return { ...keep, result, payOnline: paymentsEnabled() };
 }

@@ -2344,3 +2344,117 @@
   font-size: var(--step--1);
   color: rgb(255 255 255 / 0.75);
 }
+
+/* Komplett-Pakete */
+.bundles {
+  display: grid;
+  gap: 18px;
+  margin-block-start: clamp(2.5rem, 1.5rem + 3vw, 4rem);
+  padding: clamp(22px, 1rem + 2vw, 40px);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(60% 80% at 100% 0%, color-mix(in oklab, var(--ez-blue) 10%, transparent), transparent 70%),
+    var(--ez-surface);
+  border: 1px solid var(--ez-line);
+}
+.bundles__head h3 {
+  font-size: var(--step-3);
+  letter-spacing: -0.035em;
+}
+.bundles__head p {
+  margin-block-start: 6px;
+  color: var(--ez-muted);
+}
+.bundles__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bundle {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: var(--ez-bg);
+  border: 1px solid var(--ez-line);
+}
+.bundle--highlight {
+  background: var(--ez-surface);
+  border-color: color-mix(in oklab, var(--ez-blue) 40%, transparent);
+  box-shadow: 0 0 0 3px var(--ez-blue-soft), var(--shadow-card);
+}
+.bundle__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bundle__top h4 {
+  font-size: var(--step-1);
+  letter-spacing: -0.02em;
+}
+.bundle__items {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
+.bundle__items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bundle__items svg {
+  color: var(--ez-blue);
+  flex: none;
+}
+.bundle__price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-block-start: 6px;
+}
+.bundle__price strong {
+  font-size: var(--step-4);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.bundle__price s {
+  color: var(--ez-muted);
+  font-size: var(--step--1);
+}
+.bundle__cta {
+  justify-self: start;
+  margin-block-start: 6px;
+}
+.bundles__fine {
+  font-size: var(--step--2);
+  color: var(--ez-muted);
+}
+.price__partners {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 14px 32px;
+  margin-block-start: 24px;
+  padding: 18px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ez-line);
+  background: var(--ez-surface);
+}
+@media (max-width: 900px) {
+  .bundles__grid {
+    grid-template-columns: 1fr;
+  }
+}

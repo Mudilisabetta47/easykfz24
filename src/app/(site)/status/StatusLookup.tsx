@@ -8,6 +8,9 @@ import { ArrowRight } from '../../../components/icons.tsx';
 import { GermanLicensePlate } from '../../../components/GermanLicensePlate.tsx';
 import { splitPlate } from '../../../lib/plate.ts';
 import { lookupAction, type StatusState } from './actions.ts';
+import { formatEuro } from '../../../lib/format.ts';
+import { PAYMENT_STATUS_LABEL } from '../../../lib/payment.ts';
+import { CARRIERS } from '../../../lib/shipping.ts';
 
 export function StatusLookup({ initialNr }: { initialNr: string }) {
   const [state, action, pending] = useActionState<StatusState, FormData>(lookupAction, { nr: initialNr });
@@ -55,10 +58,43 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
               <span className={`badge badge--${STATUSES[r.status].tone}`}>{statusLabel(r.status, r.service, 'kunde')}</span>
             </div>
             <p className="status-result__text">{STATUSES[r.status].publicText}</p>
+            <dl className="status-facts">
+              <div>
+                <dt>Servicekosten</dt>
+                <dd>
+                  {formatEuro(r.totalCents)} · <span className={`pay-status pay-status--${r.paymentStatus}`}>{PAYMENT_STATUS_LABEL[r.paymentStatus]}</span>
+                  {r.paymentStatus === 'offen' && state.payOnline ? (
+                    <>
+                      {' '}
+                      · <a href={`/zahlung/${r.number}?t=${encodeURIComponent(r.paymentToken)}`}>Jetzt bezahlen</a>
+                    </>
+                  ) : null}
+                </dd>
+              </div>
+              {r.delivery === 'versand' && r.carrier ? (
+                <div>
+                  <dt>Versand</dt>
+                  <dd>
+                    {CARRIERS[r.carrier].name}
+                    {r.trackingNumber ? (
+                      <>
+                        {' '}
+                        ·{' '}
+                        <a href={CARRIERS[r.carrier].trackingUrl(r.trackingNumber)} target="_blank" rel="noopener noreferrer">
+                          Sendung {r.trackingNumber} verfolgen
+                        </a>
+                      </>
+                    ) : (
+                      ' · Sendungsnummer folgt beim Versand'
+                    )}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
             {plateParts ? (
               <div className="status-result__plate">
                 <p className="label">Zugeteiltes Kennzeichen</p>
-                <GermanLicensePlate id="status-kz" {...plateParts} size={300} showSealPlaceholder />
+                <GermanLicensePlate id="status-kz" {...plateParts} size={300} />
               </div>
             ) : null}
             <ol className="timeline" role="list">

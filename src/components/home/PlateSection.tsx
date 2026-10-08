@@ -1,11 +1,12 @@
 import { Sparkle, Truck } from '../icons.tsx';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
+import { PlateTrigger } from '../plate/PlateConfigurator.tsx';
 import { Split } from '../Split.tsx';
 
 const OPTIONS = [
   { title: 'Wunschkennzeichen', text: 'Wir reservieren deine Wunschkombination – sofern sie verfügbar ist.', icon: Sparkle },
   { title: 'Kennzeichen bestellen', text: 'Geprägte Schilder passend zum Fahrzeug direkt mitbestellen.', icon: PlateIcon },
-  { title: 'Versand oder Abholung', text: 'Papiere und Schilder kommen per Einschreiben – oder du holst sie ab.', icon: Truck },
+  { title: 'Versand oder Abholung', text: 'Papiere und Schilder kommen mit DHL oder UPS samt Sendungsverfolgung – oder du holst sie ab.', icon: Truck },
 ];
 
 function PlateIcon(p: { width?: number; height?: number }) {
@@ -29,9 +30,11 @@ export function PlateSection() {
           </div>
           <div className="kz__plate-wrap" data-bigplate data-plate-scene>
             <div className="kz__plate-glow" aria-hidden="true" />
-            <GermanLicensePlate id="sec-kz" cityCode="HB" letters="EZ" numbers="24" size="min(88vw, 940px)" showSealPlaceholder />
+            <PlateTrigger className="plate-trigger--light">
+              <GermanLicensePlate id="sec-kz" cityCode="HB" letters="EZ" numbers="24" size="min(88vw, 940px)" />
+            </PlateTrigger>
           </div>
-          <p className="kz__note">Schematische Darstellung – kein amtliches Kennzeichen.</p>
+          <p className="kz__note">Schild antippen und eigenes Wunschkennzeichen zusammenstellen. Darstellung schematisch.</p>
           <ul className="shell kz__opts" role="list">
             {OPTIONS.map((o, i) => (
               <li key={o.title} className="kz__opt" data-opt={i}>

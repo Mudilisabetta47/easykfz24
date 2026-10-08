@@ -17,6 +17,8 @@ interface Props {
   className?: string;
   /** Umgebung: auf dunklen Bühnen spiegelt das Schild kühles Umgebungslicht. */
   tone?: 'light' | 'dark';
+  /** "lite" für viele kleine Schilder (ohne Körnung und Mikroprismen) */
+  detail?: 'full' | 'lite';
 }
 
 // Rand um das Schild für Schatten und Kantenlicht (mm)
@@ -40,17 +42,22 @@ function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
   );
 }
 
-/** Drei Lagen ergeben die Prägung: Schatten unten rechts, Lichtkante oben links, schwarze Farbschicht. */
+/**
+ * Prägung wie bei echten Aluminiumschildern: mattschwarze Farbe mit leicht gerundeten Ecken,
+ * darunter ein feiner Schatten unten rechts und eine kaum sichtbare Lichtkante oben links.
+ */
 function Embossed({ id, children, part }: { id: string; children: React.ReactNode; part?: string }) {
   return (
     <g data-plate-part={part} className="lp__part">
-      <g transform="translate(0.55 0.75)" stroke="#000" strokeOpacity="0.32" filter={`url(#${id}-soft)`}>
+      <g filter={`url(#${id}-round)`}>
+        <g transform="translate(0.5 0.7)" stroke="#000" strokeOpacity="0.24">
+          {children}
+        </g>
+      </g>
+      <g transform="translate(-0.22 -0.28)" stroke="#ffffff" strokeOpacity="0.6" filter={`url(#${id}-round)`}>
         {children}
       </g>
-      <g transform="translate(-0.4 -0.5)" stroke="#ffffff" strokeOpacity="0.95">
-        {children}
-      </g>
-      <g stroke={`url(#${id}-ink)`} filter={`url(#${id}-emboss)`}>
+      <g stroke="#141414" filter={`url(#${id}-round)`}>
         {children}
       </g>
     </g>
@@ -83,6 +90,7 @@ export function GermanLicensePlate({
   id = 'kz',
   className = '',
   tone = 'light',
+  detail = 'full',
 }: Props) {
   const L = layoutPlate(cityCode, letters, numbers, showEuroBand);
   const { W, H, RADIUS } = PLATE;
@@ -173,20 +181,12 @@ export function GermanLicensePlate({
           <filter id={`${id}-soft`} x="-10%" y="-10%" width="120%" height="120%">
             <feGaussianBlur stdDeviation="0.45" />
           </filter>
-          {/* Prägung: Glanzlicht auf den erhabenen schwarzen Flächen */}
-          <filter id={`${id}-emboss`} x="-5%" y="-10%" width="110%" height="120%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="0.9" result="b" />
-            <feSpecularLighting in="b" surfaceScale="3" specularConstant="0.4" specularExponent="34" lightingColor="#ffffff" result="s">
-              <feDistantLight azimuth="235" elevation="38" />
-            </feSpecularLighting>
-            <feComposite in="s" in2="SourceAlpha" operator="in" result="s2" />
-            <feComponentTransfer in="s2" result="s3">
-              <feFuncA type="linear" slope="0.3" />
+          {/* Weiche Ecken wie bei der Kennzeichenschrift: kurz weichzeichnen, dann wieder scharf schwellen */}
+          <filter id={`${id}-round`} x="-3%" y="-8%" width="106%" height="116%" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="0.85" />
+            <feComponentTransfer>
+              <feFuncA type="linear" slope="12" intercept="-5.2" />
             </feComponentTransfer>
-            <feMerge>
-              <feMergeNode in="SourceGraphic" />
-              <feMergeNode in="s3" />
-            </feMerge>
           </filter>
           <filter id={`${id}-shadow`} x="-10%" y="-30%" width="120%" height="180%">
             <feGaussianBlur stdDeviation="3.2" />
@@ -201,8 +201,12 @@ export function GermanLicensePlate({
           <g data-plate-part="body" className="lp__part">
             <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-base)`} />
             <g clipPath={`url(#${id}-clip)`}>
-              <rect width={W} height={H} fill={`url(#${id}-beads)`} />
-              <rect width={W} height={H} filter={`url(#${id}-grain)`} />
+              {detail === 'full' ? (
+                <>
+                  <rect width={W} height={H} fill={`url(#${id}-beads)`} />
+                  <rect width={W} height={H} filter={`url(#${id}-grain)`} />
+                </>
+              ) : null}
               <rect width={W} height={H} fill={`url(#${id}-sheen)`} />
             </g>
             {/* Blechkante: oben Licht, unten Abschattung */}

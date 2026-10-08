@@ -19,7 +19,7 @@ function validDraft() {
     email: 'Erika@Example.de',
     telefon: '0421 123456',
   };
-  d.plate = { wahl: 'behalten', wunschkennzeichen: '', schilder: true, zustellung: 'versand' };
+  d.plate = { wahl: 'behalten', wunschkennzeichen: '', schilder: true, zustellung: 'versand', versanddienst: 'dhl' };
   d.finish = { evb: 'a1b2c3d', kontoinhaber: 'Erika Mustermann', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, hinweise: '' };
   return d;
 }
@@ -130,5 +130,24 @@ describe('validateDocuments', () => {
   });
   it('begrenzt die Anzahl je Unterlage', () => {
     assert.ok(validateDocuments('abmeldung', { ausweis: 4, zb1: 1 })['documents.ausweis']);
+  });
+});
+
+describe('Versanddienst', () => {
+  it('ist bei Versand Pflicht und bei Abholung leer', () => {
+    const d = emptyDraft('abmeldung');
+    d.vehicle = { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin: 'WVWZZZ1JZ3W386752', bisherigesKennzeichen: 'HB-A 1', antrieb: 'benzin', eKennzeichen: false };
+    d.holder = { ...d.holder, typ: 'privat', vorname: 'A', nachname: 'B', geburtsdatum: '1980-01-01', strasse: 'X', hausnummer: '1', plz: '28195', ort: 'Bremen', email: 'a@b.de', telefon: '0421 123456' };
+    d.finish = { ...d.finish, vollmacht: true, datenschutz: true };
+    d.plate = { ...d.plate, zustellung: 'versand', versanddienst: '' };
+    const r1 = validateOrder(d);
+    assert.equal(r1.ok, false);
+    if (!r1.ok) assert.ok(r1.errors['plate.versanddienst']);
+    d.plate.versanddienst = 'ups';
+    const r2 = validateOrder(d);
+    assert.ok(r2.ok && r2.order.plate.versanddienst === 'ups');
+    d.plate = { ...d.plate, zustellung: 'abholung', versanddienst: 'ups' };
+    const r3 = validateOrder(d);
+    assert.ok(r3.ok && r3.order.plate.versanddienst === null);
   });
 });

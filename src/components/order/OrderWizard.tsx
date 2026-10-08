@@ -34,6 +34,8 @@ import {
 } from '../../lib/services.ts';
 import { checkFin, checkIban, formatIban } from '../../lib/validation.ts';
 import { ArrowRight, Check, Close, Doc } from '../icons.tsx';
+import { CarrierMark, PaymentMarks } from '../Brands.tsx';
+import { CARRIER_IDS, CARRIERS, isCarrierId } from '../../lib/shipping.ts';
 
 const STEPS = [
   { key: 'service', title: 'Leistung' },
@@ -73,9 +75,19 @@ function Field({ path, label, error, hint, children, optional }: { path: string;
 const describedBy = (path: string, error?: string, hint?: boolean) =>
   error ? `${fieldId(path)}-err` : hint ? `${fieldId(path)}-hint` : undefined;
 
-export function OrderWizard({ initial }: { initial: string }) {
+export function OrderWizard({
+  initial,
+  wish = '',
+  payOnline = false,
+  bundle = false,
+}: {
+  initial: string;
+  wish?: string;
+  payOnline?: boolean;
+  bundle?: boolean;
+}) {
   const router = useRouter();
-  const [draft, setDraft] = useState<OrderInput>(() => emptyDraft(isServiceId(initial) ? initial : ''));
+  const [draft, setDraft] = useState<OrderInput>(() => withBundle(withWish(emptyDraft(isServiceId(initial) ? initial : ''), wish), bundle));
   const [files, setFiles] = useState<Files>({});
   const [step, setStep] = useState(isServiceId(initial) ? 1 : 0);
   const [maxStep, setMaxStep] = useState(isServiceId(initial) ? 1 : 0);
@@ -107,7 +119,7 @@ export function OrderWizard({ initial }: { initial: string }) {
 
   const chooseService = (id: ServiceId) => {
     setDirty(true);
-    setDraft((d) => applyServiceDefaults({ ...d, plate: { ...d.plate } }, id));
+    setDraft((d) => withBundle(withWish(applyServiceDefaults({ ...d, plate: { ...d.plate } }, id), wish), bundle));
     setErrors({});
   };
 
@@ -172,9 +184,14 @@ export function OrderWizard({ initial }: { initial: string }) {
     setBusy(true);
     try {
       const res = await fetch('/api/auftrag', { method: 'POST', body });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; number?: string; service?: string; discount?: boolean; message?: string; errors?: FieldErrors };
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; number?: string; service?: string; discount?: boolean; paymentUrl?: string | null; message?: string; errors?: FieldErrors };
       if (res.ok && json.ok && json.number) {
         setDirty(false);
+        if (json.paymentUrl) {
+          // Weiter zur sicheren Bezahlseite des Zahlungsdienstleisters
+          window.location.assign(json.paymentUrl);
+          return;
+        }
         const r = PROMO_ON ? `&r=${json.discount ? 1 : 0}` : '';
         router.push(`/kfz-anmelden/auftrag/bestaetigung?nr=${encodeURIComponent(json.number)}&l=${encodeURIComponent(json.service ?? '')}${r}`);
         return;
@@ -232,6 +249,7 @@ export function OrderWizard({ initial }: { initial: string }) {
         plateChoice: wahl,
         plateSigns: draft.plate.schilder,
         delivery: (draft.plate.zustellung as 'versand' | 'abholung' | '') || '',
+        carrier: draft.plate.versanddienst,
       })
     : null;
 
@@ -267,6 +285,11 @@ export function OrderWizard({ initial }: { initial: string }) {
             <section aria-labelledby="st-0">
               <h2 id="st-0" tabIndex={-1}>Was möchten Sie erledigen?</h2>
               {initial === 'ummeldung' && !service ? <p className="wizard__note">Ummeldung: Bitte wählen Sie, ob der Halter wechselt oder Sie umgezogen sind.</p> : null}
+              {wish ? (
+                <p className="wizard__note">
+                  Ihr Wunschkennzeichen <strong>{wish}</strong> ist vorgemerkt. Wählen Sie jetzt die Leistung – die Reservierung übernehmen wir.
+                </p>
+              ) : null}
               <div className="choice-grid" role="radiogroup" aria-label="Leistung" data-error-anchor="service" tabIndex={-1}>
                 {SERVICE_IDS.map((id) => (
                   <label key={id} className={`choice${draft.service === id ? ' is-selected' : ''}${initial === 'ummeldung' && (id === 'halterwechsel' || id === 'umzug') ? ' is-hinted' : ''}`}>
@@ -568,13 +591,54 @@ export function OrderWizard({ initial }: { initial: string }) {
               <div className="choice-grid choice-grid--compact" role="radiogroup" aria-label="Zustellung" data-error-anchor="plate.zustellung" tabIndex={-1}>
                 {(['versand', 'abholung'] as const).map((z) => (
                   <label key={z} className={`choice${draft.plate.zustellung === z ? ' is-selected' : ''}`}>
-                    <input type="radio" name="zustellung" value={z} checked={draft.plate.zustellung === z} onChange={() => update('plate', 'zustellung', z)} />
-                    <span className="choice__title">{z === 'versand' ? 'Versand per Einschreiben' : 'Abholung'}</span>
-                    <span className="choice__text">{z === 'versand' ? 'An die Halteradresse.' : 'In unserer Geschäftsstelle nach Terminabsprache.'}</span>
+                    <input
+                      type="radio"
+                      name="zustellung"
+                      value={z}
+                      checked={draft.plate.zustellung === z}
+                      onChange={() => {
+                        update('plate', 'zustellung', z);
+                        if (z === 'versand' && !draft.plate.versanddienst) update('plate', 'versanddienst', 'dhl');
+                      }}
+                    />
+                    <span className="choice__title">{z === 'versand' ? 'Versand mit DHL oder UPS' : 'Abholung'}</span>
+                    <span className="choice__text">
+                      {z === 'versand' ? 'An die Halteradresse, mit Sendungsverfolgung.' : 'In unserer Geschäftsstelle nach Terminabsprache.'}
+                    </span>
                   </label>
                 ))}
               </div>
               {e['plate.zustellung'] ? <p className="field__error">{e['plate.zustellung']}</p> : null}
+              {draft.plate.zustellung === 'versand' ? (
+                <>
+                  <h3 className="wizard__sub">Versandpartner</h3>
+                  <div className="choice-grid choice-grid--compact" role="radiogroup" aria-label="Versandpartner" data-error-anchor="plate.versanddienst" tabIndex={-1}>
+                    {CARRIER_IDS.map((c) => (
+                      <label key={c} className={`choice choice--carrier${draft.plate.versanddienst === c ? ' is-selected' : ''}`}>
+                        <input type="radio" name="versanddienst" value={c} checked={draft.plate.versanddienst === c} onChange={() => update('plate', 'versanddienst', c)} />
+                        <CarrierMark id={c} />
+                        <span className="choice__text">{CARRIERS[c].service} – gleicher Preis</span>
+                      </label>
+                    ))}
+                  </div>
+                  {e['plate.versanddienst'] ? <p className="field__error">{e['plate.versanddienst']}</p> : null}
+                </>
+              ) : null}
+              {service && PRICE_CONFIG.bundleCents[service] !== null && price && !price.bundleSaving ? (
+                <div className="upsell">
+                  <strong>Komplett-Paket: {formatEuro(PRICE_CONFIG.bundleCents[service] ?? 0)}</strong>
+                  <span>
+                    Mit Wunschkennzeichen, Schildern und Versand gilt automatisch der Paketpreis – günstiger als einzeln.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => setDraft((d) => withBundle(d, true))}
+                  >
+                    Paket übernehmen
+                  </button>
+                </div>
+              ) : null}
             </section>
           )}
 
@@ -713,7 +777,12 @@ export function OrderWizard({ initial }: { initial: string }) {
                 rows={[
                   ...(wahl ? [['Kennzeichen', wahl === 'wunsch' ? `Wunsch: ${draft.plate.wunschkennzeichen}` : PLATE_CHOICES[wahl].label] as [string, string]] : []),
                   ...(isPlateChange(service, wahl) ? [['Schilder', draft.plate.schilder ? 'werden mitbestellt' : 'eigene'] as [string, string]] : []),
-                  ['Zustellung', draft.plate.zustellung === 'versand' ? 'Versand per Einschreiben' : 'Abholung'],
+                  [
+                    'Zustellung',
+                    draft.plate.zustellung === 'versand'
+                      ? `Versand mit ${isCarrierId(draft.plate.versanddienst) ? CARRIERS[draft.plate.versanddienst].name : '–'}`
+                      : 'Abholung',
+                  ],
                 ]}
               />
               <Summary
@@ -725,6 +794,15 @@ export function OrderWizard({ initial }: { initial: string }) {
                   ['Vollmacht & Datenschutz', 'bestätigt'],
                 ]}
               />
+              <div className="pay-info">
+                <h3>Bezahlung</h3>
+                <p>
+                  {payOnline
+                    ? 'Nach dem Absenden geht es direkt zur sicheren Bezahlseite unseres Zahlungsdienstleisters.'
+                    : 'Die Zahlungsdetails erhalten Sie nach Prüfung Ihrer Unterlagen – erst dann wird bezahlt.'}
+                </p>
+                <PaymentMarks label="Möglich mit" />
+              </div>
               {submitError ? (
                 <div className="alert alert--error" role="alert">
                   {submitError}
@@ -763,19 +841,21 @@ export function OrderWizard({ initial }: { initial: string }) {
                 {PRICES_ARE_EXAMPLE_VALUES ? <p className="chip chip--soon wizard__example">Beispielwerte – Preise noch nicht festgelegt</p> : null}
                 <dl className="price-lines">
                   {price.lines.map((l) => (
-                    <div key={l.key} className={l.key === 'rabatt' ? 'price-lines__discount' : undefined}>
-                      <dt>{l.key === 'rabatt' ? `${NEW_CUSTOMER_PROMO.label} −${NEW_CUSTOMER_PROMO.percent} %` : l.label}</dt>
+                    <div key={l.key} className={l.key === 'rabatt' || l.key === 'paket' ? 'price-lines__discount' : undefined}>
+                      <dt>{l.key === 'rabatt' ? NEW_CUSTOMER_PROMO.label : l.label}</dt>
                       <dd>{l.cents < 0 ? `−${formatEuro(-l.cents)}` : formatEuro(l.cents)}</dd>
                     </div>
                   ))}
                 </dl>
                 <div className="price-total">
-                  <span className="price-total__label">{price.discountCents ? 'Heute nur' : 'Servicekosten EasyKFZ24'}</span>
+                  <span className="price-total__label">{price.discountCents || price.bundleSaving ? 'Heute nur' : 'Servicekosten EasyKFZ24'}</span>
                   <span className="price-total__row">
                     <strong>{formatEuro(price.totalCents)}</strong>
-                    {price.discountCents ? <s>{formatEuro(price.regularCents)}</s> : null}
+                    {price.discountCents || price.bundleSaving ? <s>{formatEuro(price.regularCents)}</s> : null}
                   </span>
-                  {price.discountCents ? <span className="price-total__save">Dein Vorteil: {formatEuro(price.discountCents)}</span> : null}
+                  {price.discountCents || price.bundleSaving ? (
+                    <span className="price-total__save">Dein Vorteil: {formatEuro(price.discountCents + price.bundleSaving)}</span>
+                  ) : null}
                 </div>
                 {price.discountCents ? (
                   <p className="wizard__fees">
@@ -833,4 +913,29 @@ function ChoicePrice({ id }: { id: ServiceId }) {
       {p.savingCents ? <s>{formatEuro(p.regularCents)}</s> : null}
     </span>
   );
+}
+
+/** Übernimmt ein im Konfigurator gewähltes Wunschkennzeichen, sofern die Leistung Wunschkennzeichen erlaubt. */
+function withWish(draft: OrderInput, wish: string): OrderInput {
+  if (!wish) return draft;
+  const service = isServiceId(draft.service) ? draft.service : null;
+  if (service && !SERVICES[service].plateChoices.includes('wunsch')) return draft;
+  return { ...draft, plate: { ...draft.plate, wahl: service ? 'wunsch' : draft.plate.wahl, wunschkennzeichen: wish } };
+}
+
+/** Komplett-Paket vorbelegen: Wunschkennzeichen, Schilder, Versand (DHL). */
+function withBundle(draft: OrderInput, bundle: boolean): OrderInput {
+  if (!bundle) return draft;
+  const service = isServiceId(draft.service) ? draft.service : null;
+  if (service && !SERVICES[service].plateChoices.includes('wunsch')) return draft;
+  return {
+    ...draft,
+    plate: {
+      ...draft.plate,
+      wahl: service ? 'wunsch' : draft.plate.wahl,
+      schilder: true,
+      zustellung: 'versand',
+      versanddienst: draft.plate.versanddienst || 'dhl',
+    },
+  };
 }

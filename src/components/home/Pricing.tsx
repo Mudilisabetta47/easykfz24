@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { formatEuro } from '../../lib/format.ts';
-import { NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL, PROMO_FINE_PRINT } from '../../lib/pricing.config.ts';
-import { servicePrice } from '../../lib/pricing.ts';
+import { BUNDLE_NAMES, NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL, PROMO_FINE_PRINT } from '../../lib/pricing.config.ts';
+import { bundleInfo, servicePrice } from '../../lib/pricing.ts';
+import { CarrierMarks, PaymentMarks } from '../Brands.tsx';
 import type { ServiceId } from '../../lib/services.ts';
 import { ArrowRight, Check } from '../icons.tsx';
 import { PriceTag, promoActive, promoUntilText } from '../Promo.tsx';
@@ -18,6 +19,12 @@ const PLANS: { title: string; text: string; services?: ServiceId[]; href?: strin
 ];
 
 const PROMISES = ['Preis vor dem Absenden sichtbar', 'Keine versteckten Kosten', 'Amtliche Gebühren 1:1 nach Beleg'];
+
+const BUNDLES: { service: ServiceId; title: string; short: string; highlight?: boolean }[] = [
+  { service: 'neuzulassung', title: BUNDLE_NAMES.neuzulassung, short: 'Neuzulassung', highlight: true },
+  { service: 'halterwechsel', title: BUNDLE_NAMES.halterwechsel, short: 'Halterwechsel' },
+  { service: 'wiederzulassung', title: BUNDLE_NAMES.wiederzulassung, short: 'Wiederzulassung' },
+];
 
 export function Pricing() {
   const promo = promoActive();
@@ -104,6 +111,53 @@ export function Pricing() {
             </li>
           ))}
         </ul>
+
+        {PRICES_FINAL ? (
+          <div className="bundles" data-reveal="up">
+            <div className="bundles__head">
+              <h3>Komplett-Pakete</h3>
+              <p>Leistung, Wunschkennzeichen, zwei geprägte Schilder und Versand – zum Paketpreis.</p>
+            </div>
+            <ul className="bundles__grid" role="list">
+              {BUNDLES.map((b) => {
+                const info = bundleInfo(b.service);
+                if (!info) return null;
+                return (
+                  <li key={b.service} className={`bundle${b.highlight ? ' bundle--highlight' : ''}`}>
+                    <div className="bundle__top">
+                      <h4>{b.title}</h4>
+                    </div>
+                    <ul className="bundle__items" role="list">
+                      {['Servicepauschale ' + b.short, 'Wunschkennzeichen-Reservierung', '2 geprägte Kennzeichenschilder', 'Versand mit DHL oder UPS'].map((t) => (
+                        <li key={t}>
+                          <Check width={14} height={14} /> {t}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="bundle__price">
+                      <span className="price-tag__from">nur</span>
+                      <strong>{formatEuro(info.promoCents)}</strong>
+                      <s>{formatEuro(info.singleCents)}</s>
+                    </p>
+                    <span className="price-tag__save">Du sparst {formatEuro(info.savingCents)}</span>
+                    <Link href={`/kfz-anmelden/auftrag?leistung=${b.service}&paket=1`} className="btn bundle__cta" data-cursor="Start">
+                      Paket wählen <ArrowRight className="btn__icon" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="bundles__fine">
+              Paketpreise inkl. MwSt., zzgl. amtlicher Gebühren. {promo ? 'Mit Neukundenvorteil; regulärer Paketpreis ' : 'Paketpreis '}
+              {BUNDLES.map((b) => `${b.title} ${formatEuro(PRICE_CONFIG.bundleCents[b.service] ?? 0)}`).join(' · ')}.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="price__partners" data-reveal="up">
+          <PaymentMarks />
+          <CarrierMarks />
+        </div>
 
         <div className="price__split" data-reveal="up">
           <div>

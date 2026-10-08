@@ -8,6 +8,7 @@ import { DOCUMENT_KINDS } from '../../../lib/services.ts';
 import { formatRetryAfter } from '../../../lib/rate-limit.ts';
 import { createOrder, type UploadFile } from '../../../server/orders.ts';
 import { ipFrom, limits } from '../../../server/limits.ts';
+import { createCheckout, paymentsEnabled, publicBaseUrl } from '../../../server/payments.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,7 +80,11 @@ export async function POST(req: Request) {
 
   try {
     const created = createOrder(order, files);
-    return NextResponse.json({ ok: true, number: created.number, service: order.service, discount: created.discountApplied });
+    // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
+    const paymentUrl = paymentsEnabled()
+      ? await createCheckout({ number: created.number, email: order.holder.email, totalCents: created.totalCents, token: created.paymentToken }, publicBaseUrl(req))
+      : null;
+    return NextResponse.json({ ok: true, number: created.number, service: order.service, discount: created.discountApplied, paymentUrl });
   } catch (e) {
     console.error('[auftrag] Anlage fehlgeschlagen', e);
     return fail(500, 'Der Auftrag konnte gerade nicht gespeichert werden. Bitte versuchen Sie es später erneut.');

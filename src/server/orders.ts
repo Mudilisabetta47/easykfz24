@@ -1,6 +1,6 @@
 // Auftragsdaten in SQLite: Anlage, Suche, Kennzahlen, Statuswechsel, Checkliste, Notizen, Verlauf.
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildChecklist, isChecklistComplete, type ChecklistItem, type ChecklistState } from '../lib/checklist.ts';
@@ -11,6 +11,8 @@ import { calculatePrice, type PriceBreakdown } from '../lib/pricing.ts';
 import type { DocumentKind, ServiceId } from '../lib/services.ts';
 import { checkTransition, isStatusId, OPEN_STATUSES, STATUS_IDS, type StatusId } from '../lib/status.ts';
 import { checkPlate } from '../lib/validation.ts';
+import { isPaymentStatus, PAYMENT_STATUS_LABEL, type PaymentStatus } from '../lib/payment.ts';
+import { CARRIERS, isCarrierId, normalizeTrackingNumber, type CarrierId } from '../lib/shipping.ts';
 import { getDb, transaction, uploadsDir } from './db.ts';
 
 export interface OrderRow {
@@ -28,6 +30,9 @@ export interface OrderRow {
   iban: string;
   delivery: 'versand' | 'abholung';
   total_cents: number;
+  carrier: CarrierId | '';
+  tracking_number: string;
+  payment_status: PaymentStatus;
 }
 
 export interface OrderDetail extends OrderRow {
@@ -36,6 +41,7 @@ export interface OrderDetail extends OrderRow {
   checklist: ChecklistState;
   checklistItems: ChecklistItem[];
   consent_at: string;
+  payment_token: string;
 }
 
 export interface DocumentRow {
@@ -53,7 +59,7 @@ export interface DocumentRow {
 export interface EventRow {
   id: number;
   at: string;
-  type: 'created' | 'status' | 'note' | 'plate' | 'checklist';
+  type: 'created' | 'status' | 'note' | 'plate' | 'checklist' | 'shipment' | 'payment';
   from_status: StatusId | null;
   to_status: StatusId | null;
   message: string;
@@ -75,7 +81,7 @@ export interface UploadFile {
 }
 
 const LIST_COLUMNS =
-  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents';
+  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents, carrier, tracking_number, payment_status';
 
 const now = () => new Date().toISOString();
 
@@ -94,7 +100,10 @@ function touch(orderId: number): void {
 
 /* ---------- Anlage ---------- */
 
-export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: number; number: string; discountApplied: boolean } {
+export function createOrder(
+  order: ValidatedOrder,
+  files: UploadFile[],
+): { id: number; number: string; discountApplied: boolean; totalCents: number; paymentToken: string } {
   const created = now();
   const year = new Date().getFullYear();
 
@@ -127,12 +136,14 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
         plateSigns: order.plate.schilder,
         delivery: order.plate.zustellung,
         newCustomer: !existing,
+        carrier: order.plate.versanddienst ?? undefined,
       });
+      const paymentToken = randomBytes(18).toString('base64url');
 
       const res = db
         .prepare(
-          `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at)
-           VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)`,
+          `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at, carrier, payment_token)
+           VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
         )
         .run(
           number,
@@ -149,6 +160,8 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
           JSON.stringify(price),
           price.totalCents,
           created,
+          order.plate.versanddienst ?? '',
+          paymentToken,
         );
       const orderId = Number(res.lastInsertRowid);
       const insertDoc = db.prepare(
@@ -163,7 +176,7 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
         message: `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
         actor: 'Kunde',
       });
-      return { id: orderId, number, discountApplied: price.discountCents > 0 };
+      return { id: orderId, number, discountApplied: price.discountCents > 0, totalCents: price.totalCents, paymentToken };
     });
   } catch (e) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -174,8 +187,8 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
 /* ---------- Lesen ---------- */
 
 export function getOrder(id: number): OrderDetail | null {
-  const row = getDb().prepare(`SELECT ${LIST_COLUMNS}, data_json, price_json, checklist_json, consent_at FROM orders WHERE id = ?`).get(id) as
-    | (OrderRow & { data_json: string; price_json: string; checklist_json: string; consent_at: string })
+  const row = getDb().prepare(`SELECT ${LIST_COLUMNS}, data_json, price_json, checklist_json, consent_at, payment_token FROM orders WHERE id = ?`).get(id) as
+    | (OrderRow & { data_json: string; price_json: string; checklist_json: string; consent_at: string; payment_token: string })
     | undefined;
   if (!row) return null;
   const data = JSON.parse(row.data_json) as ValidatedOrder;
@@ -333,6 +346,57 @@ export function addNote(orderId: number, text: string): ActionResult {
   return { ok: true };
 }
 
+export function setShipment(orderId: number, carrier: string, trackingInput: string): ActionResult {
+  const order = getOrder(orderId);
+  if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
+  if (order.delivery !== 'versand') return { ok: false, error: 'Der Kunde hat Abholung gewählt' };
+  if (!isCarrierId(carrier)) return { ok: false, error: 'Bitte DHL oder UPS wählen' };
+  let tracking = '';
+  if (trackingInput.trim()) {
+    const t = normalizeTrackingNumber(trackingInput);
+    if (!t) return { ok: false, error: 'Sendungsnummer: 8–40 Buchstaben oder Ziffern' };
+    tracking = t;
+  }
+  transaction((db) => {
+    db.prepare('UPDATE orders SET carrier = ?, tracking_number = ?, updated_at = ? WHERE id = ?').run(carrier, tracking, now(), orderId);
+    addEvent(orderId, {
+      type: 'shipment',
+      message: tracking ? `Sendung ${CARRIERS[carrier].name} ${tracking}` : `Versandpartner ${CARRIERS[carrier].name}`,
+      actor: 'Admin',
+    });
+  });
+  return { ok: true };
+}
+
+export function setPaymentStatus(orderId: number, status: string, ref = '', actor = 'Admin'): ActionResult {
+  if (!isPaymentStatus(status)) return { ok: false, error: 'Unbekannter Zahlungsstatus' };
+  const order = getOrder(orderId);
+  if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
+  if (order.payment_status === status) return { ok: true };
+  transaction((db) => {
+    db.prepare("UPDATE orders SET payment_status = ?, payment_ref = CASE WHEN ? = '' THEN payment_ref ELSE ? END, updated_at = ? WHERE id = ?").run(status, ref, ref, now(), orderId);
+    addEvent(orderId, { type: 'payment', message: `${PAYMENT_STATUS_LABEL[status]}${ref ? ` (${ref})` : ''}`, actor });
+  });
+  return { ok: true };
+}
+
+/** Für Zahlungslinks: Auftrag nur mit passendem Zufallstoken herausgeben. */
+export function getOrderForPayment(number: string, token: string): { id: number; number: string; email: string; totalCents: number; paymentStatus: PaymentStatus; token: string } | null {
+  const row = getDb().prepare('SELECT id, number, email, total_cents, payment_status, payment_token FROM orders WHERE number = ?').get(number) as
+    | { id: number; number: string; email: string; total_cents: number; payment_status: PaymentStatus; payment_token: string }
+    | undefined;
+  if (!row || !row.payment_token || !token) return null;
+  const a = Buffer.from(row.payment_token);
+  const b = Buffer.from(token);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return { id: row.id, number: row.number, email: row.email, totalCents: row.total_cents, paymentStatus: row.payment_status, token: row.payment_token };
+}
+
+export function getOrderIdByNumber(number: string): number | null {
+  const row = getDb().prepare('SELECT id FROM orders WHERE number = ?').get(number) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
 /* ---------- Öffentliche Statusabfrage ---------- */
 
 export interface PublicStatus {
@@ -342,14 +406,35 @@ export interface PublicStatus {
   createdAt: string;
   assignedPlate: string;
   delivery: 'versand' | 'abholung';
+  carrier: CarrierId | '';
+  trackingNumber: string;
+  paymentStatus: PaymentStatus;
+  paymentToken: string;
+  totalCents: number;
   timeline: { at: string; status: StatusId; message: string }[];
 }
 
 export function lookupStatus(number: string, email: string): PublicStatus | null {
   const row = getDb()
-    .prepare('SELECT id, number, service, status, created_at, assigned_plate, delivery, email FROM orders WHERE number = ?')
+    .prepare(
+      'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents FROM orders WHERE number = ?',
+    )
     .get(number) as
-    | { id: number; number: string; service: ServiceId; status: StatusId; created_at: string; assigned_plate: string; delivery: 'versand' | 'abholung'; email: string }
+    | {
+        id: number;
+        number: string;
+        service: ServiceId;
+        status: StatusId;
+        created_at: string;
+        assigned_plate: string;
+        delivery: 'versand' | 'abholung';
+        email: string;
+        carrier: CarrierId | '';
+        tracking_number: string;
+        payment_status: PaymentStatus;
+        payment_token: string;
+        total_cents: number;
+      }
     | undefined;
   // Gleiche Antwort für „unbekannte Nummer“ und „falsche E-Mail“ – verrät nichts.
   if (!row || row.email !== email.trim().toLowerCase()) return null;
@@ -363,6 +448,11 @@ export function lookupStatus(number: string, email: string): PublicStatus | null
     createdAt: row.created_at,
     assignedPlate: row.assigned_plate,
     delivery: row.delivery,
+    carrier: row.carrier,
+    trackingNumber: row.tracking_number,
+    paymentStatus: row.payment_status,
+    paymentToken: row.payment_token,
+    totalCents: row.total_cents,
     timeline: events.map((e) => ({ at: e.at, status: e.to_status, message: e.public_message })),
   };
 }

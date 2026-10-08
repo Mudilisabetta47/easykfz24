@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { DRIVE_TYPE_IDS, VEHICLE_TYPE_IDS, isEKennzeichenEligible, type DriveTypeId, type VehicleTypeId } from './catalog.ts';
 import { MAX_FILES_PER_DOCUMENT } from './files.ts';
+import { isCarrierId, type CarrierId } from './shipping.ts';
 import {
   DOCUMENTS,
   SERVICES,
@@ -68,6 +69,7 @@ export const orderInputSchema = z.object({
       wunschkennzeichen: str(20),
       schilder: flag(),
       zustellung: str(10),
+      versanddienst: str(10),
     })
     .default({}),
   finish: z
@@ -119,6 +121,8 @@ export interface ValidatedOrder {
     wunschkennzeichen: string;
     schilder: boolean;
     zustellung: 'versand' | 'abholung';
+    /** Versandpartner, nur bei Versand */
+    versanddienst: CarrierId | null;
   };
   finish: {
     evb: string;
@@ -246,6 +250,11 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
   const schilder = isPlateChange(service, wahl) ? p.schilder : false;
   const zustellung = p.zustellung === 'versand' || p.zustellung === 'abholung' ? p.zustellung : null;
   if (!zustellung) errors['plate.zustellung'] = 'Bitte Versand oder Abholung wählen';
+  let versanddienst: CarrierId | null = null;
+  if (zustellung === 'versand') {
+    if (isCarrierId(p.versanddienst)) versanddienst = p.versanddienst;
+    else errors['plate.versanddienst'] = 'Bitte DHL oder UPS wählen';
+  }
 
   // Abschluss
   const f = input.finish;
@@ -284,7 +293,7 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
         email,
         telefon,
       },
-      plate: { wahl, wunschkennzeichen, schilder, zustellung },
+      plate: { wahl, wunschkennzeichen, schilder, zustellung, versanddienst },
       finish: {
         evb,
         kontoinhaber,

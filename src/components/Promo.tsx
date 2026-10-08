@@ -40,7 +40,7 @@ export function PriceTag({ services, size = 'lg', from = false, tone = 'light' }
   return (
     <span className={`price-tag price-tag--${size} price-tag--${tone}`}>
       <span className="price-tag__main">
-        {from ? <span className="price-tag__from">ab</span> : null}
+        <span className="price-tag__from">{from ? 'ab' : promo ? 'nur' : ''}</span>
         <span className="price-tag__value">{formatEuro(promo ? p.promoCents : p.regularCents)}</span>
         {promo ? (
           <s className="price-tag__was">

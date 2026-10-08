@@ -9,17 +9,25 @@ const g = globalThis as unknown as {
     status: SlidingWindowLimiter;
     loginPerIp: SlidingWindowLimiter;
     loginGlobal: SlidingWindowLimiter;
+    plates: SlidingWindowLimiter;
   };
 };
 
-export function limits() {
-  g.__ekLimits ??= {
-    orders: new SlidingWindowLimiter(5, 60 * 60 * 1000), // 5 Aufträge pro Stunde und IP
-    status: new SlidingWindowLimiter(12, 10 * 60 * 1000), // 12 Statusabfragen pro 10 Minuten und IP
-    loginPerIp: new SlidingWindowLimiter(5, 15 * 60 * 1000), // 5 Fehlversuche pro 15 Minuten und IP
-    loginGlobal: new SlidingWindowLimiter(30, 15 * 60 * 1000), // insgesamt 30 Fehlversuche pro 15 Minuten
-  };
-  return g.__ekLimits;
+type Limits = NonNullable<typeof g.__ekLimits>;
+
+const FACTORIES: { [K in keyof Limits]: () => SlidingWindowLimiter } = {
+  orders: () => new SlidingWindowLimiter(5, 60 * 60 * 1000), // 5 Aufträge pro Stunde und IP
+  status: () => new SlidingWindowLimiter(12, 10 * 60 * 1000), // 12 Statusabfragen pro 10 Minuten und IP
+  loginPerIp: () => new SlidingWindowLimiter(5, 15 * 60 * 1000), // 5 Fehlversuche pro 15 Minuten und IP
+  loginGlobal: () => new SlidingWindowLimiter(30, 15 * 60 * 1000), // insgesamt 30 Fehlversuche pro 15 Minuten
+  plates: () => new SlidingWindowLimiter(40, 60 * 1000), // 40 Kennzeichen-Abfragen pro Minute und IP
+};
+
+export function limits(): Limits {
+  const current = (g.__ekLimits ??= {} as Limits);
+  // Einzeln anlegen, damit neu hinzugekommene Begrenzer auch nach einem Hot-Reload existieren.
+  for (const key of Object.keys(FACTORIES) as (keyof Limits)[]) current[key] ??= FACTORIES[key]();
+  return current;
 }
 
 /** Client-IP aus dem Proxy-Header (erster Eintrag). Ohne Proxy davor ist der Header fälschbar – siehe README. */

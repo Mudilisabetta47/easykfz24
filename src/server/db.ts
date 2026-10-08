@@ -76,6 +76,14 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX notes_order ON notes(order_id, at);
   `,
+  // v2: Versandpartner, Sendungsnummer, Zahlung
+  `
+  ALTER TABLE orders ADD COLUMN carrier TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN tracking_number TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'offen';
+  ALTER TABLE orders ADD COLUMN payment_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN payment_token TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 function migrate(db: DatabaseSync): void {
@@ -93,15 +101,19 @@ function migrate(db: DatabaseSync): void {
   }
 }
 
-const g = globalThis as unknown as { __ekDb?: DatabaseSync };
+const g = globalThis as unknown as { __ekDb?: DatabaseSync; __ekSchema?: number };
 
 export function getDb(): DatabaseSync {
   if (!g.__ekDb) {
     fs.mkdirSync(uploadsDir(), { recursive: true, mode: 0o700 });
     const db = new DatabaseSync(path.join(dataDir(), 'easykfz24.sqlite'));
     db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    migrate(db);
     g.__ekDb = db;
+  }
+  // Auch nach Hot-Reloads mit neuen Migrationen sicherstellen, dass das Schema aktuell ist.
+  if (g.__ekSchema !== MIGRATIONS.length) {
+    migrate(g.__ekDb);
+    g.__ekSchema = MIGRATIONS.length;
   }
   return g.__ekDb;
 }

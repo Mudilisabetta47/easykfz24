@@ -876,3 +876,71 @@
   font-weight: 650;
   color: var(--ez-blue-deep);
 }
+.choice--carrier .brand-mark {
+  justify-self: start;
+  font-size: 15px;
+}
+.pay-info {
+  display: grid;
+  gap: 10px;
+  margin-block-start: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: var(--ez-bg);
+  border: 1px solid var(--ez-line);
+}
+.pay-info h3 {
+  font-size: var(--step-0);
+}
+.pay-info p {
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
+.status-facts {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--ez-line);
+  font-size: var(--step--1);
+}
+.status-facts div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+}
+.status-facts dt {
+  color: var(--ez-muted);
+}
+.status-facts a {
+  color: var(--ez-blue-deep);
+  font-weight: 600;
+}
+.pay-status {
+  font-weight: 650;
+}
+.pay-status--bezahlt {
+  color: var(--ez-success);
+}
+.pay-status--offen {
+  color: var(--ez-warning);
+}
+.upsell {
+  display: grid;
+  gap: 6px;
+  margin-block-start: 20px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--ez-sky);
+  border: 1px solid color-mix(in oklab, var(--ez-blue) 25%, transparent);
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
+.upsell strong {
+  color: var(--ez-blue-deep);
+  font-size: var(--step-0);
+}
+.upsell .btn {
+  justify-self: start;
+  margin-block-start: 4px;
+}

@@ -572,3 +572,20 @@
     padding: 0;
   }
 }
+.admin-mini-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.admin-mini-form select,
+.admin-mini-form input {
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--ez-line-strong);
+  border-radius: 10px;
+  background: var(--ez-surface);
+}
+.admin-mini-form .btn {
+  justify-self: start;
+}

@@ -60,6 +60,21 @@ Bild. Gemessen wird nur in `refreshAll()` (Resize, ResizeObserver, Fonts), pro F
 - `prefers-reduced-motion` (oder zum Testen `?motion=reduced`): keine Sticky-Spuren, alle Inhalte im Endzustand.
 - Ohne JavaScript ist die Seite ebenfalls vollständig lesbar.
 
+## Anbindungen
+
+| Bereich | Stand | Aktivieren |
+|---|---|---|
+| **Zahlung** (Visa, Mastercard, PayPal, Klarna, Apple Pay, Google Pay) | Stripe Checkout fertig angebunden: Weiterleitung nach dem Absenden, Zahlungslink `/zahlung/[nr]`, Webhook `/api/zahlung/webhook` setzt „bezahlt“. Ohne Schlüssel bleibt die Zahlung „offen“ und wird im Admin gepflegt. | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PUBLIC_BASE_URL` in der `.env`; Methoden im Stripe-Dashboard einschalten. **Vor dem Livegang nötig**, sonst sind die angezeigten Zahlarten nicht nutzbar. |
+| **Versand** (DHL, UPS) | Kunde wählt den Versandpartner; Admin trägt die Sendungsnummer ein; Statusabfrage zeigt den Tracking-Link. | Labels/Sendungsanlage per API (DHL Paket DE Versenden, UPS Shipping) benötigen Geschäftskundenzugänge. |
+| **Wunschkennzeichen-Verfügbarkeit** | Konfigurator mit allen Ortskennzeichen, Platzhaltern und Vorschlägen; Status „wird bei Reservierung geprüft“. | Dienst mit Verfügbarkeitsdaten über `PLATE_AVAILABILITY_URL`/`_KEY` (Format in `src/server/plate-availability.ts`). |
+| **Logos** der Partner | Neutrale Schriftmarken | Offizielle Dateien nach `public/brands/` legen und in `src/lib/shipping.ts` / `src/lib/payment.ts` eintragen. |
+
+## Preise
+
+Alle Preise enden auf ,99 (`src/lib/pricing.config.ts`). Neukundenpreise werden auf …9,99 bzw. ,99 abgerundet –
+die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komplett-Pakete (Leistung + Wunschkennzeichen
++ Schilder + Versand) greifen automatisch, sobald alle Bausteine gewählt sind.
+
 ## Sicherheit
 
 - Uploads: max. 10 MB je Datei, Typ über die ersten Bytes geprüft (PDF, JPG, PNG, WebP, HEIC), gespeichert außerhalb von

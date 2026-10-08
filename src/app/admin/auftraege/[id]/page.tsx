@@ -9,7 +9,10 @@ import { DOCUMENTS, SERVICES } from '../../../../lib/services.ts';
 import { STATUSES, statusLabel, transitionOptions } from '../../../../lib/status.ts';
 import { requireAdmin } from '../../../../server/auth.ts';
 import { getOrder, listDocuments, listEvents, listNotes } from '../../../../server/orders.ts';
-import { checklistAction, noteAction, plateAction, statusAction } from '../../actions.ts';
+import { checklistAction, noteAction, paymentAction, plateAction, shipmentAction, statusAction } from '../../actions.ts';
+import { CARRIER_IDS, CARRIERS } from '../../../../lib/shipping.ts';
+import { PAYMENT_STATUS, PAYMENT_STATUS_LABEL } from '../../../../lib/payment.ts';
+import { formatEuro } from '../../../../lib/format.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,6 +233,69 @@ export default async function OrderPage({
               </form>
               {order.data.plate.wunschkennzeichen ? <p className="muted small">Wunsch des Kunden: {order.data.plate.wunschkennzeichen}</p> : null}
             </section>
+
+            <section className="card panel" aria-labelledby="h-pay">
+              <div className="panel__head">
+                <h2 id="h-pay">Zahlung</h2>
+                <span className={`badge badge--${order.payment_status === 'bezahlt' ? 'green' : order.payment_status === 'erstattet' ? 'slate' : 'amber'}`}>
+                  {PAYMENT_STATUS_LABEL[order.payment_status]}
+                </span>
+              </div>
+              <p className="muted small">Servicekosten {formatEuro(order.total_cents)}</p>
+              <form action={paymentAction} className="admin-mini-form">
+                <input type="hidden" name="id" value={id} />
+                <label htmlFor="payment" className="sr-only">
+                  Zahlungsstatus
+                </label>
+                <select id="payment" name="payment" defaultValue={order.payment_status}>
+                  {PAYMENT_STATUS.map((s) => (
+                    <option key={s} value={s}>
+                      {PAYMENT_STATUS_LABEL[s]}
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor="ref" className="sr-only">
+                  Referenz
+                </label>
+                <input id="ref" name="ref" placeholder="Referenz (optional)" maxLength={80} />
+                <button type="submit" className="btn btn--sm">
+                  Speichern
+                </button>
+              </form>
+            </section>
+
+            {order.delivery === 'versand' ? (
+              <section className="card panel" aria-labelledby="h-ship">
+                <h2 id="h-ship">Versand</h2>
+                <form action={shipmentAction} className="admin-mini-form">
+                  <input type="hidden" name="id" value={id} />
+                  <label htmlFor="carrier" className="sr-only">
+                    Versandpartner
+                  </label>
+                  <select id="carrier" name="carrier" defaultValue={order.carrier || 'dhl'}>
+                    {CARRIER_IDS.map((c) => (
+                      <option key={c} value={c}>
+                        {CARRIERS[c].name}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="tracking" className="sr-only">
+                    Sendungsnummer
+                  </label>
+                  <input id="tracking" name="tracking" className="input--mono" defaultValue={order.tracking_number} placeholder="Sendungsnummer" maxLength={40} />
+                  <button type="submit" className="btn btn--sm">
+                    Speichern
+                  </button>
+                </form>
+                {order.carrier && order.tracking_number ? (
+                  <a href={CARRIERS[order.carrier].trackingUrl(order.tracking_number)} target="_blank" rel="noopener noreferrer" className="link">
+                    Sendung bei {CARRIERS[order.carrier].name} verfolgen
+                  </a>
+                ) : (
+                  <p className="muted small">Kunde hat {order.carrier ? CARRIERS[order.carrier].name : 'keinen Versandpartner'} gewählt. Die Sendungsnummer erscheint nach dem Speichern in der Statusabfrage.</p>
+                )}
+              </section>
+            ) : null}
 
             <section className="card panel" aria-labelledby="h-notes">
               <h2 id="h-notes">Interne Notizen</h2>

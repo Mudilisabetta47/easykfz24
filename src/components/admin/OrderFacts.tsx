@@ -2,6 +2,7 @@ import { DRIVE_TYPES, VEHICLE_TYPES } from '../../lib/catalog.ts';
 import { formatDateTime, formatEuro, formatIsoDay } from '../../lib/format.ts';
 import { PLATE_CHOICES, SERVICES } from '../../lib/services.ts';
 import { formatIban } from '../../lib/validation.ts';
+import { CARRIERS } from '../../lib/shipping.ts';
 import type { OrderDetail } from '../../server/orders.ts';
 
 function Facts({ title, rows }: { title: string; rows: [string, string][] }) {
@@ -61,7 +62,7 @@ export function OrderFacts({ order }: { order: OrderDetail }) {
           ['Wahl', d.plate.wahl ? PLATE_CHOICES[d.plate.wahl].label : 'entfällt (Abmeldung)'],
           ['Wunschkennzeichen', d.plate.wunschkennzeichen],
           ['Schilder', d.plate.schilder ? 'mitbestellt' : 'nein'],
-          ['Zustellung', d.plate.zustellung === 'versand' ? 'Versand per Einschreiben' : 'Abholung'],
+          ['Zustellung', d.plate.zustellung === 'versand' ? `Versand mit ${d.plate.versanddienst ? CARRIERS[d.plate.versanddienst].name : '–'}` : 'Abholung'],
         ]}
       />
       <Facts
