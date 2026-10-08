@@ -1,0 +1,83 @@
+# EasyKFZ24
+
+Digitaler Kfz-Zulassungsservice: öffentliche Website mit scrollgesteuerter Inszenierung, Auftragsstrecke mit Upload,
+Statusabfrage für Kunden und eine Verwaltung (`/admin`) für die Sachbearbeitung.
+
+Stack: Next.js 15 (App Router) · React 19 · zod · SQLite über `node:sqlite` · handgeschriebenes CSS auf Design-Tokens ·
+eigene Motion-Engine ohne Animationsbibliothek.
+
+## Start
+
+```bash
+cp .env.example .env.local   # ADMIN_PASSWORD (≥ 12 Zeichen) und SESSION_SECRET (≥ 32 Zeichen) setzen
+npm install
+npm run dev                  # http://localhost:3000
+```
+
+| Befehl | Zweck |
+|---|---|
+| `npm run typecheck` | TypeScript prüfen |
+| `npm test` | Tests der reinen Module (`node --test`) |
+| `npm run build` / `npm start` | Produktionsbuild / -server |
+
+Node ≥ 22.13 (wegen `node:sqlite`). Datenbank und Uploads liegen in `./data` (bzw. `DATA_DIR`) und werden beim ersten
+Zugriff angelegt. `./data` ist nicht im Repository und muss gesichert werden.
+
+## Seiten
+
+| Route | Inhalt |
+|---|---|
+| `/` | Startseite mit Hero-Bühne in fünf Akten, Leistungen, Ablauf, Unterlagen, Status-Demo, Kennzeichen, Deutschland, Vertrauen, Händler, Preise, FAQ |
+| `/kfz-anmelden` | Leistungen, benötigte Unterlagen je Leistung, Ablauf, Preise, FAQ |
+| `/kfz-anmelden/auftrag` | Auftragsstrecke in sieben Schritten (`?leistung=halterwechsel` wählt vor) |
+| `/kfz-anmelden/auftrag/bestaetigung` | Auftragsnummer `EK-JJJJ-NNNNN` und nächste Schritte |
+| `/kfz-anmelden/vollmacht` | Druckbare Vollmacht-Vorlage |
+| `/status` | Statusabfrage mit Auftragsnummer + E-Mail („Anmelden“ in der Navigation) |
+| `/impressum`, `/datenschutz` | Entwürfe mit markierten Platzhaltern |
+| `/admin` | Kennzahlen, Liste mit Suche und Statusfilter, Detailseite mit Workflow, Checkliste, Dokumenten, Notizen, Verlauf, Druckansicht |
+
+## Aufbau
+
+```
+src/lib/        Reine Module, getestet: Leistungen, Prüfregeln (FIN, IBAN mod 97, eVB, Kennzeichen …),
+                Auftragsschema, Preise, Status-Workflow, Checkliste, Magic Bytes, Rate-Limit, Sitzungstoken
+src/server/     Datenbank, Auftragsdaten, Admin-Anmeldung, Ratenbegrenzung (nur serverseitig)
+src/motion/     Motion-Engine: eine rAF-Schleife, Smooth Scroll auf echtem Scrollwert, Scroll-Timelines,
+                Reveals, Cursor/Magnet/Tiefe; scenes/ = Bühnen der Startseite
+src/components/ UI-Bausteine, home/ (Startseite), order/ (Auftragsstrecke), admin/
+src/styles/     tokens.css (einzige Quelle für Farben, Typo, Abstände, Bewegung), base, components, home, forms, info, admin
+tests/          node --test
+```
+
+### Motion-Prinzip
+
+Jede scrollgesteuerte Bewegung ist eine reine Funktion des Scrollfortschritts `p` (0 … 1): Spur (`*__track`, z. B. 520vh)
+legt die Dauer fest, die Bühne (`*__stage`, sticky, 100svh) wird bespielt. Rückwärts scrollen ergibt framegenau dasselbe
+Bild. Gemessen wird nur in `refreshAll()` (Resize, ResizeObserver, Fonts), pro Frame wird nur gerechnet und ausschließlich
+`transform`, `opacity` und `filter` geschrieben.
+
+- Smooth Scroll nur bei feinem Zeiger; Touch behält nativen Scroll.
+- `prefers-reduced-motion` (oder zum Testen `?motion=reduced`): keine Sticky-Spuren, alle Inhalte im Endzustand.
+- Ohne JavaScript ist die Seite ebenfalls vollständig lesbar.
+
+## Sicherheit
+
+- Uploads: max. 10 MB je Datei, Typ über die ersten Bytes geprüft (PDF, JPG, PNG, WebP, HEIC), gespeichert außerhalb von
+  `public/`, abrufbar nur über `/api/admin/dokumente/[id]` mit Admin-Sitzung.
+- Formular: Honeypot, Ratenbegrenzung je IP (5 Aufträge/h), vollständige Prüfung auf dem Server.
+- Admin: Passwort aus `ADMIN_PASSWORD`, HMAC-signiertes HttpOnly-Cookie (8 h), Passwortwechsel beendet alle Sitzungen,
+  Login-Drosselung (5 Fehlversuche/15 min je IP, 30 insgesamt). Jede Admin-Seite und -Aktion prüft die Sitzung selbst.
+- IBAN wird in Listen maskiert.
+- Die Ratenbegrenzung liegt im Prozessspeicher und wertet `X-Forwarded-For` aus – nur hinter einem Proxy betreiben, der
+  diesen Header setzt; bei mehreren Instanzen einen gemeinsamen Speicher (z. B. Redis) verwenden.
+
+## Vor dem Livegang
+
+1. **Platzhalter** in `src/lib/site.ts` ersetzen (Firma, Anschrift, Kontakt, Register, USt-ID, Betreiberzeile im Footer).
+   Impressum und Datenschutz rechtlich prüfen lassen.
+2. **Preise** in `src/lib/pricing.config.ts` festlegen und `PRICES_FINAL = true` setzen. Bis dahin nennt die Website
+   keine Beträge; im Auftrag sind sie als Beispielwerte markiert. Amtliche Gebühren werden nie als feste Beträge genannt.
+3. **Logo**: Bildmarke in `src/components/Logo.tsx` und `public/favicon.svg` ist ein Entwurf – bei vorhandenem Logo ersetzen.
+4. **Vollmacht-Vorlage** juristisch prüfen.
+5. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
+6. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
