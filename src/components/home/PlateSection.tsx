@@ -1,5 +1,5 @@
 import { Sparkle, Truck } from '../icons.tsx';
-import { Plate } from '../Plate.tsx';
+import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { Split } from '../Split.tsx';
 
 const OPTIONS = [
@@ -27,12 +27,9 @@ export function PlateSection() {
             <p className="label" data-reveal="fade">Kennzeichen</p>
             <Split id="kz-title" className="kz__title" text={'Dein Kennzeichen.\nStück für Stück.'} />
           </div>
-          <div className="kz__plate-wrap" data-bigplate>
+          <div className="kz__plate-wrap" data-bigplate data-plate-scene>
             <div className="kz__plate-glow" aria-hidden="true" />
-            <div className="kz__plate-clip">
-              <Plate district="HB" letters="EZ" digits="24" height="clamp(64px, 13vw, 190px)" animated className="kz__plate" />
-              <span className="kz__sweep" data-plate-sweep aria-hidden="true" />
-            </div>
+            <GermanLicensePlate id="sec-kz" cityCode="HB" letters="EZ" numbers="24" size="min(88vw, 940px)" showSealPlaceholder />
           </div>
           <p className="kz__note">Schematische Darstellung – kein amtliches Kennzeichen.</p>
           <ul className="shell kz__opts" role="list">

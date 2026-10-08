@@ -5,6 +5,7 @@ import { band, ease, lerp, win } from '../math.ts';
 import { scrollState } from '../scroll.ts';
 import { clearPose, flag, pose, setText } from '../style.ts';
 import { track } from '../timeline.ts';
+import { plateRig, renderPlate } from './plate.ts';
 
 type Cleanup = () => void;
 const noop: Cleanup = () => {};
@@ -187,35 +188,28 @@ export function initStatusDemo(root: HTMLElement): Cleanup {
   });
 }
 
-/* ---------- Kennzeichen: Bestandteile erscheinen ---------- */
+/* ---------- Kennzeichen: Schild erscheint, wird bestückt und einmal vom Licht überstrichen ---------- */
 export function initPlateScene(root: HTMLElement): Cleanup {
   const trackEl = root.querySelector<HTMLElement>('[data-track]');
   const wrap = root.querySelector<HTMLElement>('[data-bigplate]');
-  const part = (n: string) => root.querySelector<HTMLElement>(`[data-plate-part="${n}"]`);
-  const band_ = part('band');
-  const pieces = [part('district'), part('letters'), part('digits')];
-  const sweep = root.querySelector<HTMLElement>('[data-plate-sweep]');
   const opts = qa(root, '[data-opt]');
   if (!trackEl || !wrap || env.reduced) return noop;
-  let plateW = 1;
-  let plateH = 1;
+  const rig = plateRig(wrap);
 
   return track(trackEl, {
-    onRefresh: () => {
-      plateW = wrap.offsetWidth;
-      plateH = wrap.offsetHeight;
-    },
     onUpdate: (p) => {
-      const t0 = ease.outCubic(win(p, 0, 0.18));
-      pose(wrap, { y: (1 - t0) * 40 + (0.5 - p) * 24, scale: 0.88 + 0.12 * t0, rotateX: (1 - t0) * 16, opacity: 0.2 + 0.8 * t0 });
-      pose(band_, { scaleX: ease.inOutCubic(win(p, 0.12, 0.24)) });
-      pieces.forEach((el, i) => {
-        const t = ease.outCubic(win(p, 0.22 + i * 0.1, 0.32 + i * 0.1));
-        pose(el, { y: (1 - t) * plateH * 0.45, opacity: t, blur: (1 - t) * 6 });
+      // Leichte Perspektive, die sich beim Scrollen frontal ausrichtet
+      const t0 = ease.outCubic(win(p, 0, 0.3));
+      pose(wrap, {
+        y: (1 - t0) * 40 + (0.5 - p) * 20,
+        rotateX: lerp(14, 3, t0),
+        rotateY: lerp(-16, -3, t0),
+        scale: 0.9 + 0.1 * t0,
+        opacity: 0.15 + 0.85 * win(p, 0, 0.12),
       });
-      pose(sweep, { x: lerp(-0.35, 1.25, ease.inOutSine(win(p, 0.52, 0.72))) * plateW, opacity: band(p, 0.5, 0.54, 0.7, 0.74) });
+      renderPlate(rig, win(p, 0.04, 0.66));
       opts.forEach((o, i) => {
-        const t = ease.outCubic(win(p, 0.6 + i * 0.07, 0.72 + i * 0.07));
+        const t = ease.outCubic(win(p, 0.62 + i * 0.07, 0.74 + i * 0.07));
         pose(o, { y: (1 - t) * 30, opacity: t });
       });
     },

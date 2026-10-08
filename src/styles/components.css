@@ -544,59 +544,35 @@
   opacity: 0;
 }
 
-/* ---------- Kennzeichen (schematisch, ohne Siegel) ---------- */
-.plate {
-  --plate-h: 64px;
-  display: inline-flex;
-  align-items: stretch;
-  block-size: var(--plate-h);
-  aspect-ratio: 520 / 110;
-  background: #fbfbf7;
-  border: calc(var(--plate-h) * 0.04) solid #10141f;
-  border-radius: calc(var(--plate-h) * 0.1);
-  box-shadow: inset 0 0 0 calc(var(--plate-h) * 0.03) #fbfbf7, 0 10px 30px -14px rgb(10 20 51 / 0.45);
-  overflow: hidden;
-  color: #10141f;
+/* ---------- Kennzeichen (GermanLicensePlate) ---------- */
+.lp {
+  display: inline-block;
+  inline-size: var(--lp-w);
+  max-inline-size: 100%;
+  line-height: 0;
+  perspective: 1400px;
 }
-.plate__band {
-  flex: none;
-  inline-size: 10%;
-  background: #1f3fbf;
-  color: white;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  padding-block-end: 10%;
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: calc(var(--plate-h) * 0.26);
-  transform-origin: left;
+.lp__svg {
+  inline-size: 100%;
+  block-size: auto;
+  overflow: visible;
 }
-.plate__stars {
-  inline-size: 56%;
-  aspect-ratio: 1;
-  margin-block-end: auto;
-  margin-block-start: 14%;
+.lp--tilt .lp__svg {
+  transform: rotateY(calc(var(--lp-tilt) * -1)) rotateX(calc(var(--lp-tilt) * 0.32));
+  transform-origin: 50% 50%;
 }
-.plate__text {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.32em;
-  font-family: var(--font-plate);
-  font-size: calc(var(--plate-h) * 0.6);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding-inline: 0.2em;
-  min-inline-size: 0;
-  overflow: hidden;
-  line-height: 1;
-  white-space: nowrap;
+.lp__part {
+  transform-box: fill-box;
+  transform-origin: center;
 }
-.plate__gap {
-  inline-size: 0.5em;
+.lp__band {
+  transform-origin: left center;
+}
+.lp__sweep {
+  mix-blend-mode: screen;
+}
+.js[data-motion='full'] [data-plate-scene] .lp__sweep {
+  opacity: 0;
 }
 
 /* ---------- Footer ---------- */

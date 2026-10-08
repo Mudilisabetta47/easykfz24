@@ -1456,28 +1456,6 @@
   background: radial-gradient(closest-side, color-mix(in oklab, var(--ez-blue) 20%, transparent), transparent);
   z-index: -1;
 }
-.kz__plate-clip {
-  position: relative;
-  overflow: hidden;
-  border-radius: calc(clamp(64px, 13vw, 190px) * 0.1);
-}
-.kz__plate {
-  display: flex;
-}
-.plate [data-plate-part] {
-  display: inline-block;
-}
-.kz__sweep {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  inline-size: 28%;
-  background: linear-gradient(105deg, transparent, rgb(255 255 255 / 0.85), transparent);
-  pointer-events: none;
-}
-.js[data-motion='full'] .kz__sweep {
-  opacity: 0;
-}
 .kz__note {
   font-size: var(--step--2);
   color: var(--ez-muted);

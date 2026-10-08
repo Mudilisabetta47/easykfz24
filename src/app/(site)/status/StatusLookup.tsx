@@ -5,13 +5,14 @@ import { formatDateTime } from '../../../lib/format.ts';
 import { SERVICES } from '../../../lib/services.ts';
 import { STATUSES, statusLabel } from '../../../lib/status.ts';
 import { ArrowRight } from '../../../components/icons.tsx';
-import { Plate } from '../../../components/Plate.tsx';
+import { GermanLicensePlate } from '../../../components/GermanLicensePlate.tsx';
+import { splitPlate } from '../../../lib/plate.ts';
 import { lookupAction, type StatusState } from './actions.ts';
 
 export function StatusLookup({ initialNr }: { initialNr: string }) {
   const [state, action, pending] = useActionState<StatusState, FormData>(lookupAction, { nr: initialNr });
   const r = state.result;
-  const plateParts = r?.assignedPlate ? /^([A-ZÄÖÜ]+)-([A-Z]+) (\d+[EH]?)$/.exec(r.assignedPlate) : null;
+  const plateParts = r?.assignedPlate ? splitPlate(r.assignedPlate) : null;
 
   return (
     <div className="status-grid">
@@ -57,7 +58,7 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
             {plateParts ? (
               <div className="status-result__plate">
                 <p className="label">Zugeteiltes Kennzeichen</p>
-                <Plate district={plateParts[1]} letters={plateParts[2]} digits={plateParts[3]} height={52} />
+                <GermanLicensePlate id="status-kz" {...plateParts} size={300} showSealPlaceholder />
               </div>
             ) : null}
             <ol className="timeline" role="list">

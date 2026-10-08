@@ -6,6 +6,7 @@ import { band, ease, lerp, win } from '../math.ts';
 import { scrollState } from '../scroll.ts';
 import { flag, pose } from '../style.ts';
 import { track } from '../timeline.ts';
+import { plateRig, renderPlate } from './plate.ts';
 
 /** Aktfenster: [einblenden ab, voll ab, ausblenden ab, weg ab]. */
 export const HERO_ACTS: [number, number, number, number][] = [
@@ -46,6 +47,7 @@ export function initHero(root: HTMLElement): () => void {
   const nodes = qa('[data-node]');
   const ready = q('[data-ready]');
   const plate = q('[data-plate]');
+  const rig = plate ? plateRig(plate) : null;
   const segs = qa('[data-seg]');
   const wheels = Array.from(root.querySelectorAll<SVGGElement>('[data-wheel]'));
   const sweep = root.querySelector<SVGGElement>('[data-sweep]');
@@ -144,7 +146,8 @@ export function initHero(root: HTMLElement): () => void {
     // Akt 5: Kennzeichen und CTA
     const readyT = ease.outCubic(win(p, 0.86, 0.95));
     pose(ready, { opacity: win(p, 0.86, 0.91) });
-    pose(plate, { y: (1 - readyT) * 40, scale: 0.9 + 0.1 * readyT });
+    pose(plate, { y: (1 - readyT) * 40, scale: 0.92 + 0.08 * readyT });
+    if (rig) renderPlate(rig, win(p, 0.855, 0.985));
 
     // Fortschrittsanzeige
     segs.forEach((el, i) => {

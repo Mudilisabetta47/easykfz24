@@ -122,13 +122,3 @@ export const Menu = (p: P) => (
     <path d="M4 8h16M4 16h16" />
   </svg>
 );
-
-/** Sterne-Kreis für das EU-Feld des Kennzeichens (schematisch). */
-export const EuStars = (p: P) => (
-  <svg viewBox="0 0 40 40" aria-hidden {...p}>
-    {Array.from({ length: 12 }, (_, i) => {
-      const a = (i / 12) * Math.PI * 2;
-      return <circle key={i} cx={20 + Math.cos(a) * 14} cy={20 + Math.sin(a) * 14} r="2.1" fill="#ffd34d" />;
-    })}
-  </svg>
-);
