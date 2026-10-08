@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 
   try {
     const created = createOrder(order, files);
-    return NextResponse.json({ ok: true, number: created.number, service: order.service });
+    return NextResponse.json({ ok: true, number: created.number, service: order.service, discount: created.discountApplied });
   } catch (e) {
     console.error('[auftrag] Anlage fehlgeschlagen', e);
     return fail(500, 'Der Auftrag konnte gerade nicht gespeichert werden. Bitte versuchen Sie es später erneut.');

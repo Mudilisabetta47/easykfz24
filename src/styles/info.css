@@ -231,3 +231,23 @@
     padding: 0;
   }
 }
+.info-promo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-block: -12px 20px;
+  color: var(--ez-ink-soft);
+}
+.info-prices__promo strong {
+  color: var(--ez-ink);
+}
+.info-prices__promo span {
+  margin-inline-start: 6px;
+  font-size: var(--step--2);
+  font-weight: 650;
+  color: var(--ez-blue-deep);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--ez-sky);
+}

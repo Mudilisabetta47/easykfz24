@@ -5,6 +5,10 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ArrowRight, Close } from './icons.tsx';
 import { Logo } from './Logo.tsx';
+import { NEW_CUSTOMER_PROMO, PRICES_FINAL } from '../lib/pricing.config.ts';
+import { isPromoActive } from '../lib/pricing.ts';
+
+const PROMO_BADGE = PRICES_FINAL && isPromoActive() ? `−${NEW_CUSTOMER_PROMO.percent} %` : '';
 
 export const NAV_ITEMS = [
   { href: '/kfz-anmelden#neuzulassung', label: 'Zulassung' },
@@ -72,6 +76,11 @@ export function SiteHeader() {
             {NAV_ITEMS.map((item) => (
               <Link key={item.href} href={item.href}>
                 {item.label}
+                {item.href === '/#preise' && PROMO_BADGE ? (
+                  <span className="nav__badge">
+                    {PROMO_BADGE}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </nav>

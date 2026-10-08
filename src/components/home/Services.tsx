@@ -2,6 +2,8 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { ArrowRight, Car, PowerOff, Restart, Swap } from '../icons.tsx';
 import { Split } from '../Split.tsx';
+import { PriceTag } from '../Promo.tsx';
+import type { ServiceId } from '../../lib/services.ts';
 
 const CARDS = [
   {
@@ -11,6 +13,7 @@ const CARDS = [
     text: 'Neuzulassung bequem online erledigen.',
     cta: 'Zulassung starten',
     href: '/kfz-anmelden/auftrag?leistung=neuzulassung',
+    services: ['neuzulassung'] as ServiceId[],
     icon: Car,
     tags: ['Neufahrzeug', 'Import', 'Wunschkennzeichen'],
   },
@@ -21,6 +24,7 @@ const CARDS = [
     text: 'Halter, Adresse oder Fahrzeug bequem ändern.',
     cta: 'Ummeldung starten',
     href: '/kfz-anmelden/auftrag?leistung=ummeldung',
+    services: ['halterwechsel', 'umzug'] as ServiceId[],
     icon: Swap,
     tags: ['Halterwechsel', 'Umzug', 'Kennzeichen behalten'],
   },
@@ -31,6 +35,7 @@ const CARDS = [
     text: 'Abgemeldetes Fahrzeug wieder auf die Straße bringen.',
     cta: 'Wiederzulassung starten',
     href: '/kfz-anmelden/auftrag?leistung=wiederzulassung',
+    services: ['wiederzulassung'] as ServiceId[],
     icon: Restart,
     tags: ['Nach Stilllegung', 'Altes Kennzeichen', 'Saisonstart'],
   },
@@ -41,6 +46,7 @@ const CARDS = [
     text: 'Fahrzeug digital außer Betrieb setzen.',
     cta: 'Abmeldung starten',
     href: '/kfz-anmelden/auftrag?leistung=abmeldung',
+    services: ['abmeldung'] as ServiceId[],
     icon: PowerOff,
     tags: ['Verkauf', 'Stilllegung', 'Export'],
   },
@@ -82,6 +88,9 @@ export function Services() {
                         </li>
                       ))}
                     </ul>
+                    <div className="svc-card__price">
+                      <PriceTag services={c.services} size="sm" from={c.services.length > 1} />
+                    </div>
                     <Link href={c.href} className="btn svc-card__cta" data-cursor="Start">
                       {c.cta}
                       <ArrowRight className="btn__icon" />

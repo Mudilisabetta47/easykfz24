@@ -9,8 +9,8 @@ import { SITE } from '../../../../../lib/site.ts';
 
 export const metadata: Metadata = { title: 'Auftrag eingegangen', robots: { index: false } };
 
-export default async function BestaetigungPage({ searchParams }: { searchParams: Promise<{ nr?: string; l?: string }> }) {
-  const { nr = '', l = '' } = await searchParams;
+export default async function BestaetigungPage({ searchParams }: { searchParams: Promise<{ nr?: string; l?: string; r?: string }> }) {
+  const { nr = '', l = '', r = '' } = await searchParams;
   const number = normalizeOrderNumber(nr);
   const def = isServiceId(l) ? SERVICES[l] : null;
 
@@ -34,6 +34,14 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
           Bitte notieren Sie sich die Auftragsnummer. Mit ihr und Ihrer E-Mail-Adresse können Sie den Status jederzeit abrufen.
           {def ? ` Leistung: ${def.title}.` : ''}
         </p>
+
+        {r === '1' ? (
+          <p className="alert alert--ok">Ihr Neukundenrabatt von 10 % auf die Servicepauschale wurde berücksichtigt.</p>
+        ) : r === '0' ? (
+          <p className="alert alert--info">
+            Zu Ihrer E-Mail-Adresse gibt es bereits einen Auftrag – der Neukundenrabatt gilt nur für die erste Beauftragung.
+          </p>
+        ) : null}
 
         <h2>So geht es weiter</h2>
         <ol className="confirm__steps">

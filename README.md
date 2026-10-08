@@ -75,9 +75,12 @@ Bild. Gemessen wird nur in `refreshAll()` (Resize, ResizeObserver, Fonts), pro F
 
 1. **Platzhalter** in `src/lib/site.ts` ersetzen (Firma, Anschrift, Kontakt, Register, USt-ID, Betreiberzeile im Footer).
    Impressum und Datenschutz rechtlich prüfen lassen.
-2. **Preise** in `src/lib/pricing.config.ts` festlegen und `PRICES_FINAL = true` setzen. Bis dahin nennt die Website
-   keine Beträge; im Auftrag sind sie als Beispielwerte markiert. Amtliche Gebühren werden nie als feste Beträge genannt.
-3. **Logo**: Bildmarke in `src/components/Logo.tsx` und `public/favicon.svg` ist ein Entwurf – bei vorhandenem Logo ersetzen.
-4. **Vollmacht-Vorlage** juristisch prüfen.
-5. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
-6. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
+2. **Preise** in `src/lib/pricing.config.ts` bestätigen (aktuell Vorschläge mit ,90-Endungen, `PRICES_FINAL = true`).
+   Mit `PRICES_FINAL = false` nennt die Website keine Beträge. Amtliche Gebühren werden nie als feste Beträge genannt.
+3. **Neukundenrabatt** (`NEW_CUSTOMER_PROMO`): 10 % nur auf die Servicepauschale der ersten Beauftragung je E-Mail-Adresse,
+   serverseitig geprüft. Durchgestrichen wird nur der reguläre Preis. Mit „nur für kurze Zeit“ erst werben, wenn
+   `validUntil` gesetzt ist – die Website zeigt das Enddatum dann automatisch.
+4. **Logo**: Bildmarke in `src/components/Logo.tsx` und `public/favicon.svg` ist ein Entwurf – bei vorhandenem Logo ersetzen.
+5. **Vollmacht-Vorlage** juristisch prüfen.
+6. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
+7. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.

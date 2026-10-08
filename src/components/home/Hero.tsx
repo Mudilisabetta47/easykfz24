@@ -4,6 +4,11 @@ import { CarSvg } from '../CarSvg.tsx';
 import { ArrowRight, Check, Doc, Receipt, Shield } from '../icons.tsx';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { Split } from '../Split.tsx';
+import { PromoBadge, promoActive } from '../Promo.tsx';
+import { formatEuro } from '../../lib/format.ts';
+import { servicePrice } from '../../lib/pricing.ts';
+
+const ABMELDUNG = servicePrice('abmeldung');
 
 const ACTS = [
   { n: '01', text: 'Dein Fahrzeug.' },
@@ -58,6 +63,14 @@ export function Hero() {
                 So funktioniert&apos;s
               </Link>
             </div>
+            {promoActive() ? (
+              <p className="hero__promo" data-reveal="up" style={{ '--rv-delay': '640ms' } as CSSProperties}>
+                <PromoBadge tone="dark" />
+                <span>
+                  auf die Servicepauschale – Abmeldung schon ab <strong>{formatEuro(ABMELDUNG.promoCents)}</strong>
+                </span>
+              </p>
+            ) : null}
           </div>
 
           <ol className="hero__acts" role="list" aria-label="Ablauf in fünf Schritten">
@@ -68,12 +81,13 @@ export function Hero() {
                 {i === ACTS.length - 1 ? (
                   <div className="hero__ready" data-ready>
                     <div className="hero__plate" data-plate data-plate-scene aria-hidden="true">
-                      <GermanLicensePlate id="hero-kz" cityCode="HB" letters="EZ" numbers="24" size="clamp(260px, 30vw, 460px)" perspective={9} showSealPlaceholder />
+                      <GermanLicensePlate id="hero-kz" cityCode="HB" letters="EZ" numbers="24" size="clamp(270px, 31vw, 480px)" perspective={10} tone="dark" showSealPlaceholder />
                     </div>
                     <Link href="/kfz-anmelden/auftrag" className="btn btn--lg btn--light" data-magnetic="0.22" data-cursor="Start">
                       Jetzt Fahrzeug zulassen
                       <ArrowRight className="btn__icon" />
                     </Link>
+                    <PromoBadge tone="dark" label="auf die Servicepauschale" />
                   </div>
                 ) : null}
               </li>

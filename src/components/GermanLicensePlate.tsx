@@ -15,6 +15,8 @@ interface Props {
   /** Eindeutiges Präfix für SVG-IDs, wenn mehrere Schilder auf einer Seite stehen */
   id?: string;
   className?: string;
+  /** Umgebung: auf dunklen Bühnen spiegelt das Schild kühles Umgebungslicht. */
+  tone?: 'light' | 'dark';
 }
 
 // Rand um das Schild für Schatten und Kantenlicht (mm)
@@ -80,6 +82,7 @@ export function GermanLicensePlate({
   showSealPlaceholder = false,
   id = 'kz',
   className = '',
+  tone = 'light',
 }: Props) {
   const L = layoutPlate(cityCode, letters, numbers, showEuroBand);
   const { W, H, RADIUS } = PLATE;
@@ -141,6 +144,16 @@ export function GermanLicensePlate({
             <stop offset="0" stopColor="#f4f4ef" />
             <stop offset="1" stopColor="#dcdcd4" />
           </radialGradient>
+          <linearGradient id={`${id}-sweep-soft`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="#dce6ff" stopOpacity="0" />
+            <stop offset="0.5" stopColor="#eef3ff" stopOpacity="0.32" />
+            <stop offset="1" stopColor="#dce6ff" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id={`${id}-env`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="0.55" stopColor="#7f9bff" stopOpacity="0" />
+            <stop offset="1" stopColor="#5d7dff" stopOpacity="0.16" />
+          </linearGradient>
           <linearGradient id={`${id}-sweep`} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
             <stop offset="0.38" stopColor="#e8f0ff" stopOpacity="0.18" />
@@ -182,7 +195,8 @@ export function GermanLicensePlate({
 
         <g className={perspective ? 'lp__tilt' : undefined}>
           {/* Schatten unter dem Schild */}
-          <rect x="6" y="9" width={W - 12} height={H - 2} rx={RADIUS} fill="#0a1433" opacity="0.32" filter={`url(#${id}-shadow)`} />
+          <rect x="6" y="9" width={W - 12} height={H - 2} rx={RADIUS} fill={tone === 'dark' ? '#000' : '#0a1433'} opacity={tone === 'dark' ? 0.55 : 0.3} filter={`url(#${id}-shadow)`} />
+          <rect x="14" y={H - 1} width={W - 28} height="4" rx="2" fill="#000" opacity={tone === 'dark' ? 0.45 : 0.18} filter={`url(#${id}-soft)`} />
 
           <g data-plate-part="body" className="lp__part">
             <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-base)`} />
@@ -191,8 +205,10 @@ export function GermanLicensePlate({
               <rect width={W} height={H} filter={`url(#${id}-grain)`} />
               <rect width={W} height={H} fill={`url(#${id}-sheen)`} />
             </g>
-            {/* Blechkante */}
-            <rect x="0.25" y="0.25" width={W - 0.5} height={H - 0.5} rx={RADIUS - 0.2} fill="none" stroke="#8f8f88" strokeWidth="0.5" />
+            {/* Blechkante: oben Licht, unten Abschattung */}
+            <rect x="0.25" y="0.25" width={W - 0.5} height={H - 0.5} rx={RADIUS - 0.2} fill="none" stroke="#8a8a83" strokeWidth="0.5" />
+            <path d={`M${RADIUS} 0.7H${W - RADIUS}`} stroke="#ffffff" strokeOpacity="0.95" strokeWidth="0.6" />
+            <path d={`M${RADIUS} ${H - 0.7}H${W - RADIUS}`} stroke="#000000" strokeOpacity="0.18" strokeWidth="0.7" />
             {/* Geprägter Rand */}
             <Embossed id={id}>
               <rect
@@ -228,7 +244,7 @@ export function GermanLicensePlate({
               <path d={`M${bx + bw - 0.4} ${bx}V${bx + bh}`} stroke="#000" strokeOpacity="0.25" strokeWidth="0.8" />
               {Array.from({ length: 12 }, (_, i) => {
                 const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
-                return <polygon key={i} points={star(starCx + Math.cos(ang) * 10.8, 31 + Math.sin(ang) * 10.8, 2.5)} fill="#ffcc00" />;
+                return <polygon key={i} points={star(starCx + Math.cos(ang) * 12.4, 30 + Math.sin(ang) * 12.4, 2.75)} fill="#ffd200" />;
               })}
               <g stroke="#ffffff" strokeWidth={PLATE.STROKE} fill="none" strokeLinejoin="miter" strokeMiterlimit={1.5}>
                 <path d={GLYPHS.D.d[0]} transform={`translate(${dX.toFixed(2)} ${dY}) scale(${dScale})`} />
@@ -262,11 +278,13 @@ export function GermanLicensePlate({
 
           {/* Plastik: oben Licht, unten leichte Abschattung */}
           <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-relief)`} pointerEvents="none" />
+          {tone === 'dark' ? <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-env)`} pointerEvents="none" /> : null}
 
           {/* Lichtreflexion – Position und Deckkraft steuert die Szene */}
           <g clipPath={`url(#${id}-clip)`} className="lp__sweep-clip">
             <g data-plate-sweep className="lp__sweep" opacity="0">
-              <rect x="-90" y="-30" width="150" height={H + 60} fill={`url(#${id}-sweep)`} transform="skewX(-18)" />
+              <rect x="-150" y="-30" width="270" height={H + 60} fill={`url(#${id}-sweep-soft)`} transform="skewX(-18)" />
+              <rect x="-62" y="-30" width="94" height={H + 60} fill={`url(#${id}-sweep)`} transform="skewX(-18)" />
             </g>
           </g>
         </g>

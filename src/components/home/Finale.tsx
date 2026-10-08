@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CarSvg } from '../CarSvg.tsx';
 import { ArrowRight } from '../icons.tsx';
 import { Split } from '../Split.tsx';
+import { PromoBadge, promoActive } from '../Promo.tsx';
 
 export function Finale() {
   return (
@@ -22,6 +23,11 @@ export function Finale() {
                 <ArrowRight className="btn__icon" />
               </Link>
               <p>In wenigen Minuten online beginnen.</p>
+              {promoActive() ? (
+                <p className="finale__promo">
+                  <PromoBadge tone="dark" /> Als Neukunde sparst du 10 % auf die Servicepauschale.
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

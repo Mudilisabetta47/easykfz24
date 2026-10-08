@@ -15,8 +15,10 @@ import {
   type FieldErrors,
   type OrderInput,
 } from '../../lib/order.ts';
-import { calculatePrice, plateSignCount } from '../../lib/pricing.ts';
-import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_ARE_EXAMPLE_VALUES } from '../../lib/pricing.config.ts';
+import { calculatePrice, isPromoActive, plateSignCount, servicePrice } from '../../lib/pricing.ts';
+import { NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_ARE_EXAMPLE_VALUES, PRICES_FINAL } from '../../lib/pricing.config.ts';
+
+const PROMO_ON = PRICES_FINAL && isPromoActive();
 import {
   DOCUMENTS,
   documentsFor,
@@ -170,10 +172,11 @@ export function OrderWizard({ initial }: { initial: string }) {
     setBusy(true);
     try {
       const res = await fetch('/api/auftrag', { method: 'POST', body });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; number?: string; service?: string; message?: string; errors?: FieldErrors };
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; number?: string; service?: string; discount?: boolean; message?: string; errors?: FieldErrors };
       if (res.ok && json.ok && json.number) {
         setDirty(false);
-        router.push(`/kfz-anmelden/auftrag/bestaetigung?nr=${encodeURIComponent(json.number)}&l=${encodeURIComponent(json.service ?? '')}`);
+        const r = PROMO_ON ? `&r=${json.discount ? 1 : 0}` : '';
+        router.push(`/kfz-anmelden/auftrag/bestaetigung?nr=${encodeURIComponent(json.number)}&l=${encodeURIComponent(json.service ?? '')}${r}`);
         return;
       }
       setSubmitError(json.message ?? 'Der Auftrag konnte nicht übermittelt werden.');
@@ -270,6 +273,7 @@ export function OrderWizard({ initial }: { initial: string }) {
                     <input type="radio" name="service" value={id} checked={draft.service === id} onChange={() => chooseService(id)} />
                     <span className="choice__title">{SERVICES[id].title}</span>
                     <span className="choice__text">{SERVICES[id].summary}</span>
+                    {PRICES_FINAL ? <ChoicePrice id={id} /> : null}
                   </label>
                 ))}
               </div>
@@ -759,16 +763,25 @@ export function OrderWizard({ initial }: { initial: string }) {
                 {PRICES_ARE_EXAMPLE_VALUES ? <p className="chip chip--soon wizard__example">Beispielwerte – Preise noch nicht festgelegt</p> : null}
                 <dl className="price-lines">
                   {price.lines.map((l) => (
-                    <div key={l.key}>
-                      <dt>{l.label}</dt>
-                      <dd>{formatEuro(l.cents)}</dd>
+                    <div key={l.key} className={l.key === 'rabatt' ? 'price-lines__discount' : undefined}>
+                      <dt>{l.key === 'rabatt' ? `${NEW_CUSTOMER_PROMO.label} −${NEW_CUSTOMER_PROMO.percent} %` : l.label}</dt>
+                      <dd>{l.cents < 0 ? `−${formatEuro(-l.cents)}` : formatEuro(l.cents)}</dd>
                     </div>
                   ))}
-                  <div className="price-lines__total">
-                    <dt>Servicekosten EasyKFZ24</dt>
-                    <dd>{formatEuro(price.totalCents)}</dd>
-                  </div>
                 </dl>
+                <div className="price-total">
+                  <span className="price-total__label">{price.discountCents ? 'Heute nur' : 'Servicekosten EasyKFZ24'}</span>
+                  <span className="price-total__row">
+                    <strong>{formatEuro(price.totalCents)}</strong>
+                    {price.discountCents ? <s>{formatEuro(price.regularCents)}</s> : null}
+                  </span>
+                  {price.discountCents ? <span className="price-total__save">Dein Vorteil: {formatEuro(price.discountCents)}</span> : null}
+                </div>
+                {price.discountCents ? (
+                  <p className="wizard__fees">
+                    Neukundenrabatt auf die Servicepauschale der ersten Beauftragung je E-Mail-Adresse – wird beim Absenden automatisch geprüft.
+                  </p>
+                ) : null}
                 <p className="wizard__fees">{OFFICIAL_FEES_NOTE}</p>
               </>
             ) : (
@@ -809,5 +822,15 @@ function Summary({ title, rows, onEdit }: { title: string; rows: [string, string
         ))}
       </dl>
     </div>
+  );
+}
+
+function ChoicePrice({ id }: { id: ServiceId }) {
+  const p = servicePrice(id);
+  return (
+    <span className="choice__price">
+      <strong>{formatEuro(p.savingCents ? p.promoCents : p.regularCents)}</strong>
+      {p.savingCents ? <s>{formatEuro(p.regularCents)}</s> : null}
+    </span>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import '../../../../styles/forms.css';
 import { OrderWizard } from '../../../../components/order/OrderWizard.tsx';
+import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 
 export const metadata: Metadata = {
   title: 'Vorgang starten',
@@ -16,6 +17,11 @@ export default async function AuftragPage({ searchParams }: { searchParams: Prom
           <p className="label">Online beauftragen</p>
           <h1>Vorgang starten</h1>
           <p className="lead">In sechs Schritten zum vollständigen Auftrag. Ihre Angaben werden erst mit dem letzten Schritt übermittelt.</p>
+          {promoActive() ? (
+            <p className="page-head__promo">
+              <PromoBadge /> Ihr Einführungsvorteil: 10 % auf die Servicepauschale Ihrer ersten Beauftragung – automatisch abgezogen.
+            </p>
+          ) : null}
         </div>
       </header>
       <div className="shell wizard-shell">

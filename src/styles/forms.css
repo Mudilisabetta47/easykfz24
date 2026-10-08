@@ -808,3 +808,71 @@
     grid-template-columns: 1fr;
   }
 }
+.page-head__promo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-block-start: 18px;
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
+.alert--info {
+  background: var(--ez-sky);
+  color: var(--ez-blue-deep);
+}
+
+/* Preise in der Auftragsstrecke */
+.choice__price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-block-start: 6px;
+  font-size: var(--step--1);
+}
+.choice__price strong {
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+.choice__price s {
+  color: var(--ez-muted);
+}
+.price-lines__discount dt,
+.price-lines__discount dd {
+  color: var(--ez-blue-deep);
+  font-weight: 650;
+}
+.price-total {
+  display: grid;
+  gap: 4px;
+  margin-block-start: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--ez-sky);
+}
+.price-total__label {
+  font-size: var(--step--2);
+  font-family: var(--font-mono);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ez-blue-deep);
+}
+.price-total__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.price-total__row strong {
+  font-size: var(--step-3);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.price-total__row s {
+  color: var(--ez-muted);
+  font-size: var(--step--1);
+}
+.price-total__save {
+  font-size: var(--step--1);
+  font-weight: 650;
+  color: var(--ez-blue-deep);
+}

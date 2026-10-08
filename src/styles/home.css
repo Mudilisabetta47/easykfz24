@@ -697,12 +697,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 8px 0 24px;
+  margin: 8px 0 18px;
   padding: 0;
   list-style: none;
 }
-.svc-card__cta {
+.svc-card__price {
   margin-block-start: auto;
+  padding-block: 14px 16px;
+  border-block-start: 1px solid var(--ez-line);
+}
+.svc-card__price .price-tag__value {
+  font-size: var(--step-2);
+}
+.svc-card__cta {
   align-self: flex-start;
 }
 
@@ -1887,10 +1894,125 @@
 .price {
   padding-block: var(--sect-y);
 }
+.price__top {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  align-items: end;
+  gap: clamp(2rem, 1rem + 4vw, 5rem);
+  margin-block-end: clamp(2.5rem, 1.5rem + 3vw, 4rem);
+}
 .price__head {
   display: grid;
   gap: 16px;
-  margin-block-end: clamp(2.5rem, 1.5rem + 3vw, 4rem);
+}
+.promo-panel {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: clamp(24px, 1rem + 1.6vw, 36px);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(90% 70% at 100% 0%, rgb(63 107 255 / 0.45), transparent 60%),
+    linear-gradient(160deg, #0d1a4d, var(--ez-night));
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  isolation: isolate;
+}
+.promo-panel::after {
+  /* feine Lichtkante oben */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  pointer-events: none;
+}
+.promo-panel__kicker {
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: #a9bcff;
+}
+.promo-panel__pct {
+  display: flex;
+  align-items: flex-start;
+  font-size: clamp(4rem, 2.5rem + 5vw, 7rem);
+  font-weight: 760;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+  background: linear-gradient(180deg, #ffffff 30%, #9db2ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.promo-panel__pct span {
+  font-size: 0.45em;
+  margin-block-start: 0.12em;
+  margin-inline-start: 0.06em;
+  letter-spacing: -0.02em;
+}
+.promo-panel__text {
+  font-size: var(--step-1);
+  line-height: 1.35;
+  color: rgb(255 255 255 / 0.85);
+  max-inline-size: 26ch;
+}
+.promo-panel__example {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-block: 8px 2px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.07);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  font-size: var(--step--1);
+  color: rgb(255 255 255 / 0.7);
+}
+.promo-panel__example s {
+  color: rgb(255 255 255 / 0.5);
+}
+.promo-panel__example strong {
+  font-size: var(--step-1);
+  color: white;
+  font-variant-numeric: tabular-nums;
+}
+.promo-panel__list {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 12px;
+  padding: 0;
+  list-style: none;
+  font-size: var(--step--1);
+  color: rgb(255 255 255 / 0.8);
+}
+.promo-panel__list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.promo-panel__list svg {
+  color: var(--ez-cyan);
+}
+.promo-panel .btn {
+  justify-self: start;
+}
+.price__card--featured {
+  border-color: color-mix(in oklab, var(--ez-blue) 40%, transparent);
+  box-shadow: 0 0 0 3px var(--ez-blue-soft), var(--shadow-card);
+}
+.price__fine {
+  margin-block-start: 16px;
+  font-size: var(--step--2);
+  color: var(--ez-muted);
+  max-inline-size: 90ch;
+}
+@media (max-width: 900px) {
+  .price__top {
+    grid-template-columns: 1fr;
+  }
 }
 .price__grid {
   display: grid;
@@ -1934,8 +2056,10 @@
   color: var(--ez-muted);
 }
 .price__amount {
-  margin-block-start: 16px;
-  padding-block-start: 16px;
+  display: grid;
+  gap: 8px;
+  margin-block: 16px 6px;
+  padding-block-start: 18px;
   border-block-start: 1px solid var(--ez-line);
 }
 .price__value {
@@ -2189,4 +2313,34 @@
 :is(html:not(.js), [data-motion='reduced']) .hero__flow-fill,
 :is(html:not(.js), [data-motion='reduced']) .hero__seg-fill {
   transform: none;
+}
+
+/* Neukundenvorteil im Hero */
+.hero__promo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-block-start: 22px;
+  font-size: var(--step--1);
+  color: rgb(255 255 255 / 0.72);
+}
+.hero__promo strong {
+  color: white;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 760px) {
+  .hero__promo {
+    margin-block-start: 16px;
+  }
+}
+.finale__promo {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--step--1);
+  color: rgb(255 255 255 / 0.75);
 }

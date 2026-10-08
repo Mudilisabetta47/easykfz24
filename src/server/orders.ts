@@ -94,16 +94,9 @@ function touch(orderId: number): void {
 
 /* ---------- Anlage ---------- */
 
-export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: number; number: string } {
+export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: number; number: string; discountApplied: boolean } {
   const created = now();
   const year = new Date().getFullYear();
-  const price = calculatePrice({
-    service: order.service,
-    vehicleType: order.vehicle.art,
-    plateChoice: order.plate.wahl,
-    plateSigns: order.plate.schilder,
-    delivery: order.plate.zustellung,
-  });
 
   // Dateien zuerst schreiben (außerhalb der Transaktion), bei Fehler wieder entfernen.
   const dirName = randomBytes(12).toString('hex');
@@ -123,6 +116,18 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
       if (counter) db.prepare('UPDATE order_counters SET last = ? WHERE year = ?').run(seq, year);
       else db.prepare('INSERT INTO order_counters (year, last) VALUES (?, ?)').run(year, seq);
       const number = formatOrderNumber(year, seq);
+
+      // Neukunde = noch kein (nicht stornierter) Auftrag mit dieser E-Mail-Adresse. In der Transaktion geprüft,
+      // damit zwei gleichzeitige Erstaufträge nicht beide den Rabatt erhalten.
+      const existing = db.prepare("SELECT 1 FROM orders WHERE email = ? AND status != 'storniert' LIMIT 1").get(order.holder.email);
+      const price = calculatePrice({
+        service: order.service,
+        vehicleType: order.vehicle.art,
+        plateChoice: order.plate.wahl,
+        plateSigns: order.plate.schilder,
+        delivery: order.plate.zustellung,
+        newCustomer: !existing,
+      });
 
       const res = db
         .prepare(
@@ -152,8 +157,13 @@ export function createOrder(order: ValidatedOrder, files: UploadFile[]): { id: n
       for (const s of stored) {
         insertDoc.run(s.id, orderId, s.f.kind, s.f.name.slice(0, 200), s.f.type.mime, s.f.bytes.byteLength, s.storedName, s.sha256, created);
       }
-      addEvent(orderId, { type: 'created', to: 'neu', message: `Auftrag online eingegangen (${files.length} Dokumente)`, actor: 'Kunde' });
-      return { id: orderId, number };
+      addEvent(orderId, {
+        type: 'created',
+        to: 'neu',
+        message: `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
+        actor: 'Kunde',
+      });
+      return { id: orderId, number, discountApplied: price.discountCents > 0 };
     });
   } catch (e) {
     fs.rmSync(dir, { recursive: true, force: true });

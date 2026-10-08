@@ -7,7 +7,9 @@ import { HOME_FAQ } from '../../../components/home/faq-content.ts';
 import { ArrowRight, Check } from '../../../components/icons.tsx';
 import { Split } from '../../../components/Split.tsx';
 import { formatEuro } from '../../../lib/format.ts';
-import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL } from '../../../lib/pricing.config.ts';
+import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL, PROMO_FINE_PRINT } from '../../../lib/pricing.config.ts';
+import { servicePrice } from '../../../lib/pricing.ts';
+import { PriceTag, PromoBadge, promoActive } from '../../../components/Promo.tsx';
 import { DOCUMENTS, documentsFor, PLATE_CHOICES, SERVICE_IDS, SERVICES, type ServiceId } from '../../../lib/services.ts';
 
 export const metadata: Metadata = {
@@ -62,7 +64,7 @@ export default function KfzAnmeldenPage() {
               <article key={id} id={ANCHOR[id]} className="info-service card" data-reveal="up" style={{ '--rv-delay': `${(i % 2) * 80}ms` } as CSSProperties}>
                 <div className="info-service__head">
                   <h3>{def.title}</h3>
-                  {PRICES_FINAL ? <span className="chip chip--blue">{formatEuro(PRICE_CONFIG.serviceFeeCents[id])}</span> : null}
+                  <PriceTag services={[id]} size="sm" />
                 </div>
                 <p className="muted">{def.description}</p>
                 <div className="info-service__cols">
@@ -142,13 +144,19 @@ export default function KfzAnmeldenPage() {
         <h2 id="preise-h" className="info-h2">
           Preise
         </h2>
+        {promoActive() ? (
+          <p className="info-promo">
+            <PromoBadge /> Fair kalkuliert, digital abgewickelt – und für Neukunden jetzt 10 % günstiger auf die Servicepauschale.
+          </p>
+        ) : null}
         <div className="info-prices card">
           <table>
             <caption className="sr-only">Servicekosten je Leistung</caption>
             <thead>
               <tr>
                 <th scope="col">Leistung</th>
-                <th scope="col">Servicekosten EasyKFZ24</th>
+                <th scope="col">Servicepauschale</th>
+                {promoActive() ? <th scope="col">Neukundenpreis</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -156,23 +164,32 @@ export default function KfzAnmeldenPage() {
                 <tr key={id}>
                   <th scope="row">{SERVICES[id].title}</th>
                   <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.serviceFeeCents[id]) : 'wird im Vorgang transparent angezeigt'}</td>
+                  {promoActive() ? (
+                    <td className="info-prices__promo">
+                      <strong>{formatEuro(servicePrice(id).promoCents)}</strong> <span>−{formatEuro(servicePrice(id).savingCents)}</span>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
               <tr>
                 <th scope="row">Wunschkennzeichen (Bearbeitung)</th>
                 <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.wishPlateHandlingCents) : 'wird im Vorgang transparent angezeigt'}</td>
+                {promoActive() ? <td className="muted">–</td> : null}
               </tr>
               <tr>
                 <th scope="row">Kennzeichenschild je Stück</th>
                 <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.plateSignCents) : 'wird im Vorgang transparent angezeigt'}</td>
+                {promoActive() ? <td className="muted">–</td> : null}
               </tr>
               <tr>
                 <th scope="row">Versand per Einschreiben</th>
                 <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.shippingCents) : 'wird im Vorgang transparent angezeigt'}</td>
+                {promoActive() ? <td className="muted">–</td> : null}
               </tr>
             </tbody>
           </table>
           <p className="info-prices__note">{OFFICIAL_FEES_NOTE}</p>
+          {promoActive() ? <p className="info-prices__note">{PROMO_FINE_PRINT}</p> : null}
         </div>
       </section>
 

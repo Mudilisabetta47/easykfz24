@@ -6,8 +6,8 @@ export const PLATE = {
   W: 520,
   H: 110,
   RADIUS: 5.5,
-  BORDER_INSET: 1.7,
-  BORDER_W: 1.9,
+  BORDER_INSET: 1.25,
+  BORDER_W: 1.35,
   BAND_X: 3.2,
   BAND_W: 41,
   CHAR_H: 75,
@@ -18,7 +18,7 @@ export const PLATE = {
   /** Abstand zwischen Zeichen einer Gruppe */
   GAP: 5.5,
   /** Freiraum für die Plaketten zwischen Unterscheidungszeichen und Erkennungsbuchstaben */
-  SEAL_W: 46,
+  SEAL_W: 50,
   /** Abstand zwischen Buchstaben und Ziffern */
   GROUP_GAP: 23,
   /** Rand rechts und neben dem Eurofeld */

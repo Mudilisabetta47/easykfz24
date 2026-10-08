@@ -754,3 +754,110 @@
   color: var(--ez-muted);
   max-inline-size: 64ch;
 }
+
+/* ---------- Neukundenvorteil & Preisangaben ---------- */
+.promo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px 3px 3px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in oklab, var(--ez-blue) 28%, transparent);
+  background: linear-gradient(180deg, #ffffff, var(--ez-sky));
+  color: var(--ez-blue-deep);
+  font-size: var(--step--2);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 6px 16px -10px rgb(42 85 255 / 0.5);
+}
+.promo-badge__pct {
+  display: inline-grid;
+  place-items: center;
+  min-block-size: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--ez-blue);
+  color: white;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.promo-badge--dark {
+  border-color: rgb(142 166 255 / 0.4);
+  background: rgb(42 85 255 / 0.16);
+  color: #d9e2ff;
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+}
+.promo-badge--dark .promo-badge__pct {
+  background: linear-gradient(135deg, #3d6bff, #2a55ff);
+  box-shadow: 0 0 18px rgb(63 107 255 / 0.55);
+}
+
+.price-tag {
+  display: inline-grid;
+  gap: 4px;
+}
+.price-tag__main {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.price-tag__from {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--ez-muted);
+}
+.price-tag__value {
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ez-ink);
+}
+.price-tag--lg .price-tag__value {
+  font-size: var(--step-4);
+  line-height: 1;
+}
+.price-tag--sm .price-tag__value {
+  font-size: var(--step-1);
+}
+.price-tag__was {
+  font-size: var(--step--1);
+  color: var(--ez-muted);
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in oklab, var(--ez-ink) 45%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.price-tag__save {
+  justify-self: start;
+  font-size: var(--step--2);
+  font-weight: 650;
+  color: var(--ez-blue-deep);
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--ez-sky);
+}
+.price-tag--dark .price-tag__value {
+  color: white;
+}
+.price-tag--dark .price-tag__from,
+.price-tag--dark .price-tag__was {
+  color: rgb(255 255 255 / 0.6);
+}
+.price-tag--dark .price-tag__save {
+  background: rgb(42 85 255 / 0.22);
+  color: #cdd8ff;
+}
+
+.nav__badge {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ez-blue);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 16px;
+}
