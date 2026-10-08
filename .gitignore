@@ -9,3 +9,4 @@ next-env.d.ts
 
 # Original-Logodateien (Quellen, nicht ausliefern)
 assets-src/
+.DS_Store
