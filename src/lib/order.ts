@@ -212,7 +212,7 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
   } else {
     bisherigesKennzeichen = optional('vehicle.bisherigesKennzeichen', v.bisherigesKennzeichen, checkPlate);
     if (wahl === 'behalten' && !v.bisherigesKennzeichen.trim()) {
-      errors['plate.wahl'] ??= 'Zum Behalten bitte im Schritt „Fahrzeug“ das bisherige Kennzeichen angeben';
+      errors['vehicle.bisherigesKennzeichen'] ??= 'Zum Behalten bitte das bisherige Kennzeichen angeben';
     }
   }
   const eKennzeichen = v.eKennzeichen && antrieb !== null && isEKennzeichenEligible(antrieb);

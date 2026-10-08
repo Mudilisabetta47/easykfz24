@@ -16,7 +16,7 @@ import {
   type OrderInput,
 } from '../../lib/order.ts';
 import { calculatePrice, isPromoActive, plateSignCount, servicePrice } from '../../lib/pricing.ts';
-import { NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_ARE_EXAMPLE_VALUES, PRICES_FINAL } from '../../lib/pricing.config.ts';
+import { BUNDLE_NAMES, NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_ARE_EXAMPLE_VALUES, PRICES_FINAL } from '../../lib/pricing.config.ts';
 
 const PROMO_ON = PRICES_FINAL && isPromoActive();
 import {
@@ -32,19 +32,23 @@ import {
   type PlateChoice,
   type ServiceId,
 } from '../../lib/services.ts';
-import { checkFin, checkIban, formatIban } from '../../lib/validation.ts';
+import { checkFin, checkIban, checkPlate, formatIban } from '../../lib/validation.ts';
+import { splitPlate } from '../../lib/plate.ts';
+import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
+import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
 import { ArrowRight, Check, Close, Doc } from '../icons.tsx';
 import { CarrierMark, PaymentMarks } from '../Brands.tsx';
 import { CARRIER_IDS, CARRIERS, isCarrierId } from '../../lib/shipping.ts';
 
+/** Schritte und die Fehlerschlüssel (Präfixe), die zu ihnen gehören. */
 const STEPS = [
-  { key: 'service', title: 'Leistung' },
-  { key: 'vehicle.', title: 'Fahrzeug' },
-  { key: 'holder.', title: 'Halter' },
-  { key: 'documents.', title: 'Unterlagen' },
-  { key: 'plate.', title: 'Kennzeichen' },
-  { key: 'finish.', title: 'Abschluss' },
-  { key: 'review', title: 'Prüfen' },
+  { key: 'start', keys: ['service', 'plate.wahl', 'plate.wunschkennzeichen', 'plate.schilder'], title: 'Leistung & Kennzeichen' },
+  { key: 'vehicle', keys: ['vehicle.'], title: 'Fahrzeug' },
+  { key: 'holder', keys: ['holder.'], title: 'Halter' },
+  { key: 'documents', keys: ['documents.'], title: 'Unterlagen' },
+  { key: 'delivery', keys: ['plate.zustellung', 'plate.versanddienst'], title: 'Zustellung' },
+  { key: 'finish', keys: ['finish.'], title: 'Abschluss' },
+  { key: 'review', keys: [], title: 'Prüfen' },
 ] as const;
 
 type Files = Partial<Record<DocumentKind, File[]>>;
@@ -95,6 +99,9 @@ export function OrderWizard({
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [dirty, setDirty] = useState(false);
+  /** Schilder: bewusst ohne Vorauswahl – kostenpflichtige Extras müssen aktiv gewählt werden. */
+  const [signs, setSigns] = useState<'ja' | 'nein' | null>(bundle ? 'ja' : null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
 
   const service = isServiceId(draft.service) ? draft.service : null;
@@ -129,13 +136,23 @@ export function OrderWizard({
   );
 
   const stepErrors = (i: number): FieldErrors => {
-    const key = STEPS[i].key;
-    if (key === 'review') return {};
-    if (key === 'documents.') return service ? validateDocuments(service, counts) : { service: 'Bitte eine Leistung wählen' };
+    const st = STEPS[i];
+    if (st.key === 'review') return {};
+    if (st.key === 'documents') return service ? validateDocuments(service, counts) : { service: 'Bitte eine Leistung wählen' };
     const res = validateOrder(draft);
-    if (res.ok) return {};
-    if (key !== 'service' && res.errors.service) return {};
-    return errorsForPrefix(res.errors, key);
+    const errs: FieldErrors = {};
+    if (!res.ok) {
+      if (i > 0 && res.errors.service) return {};
+      for (const k of st.keys) Object.assign(errs, errorsForPrefix(res.errors, k));
+      // „Behalten“: das bisherige Kennzeichen wird direkt im ersten Schritt abgefragt
+      if (i === 0 && wahl === 'behalten' && res.errors['vehicle.bisherigesKennzeichen']) {
+        errs['vehicle.bisherigesKennzeichen'] = res.errors['vehicle.bisherigesKennzeichen'];
+      }
+    }
+    if (i === 0 && service && isPlateChange(service, wahl) && signs === null) {
+      errs['plate.schilder'] = 'Bitte wählen Sie, ob wir die Kennzeichenschilder mitliefern sollen';
+    }
+    return errs;
   };
 
   const focusFirstError = (errs: FieldErrors) => {
@@ -199,7 +216,7 @@ export function OrderWizard({
       setSubmitError(json.message ?? 'Der Auftrag konnte nicht übermittelt werden.');
       if (json.errors && Object.keys(json.errors).length) {
         const firstKey = Object.keys(json.errors)[0];
-        const idx = STEPS.findIndex((s) => s.key !== 'review' && (firstKey === s.key || firstKey.startsWith(s.key)));
+        const idx = STEPS.findIndex((s) => s.keys.some((k: string) => firstKey === k || firstKey.startsWith(k)));
         if (idx >= 0) {
           setStep(idx);
           setErrors(json.errors);
@@ -254,6 +271,8 @@ export function OrderWizard({
     : null;
 
   const e = errors;
+  const wishCheck = draft.plate.wunschkennzeichen ? checkPlate(draft.plate.wunschkennzeichen) : null;
+  const wishParts = wishCheck?.ok ? splitPlate(wishCheck.value) : null;
   const finCheck = draft.vehicle.fin ? checkFin(draft.vehicle.fin) : null;
   const ibanCheck = draft.finish.iban ? checkIban(draft.finish.iban) : null;
 
@@ -284,6 +303,7 @@ export function OrderWizard({
           {step === 0 && (
             <section aria-labelledby="st-0">
               <h2 id="st-0" tabIndex={-1}>Was möchten Sie erledigen?</h2>
+              <p className="wizard__lead">Leistung wählen, Kennzeichen festlegen – den Preis sehen Sie rechts sofort.</p>
               {initial === 'ummeldung' && !service ? <p className="wizard__note">Ummeldung: Bitte wählen Sie, ob der Halter wechselt oder Sie umgezogen sind.</p> : null}
               {wish ? (
                 <p className="wizard__note">
@@ -301,6 +321,164 @@ export function OrderWizard({
                 ))}
               </div>
               {e.service ? <p className="field__error">{e.service}</p> : null}
+
+              {def && service && def.plateChoices.length ? (
+                <div className="wizard__block">
+                  <h3 className="wizard__sub">Ihr Kennzeichen</h3>
+                  <div className="choice-grid choice-grid--plates" role="radiogroup" aria-label="Kennzeichen" data-error-anchor="plate.wahl" tabIndex={-1}>
+                    {def.plateChoices.map((c) => (
+                      <label key={c} className={`choice${wahl === c ? ' is-selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="plate-wahl"
+                          value={c}
+                          checked={wahl === c}
+                          onChange={() => {
+                            update('plate', 'wahl', c);
+                            if (c === 'wunsch' && !draft.plate.wunschkennzeichen) setPickerOpen(true);
+                          }}
+                        />
+                        <span className="choice__title">{PLATE_CHOICES[c].label}</span>
+                        <span className="choice__text">{PLATE_CHOICES[c].hint}</span>
+                        {PRICES_FINAL ? (
+                          <span className="choice__price">
+                            <strong>{c === 'wunsch' ? `+ ${formatEuro(PRICE_CONFIG.wishPlateHandlingCents)}` : 'inklusive'}</strong>
+                          </span>
+                        ) : null}
+                      </label>
+                    ))}
+                  </div>
+                  {e['plate.wahl'] ? <p className="field__error">{e['plate.wahl']}</p> : null}
+
+                  {wahl === 'behalten' ? (
+                    <div className="form-grid">
+                      <Field
+                        path="vehicle.bisherigesKennzeichen"
+                        label="Ihr bisheriges Kennzeichen"
+                        error={e['vehicle.bisherigesKennzeichen']}
+                        hint="Format z. B. M-AB 1234"
+                      >
+                        <input
+                          id={fieldId('vehicle.bisherigesKennzeichen')}
+                          className="input--mono"
+                          autoComplete="off"
+                          value={draft.vehicle.bisherigesKennzeichen}
+                          onChange={(ev) => update('vehicle', 'bisherigesKennzeichen', ev.target.value.toUpperCase())}
+                          aria-invalid={!!e['vehicle.bisherigesKennzeichen']}
+                        />
+                      </Field>
+                    </div>
+                  ) : null}
+
+                  {wahl === 'wunsch' ? (
+                    <div className="wish-box" data-error-anchor="plate.wunschkennzeichen" tabIndex={-1}>
+                      <div className="wish-box__preview">
+                        {wishParts ? (
+                          <GermanLicensePlate id="wiz-wish" {...wishParts} size="min(100%, 360px)" detail="lite" />
+                        ) : (
+                          <span className="wish-box__empty">Noch kein Wunschkennzeichen gewählt</span>
+                        )}
+                      </div>
+                      <div className="wish-box__actions">
+                        <button type="button" className="btn" onClick={() => setPickerOpen(true)}>
+                          {wishParts ? 'Anderes Kennzeichen suchen' : 'Wunschkennzeichen suchen'}
+                        </button>
+                        <Field path="plate.wunschkennzeichen" label="oder direkt eingeben" error={e['plate.wunschkennzeichen']} hint="z. B. OHZ-ME 34 – Ort muss zu Ihrem Wohnsitz gehören">
+                          <input
+                            id={fieldId('plate.wunschkennzeichen')}
+                            className="input--mono"
+                            autoComplete="off"
+                            value={draft.plate.wunschkennzeichen}
+                            onChange={(ev) => update('plate', 'wunschkennzeichen', ev.target.value.toUpperCase())}
+                            aria-invalid={!!e['plate.wunschkennzeichen']}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {isPlateChange(service, wahl) ? (
+                    <>
+                      <h3 className="wizard__sub">Kennzeichenschilder</h3>
+                      <div className="choice-grid choice-grid--compact" role="radiogroup" aria-label="Kennzeichenschilder" data-error-anchor="plate.schilder" tabIndex={-1}>
+                        <label className={`choice${signs === 'ja' ? ' is-selected' : ''}`}>
+                          <input
+                            type="radio"
+                            name="schilder"
+                            checked={signs === 'ja'}
+                            onChange={() => {
+                              setSigns('ja');
+                              update('plate', 'schilder', true);
+                            }}
+                          />
+                          <span className="choice__title">Ja, Schilder mitliefern</span>
+                          <span className="choice__text">Geprägt, passend zum Fahrzeug – kommen fertig zu Ihnen.</span>
+                          {PRICES_FINAL ? (
+                            <span className="choice__price">
+                              <strong>je {formatEuro(PRICE_CONFIG.plateSignCents)}</strong>
+                              <span className="muted">
+                                {draft.vehicle.art ? `${plateSignCount(draft.vehicle.art)} Stück` : 'Pkw: 2 Stück'}
+                              </span>
+                            </span>
+                          ) : null}
+                        </label>
+                        <label className={`choice${signs === 'nein' ? ' is-selected' : ''}`}>
+                          <input
+                            type="radio"
+                            name="schilder"
+                            checked={signs === 'nein'}
+                            onChange={() => {
+                              setSigns('nein');
+                              update('plate', 'schilder', false);
+                            }}
+                          />
+                          <span className="choice__title">Nein, besorge ich selbst</span>
+                          <span className="choice__text">Sie lassen die Schilder selbst prägen.</span>
+                          {PRICES_FINAL ? (
+                            <span className="choice__price">
+                              <strong>0,00 €</strong>
+                            </span>
+                          ) : null}
+                        </label>
+                      </div>
+                      {e['plate.schilder'] ? <p className="field__error">{e['plate.schilder']}</p> : null}
+                    </>
+                  ) : null}
+
+                  {PRICE_CONFIG.bundleCents[service] !== null && price && !price.bundleSaving ? (
+                    <div className="upsell">
+                      <strong>
+                        {BUNDLE_NAMES[service]}: nur {formatEuro(PRICE_CONFIG.bundleCents[service] ?? 0)}
+                      </strong>
+                      <span>Wunschkennzeichen, Schilder und Versand zum Paketpreis – günstiger als einzeln.</span>
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--ghost"
+                        onClick={() => {
+                          setSigns('ja');
+                          setDraft((d) => withBundle(d, true));
+                          if (!draft.plate.wunschkennzeichen) setPickerOpen(true);
+                        }}
+                      >
+                        Paket wählen
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : def && service ? (
+                <p className="wizard__note">Für die Abmeldung senden Sie uns bitte beide Kennzeichenschilder im Original – die Zulassungsbehörde entstempelt sie.</p>
+              ) : null}
+
+              {pickerOpen ? (
+                <PlateConfigurator
+                  initial={wishParts ?? undefined}
+                  onClose={() => setPickerOpen(false)}
+                  onPick={(plate) => {
+                    update('plate', 'wunschkennzeichen', plate);
+                    setPickerOpen(false);
+                  }}
+                />
+              ) : null}
             </section>
           )}
 
@@ -552,42 +730,8 @@ export function OrderWizard({
           {/* ---------------- 5 Kennzeichen & Zustellung ---------------- */}
           {step === 4 && def && service && (
             <section aria-labelledby="st-4">
-              <h2 id="st-4" tabIndex={-1}>Kennzeichen &amp; Zustellung</h2>
-              {def.plateChoices.length ? (
-                <>
-                  <h3 className="wizard__sub">Kennzeichen</h3>
-                  <div className="choice-grid choice-grid--compact" role="radiogroup" aria-label="Kennzeichen" data-error-anchor="plate.wahl" tabIndex={-1}>
-                    {def.plateChoices.map((c) => (
-                      <label key={c} className={`choice${wahl === c ? ' is-selected' : ''}`}>
-                        <input type="radio" name="plate-wahl" value={c} checked={wahl === c} onChange={() => update('plate', 'wahl', c)} />
-                        <span className="choice__title">{PLATE_CHOICES[c].label}</span>
-                        <span className="choice__text">{PLATE_CHOICES[c].hint}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {e['plate.wahl'] ? <p className="field__error">{e['plate.wahl']}</p> : null}
-                  {wahl === 'wunsch' ? (
-                    <div className="form-grid">
-                      <Field path="plate.wunschkennzeichen" label="Wunschkennzeichen" error={e['plate.wunschkennzeichen']} hint="Unterscheidungszeichen des Zulassungsbezirks, z. B. HB-EZ 24">
-                        <input id={fieldId('plate.wunschkennzeichen')} className="input--mono" autoComplete="off" value={draft.plate.wunschkennzeichen} onChange={(ev) => update('plate', 'wunschkennzeichen', ev.target.value.toUpperCase())} aria-invalid={!!e['plate.wunschkennzeichen']} aria-describedby={describedBy('plate.wunschkennzeichen', e['plate.wunschkennzeichen'], true)} />
-                      </Field>
-                    </div>
-                  ) : null}
-                  {isPlateChange(service, wahl) ? (
-                    <label className="check">
-                      <input type="checkbox" checked={draft.plate.schilder} onChange={(ev) => update('plate', 'schilder', ev.target.checked)} />
-                      <span>
-                        Kennzeichenschilder mitbestellen ({plateSignCount(draft.vehicle.art)} Stück, je {formatEuro(PRICE_CONFIG.plateSignCents)}
-                        {PRICES_ARE_EXAMPLE_VALUES ? ' – Beispielwert' : ''})
-                      </span>
-                    </label>
-                  ) : null}
-                </>
-              ) : (
-                <p className="wizard__note">Für die Abmeldung senden Sie uns bitte beide Kennzeichenschilder im Original – die Zulassungsbehörde entstempelt sie.</p>
-              )}
-
-              <h3 className="wizard__sub">Zustellung der Unterlagen</h3>
+              <h2 id="st-4" tabIndex={-1}>Zustellung</h2>
+              <p className="wizard__lead">Wie sollen Fahrzeugpapiere{draft.plate.schilder ? ' und Schilder' : ''} zu Ihnen kommen?</p>
               <div className="choice-grid choice-grid--compact" role="radiogroup" aria-label="Zustellung" data-error-anchor="plate.zustellung" tabIndex={-1}>
                 {(['versand', 'abholung'] as const).map((z) => (
                   <label key={z} className={`choice${draft.plate.zustellung === z ? ' is-selected' : ''}`}>
@@ -623,21 +767,6 @@ export function OrderWizard({
                   </div>
                   {e['plate.versanddienst'] ? <p className="field__error">{e['plate.versanddienst']}</p> : null}
                 </>
-              ) : null}
-              {service && PRICE_CONFIG.bundleCents[service] !== null && price && !price.bundleSaving ? (
-                <div className="upsell">
-                  <strong>Komplett-Paket: {formatEuro(PRICE_CONFIG.bundleCents[service] ?? 0)}</strong>
-                  <span>
-                    Mit Wunschkennzeichen, Schildern und Versand gilt automatisch der Paketpreis – günstiger als einzeln.
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    onClick={() => setDraft((d) => withBundle(d, true))}
-                  >
-                    Paket übernehmen
-                  </button>
-                </div>
               ) : null}
             </section>
           )}
@@ -772,11 +901,17 @@ export function OrderWizard({
                 rows={documentsFor(service).map(({ kind }) => [DOCUMENTS[kind].short, (files[kind] ?? []).length ? `${(files[kind] ?? []).length} Datei(en)` : '–'])}
               />
               <Summary
-                title="Kennzeichen & Zustellung"
-                onEdit={() => goTo(4)}
+                title="Kennzeichen"
+                onEdit={() => goTo(0)}
                 rows={[
                   ...(wahl ? [['Kennzeichen', wahl === 'wunsch' ? `Wunsch: ${draft.plate.wunschkennzeichen}` : PLATE_CHOICES[wahl].label] as [string, string]] : []),
-                  ...(isPlateChange(service, wahl) ? [['Schilder', draft.plate.schilder ? 'werden mitbestellt' : 'eigene'] as [string, string]] : []),
+                  ...(isPlateChange(service, wahl) ? [['Schilder', draft.plate.schilder ? 'werden mitgeliefert' : 'besorge ich selbst'] as [string, string]] : []),
+                ]}
+              />
+              <Summary
+                title="Zustellung"
+                onEdit={() => goTo(4)}
+                rows={[
                   [
                     'Zustellung',
                     draft.plate.zustellung === 'versand'

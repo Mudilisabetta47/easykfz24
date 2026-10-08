@@ -113,7 +113,7 @@ describe('validateOrder', () => {
     d.plate.wahl = 'behalten';
     const r = validateOrder(d);
     assert.equal(r.ok, false);
-    if (!r.ok) assert.ok(r.errors['plate.wahl']);
+    if (!r.ok) assert.ok(r.errors['vehicle.bisherigesKennzeichen']);
   });
 });
 

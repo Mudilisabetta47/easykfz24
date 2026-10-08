@@ -60,7 +60,16 @@ export function PlateTrigger({ children, className = '', initial }: { children: 
   );
 }
 
-export function PlateConfigurator({ onClose, initial }: { onClose: () => void; initial?: WishInput }) {
+export function PlateConfigurator({
+  onClose,
+  initial,
+  onPick,
+}: {
+  onClose: () => void;
+  initial?: WishInput;
+  /** Übernahme-Modus (im Auftrag): gewähltes Kennzeichen zurückgeben statt zum Auftrag zu verlinken */
+  onPick?: (plate: string) => void;
+}) {
   const [wish, setWish] = useState<WishInput>(initial ?? { cityCode: '', letters: '??', numbers: '??' });
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<ApiResult | null>(null);
@@ -259,7 +268,11 @@ export function PlateConfigurator({ onClose, initial }: { onClose: () => void; i
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             Schließen
           </button>
-          {selected ? (
+          {selected && onPick ? (
+            <button type="button" className="btn" onClick={() => onPick(selected.plate)}>
+              {selected.plate} übernehmen <ArrowRight className="btn__icon" />
+            </button>
+          ) : selected ? (
             <Link href={`/kfz-anmelden/auftrag?wunsch=${encodeURIComponent(selected.plate)}`} className="btn" onClick={onClose}>
               {selected.plate} reservieren lassen <ArrowRight className="btn__icon" />
             </Link>
