@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { layoutPlate, PLATE, GLYPHS, type PlacedGlyph } from '../lib/plate.ts';
+import { layoutPlate, PLATE, GLYPHS, scalePathX, type PlacedGlyph } from '../lib/plate.ts';
 
 interface Props {
   cityCode: string;
@@ -30,34 +30,21 @@ function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
   return (
     <>
       {list.map((g, i) =>
-        g.glyph.d.map((d, j) => (
-          <path
-            key={`${i}-${j}`}
-            d={d}
-            transform={`translate(${g.x.toFixed(2)} ${PLATE.CHAR_TOP})${scaleX !== 1 ? ` scale(${scaleX.toFixed(4)} 1)` : ''}`}
-          />
-        )),
+        g.glyph.d.map((d, j) => <path key={`${i}-${j}`} d={scalePathX(d, scaleX)} transform={`translate(${g.x.toFixed(2)} ${PLATE.CHAR_TOP})`} />),
       )}
     </>
   );
 }
 
 /**
- * Prägung wie bei echten Aluminiumschildern: mattschwarze Farbe mit leicht gerundeten Ecken,
- * darunter ein feiner Schatten unten rechts und eine kaum sichtbare Lichtkante oben links.
+ * Prägung wie bei echten Aluminiumschildern: Die Zeichen sind etwa 1 mm hochgedrückt, nur die Oberseite ist schwarz.
+ * Ein einziger Filter erzeugt daraus die Flanken – unten rechts die Schattenseite, oben links eine helle Lichtkante –,
+ * eine weiche Kontaktverschattung, die mattschwarze Farbe mit leicht gerundeten Ecken und eine feine Glanzkante.
  */
 function Embossed({ id, children, part }: { id: string; children: React.ReactNode; part?: string }) {
   return (
     <g data-plate-part={part} className="lp__part">
-      <g filter={`url(#${id}-round)`}>
-        <g transform="translate(0.5 0.7)" stroke="#000" strokeOpacity="0.24">
-          {children}
-        </g>
-      </g>
-      <g transform="translate(-0.22 -0.28)" stroke="#ffffff" strokeOpacity="0.6" filter={`url(#${id}-round)`}>
-        {children}
-      </g>
-      <g stroke="#141414" filter={`url(#${id}-round)`}>
+      <g stroke="#000" filter={`url(#${id}-emboss)`}>
         {children}
       </g>
     </g>
@@ -123,9 +110,9 @@ export function GermanLicensePlate({
           </clipPath>
           {/* Reflexfolie: gebrochenes Weiß, leicht metallisch */}
           <linearGradient id={`${id}-base`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#fbfbf6" />
-            <stop offset="0.45" stopColor="#f1f1ea" />
-            <stop offset="1" stopColor="#e3e3db" />
+            <stop offset="0" stopColor="#fafbf9" />
+            <stop offset="0.5" stopColor="#f3f4f1" />
+            <stop offset="1" stopColor="#e9eae6" />
           </linearGradient>
           <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="1" y2="0.6">
             <stop offset="0" stopColor="#ffffff" stopOpacity="0.55" />
@@ -171,8 +158,8 @@ export function GermanLicensePlate({
           </linearGradient>
           {/* Mikroprismen der Reflexfolie */}
           <pattern id={`${id}-beads`} width="2.4" height="2.08" patternUnits="userSpaceOnUse">
-            <circle cx="0.6" cy="0.52" r="0.42" fill="#000" fillOpacity="0.05" />
-            <circle cx="1.8" cy="1.56" r="0.42" fill="#000" fillOpacity="0.05" />
+            <circle cx="0.6" cy="0.52" r="0.42" fill="#000" fillOpacity="0.025" />
+            <circle cx="1.8" cy="1.56" r="0.42" fill="#000" fillOpacity="0.025" />
           </pattern>
           <filter id={`${id}-grain`} x="0" y="0" width="100%" height="100%">
             <feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="7" stitchTiles="stitch" />
@@ -181,12 +168,41 @@ export function GermanLicensePlate({
           <filter id={`${id}-soft`} x="-10%" y="-10%" width="120%" height="120%">
             <feGaussianBlur stdDeviation="0.45" />
           </filter>
-          {/* Weiche Ecken wie bei der Kennzeichenschrift: kurz weichzeichnen, dann wieder scharf schwellen */}
-          <filter id={`${id}-round`} x="-3%" y="-8%" width="106%" height="116%" colorInterpolationFilters="sRGB">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="0.85" />
-            <feComponentTransfer>
+          <filter id={`${id}-emboss`} filterUnits="userSpaceOnUse" x={-4} y={-4} width={W + 8} height={H + 8} colorInterpolationFilters="sRGB">
+            {/* Weiche Ecken wie bei der Kennzeichenschrift: kurz weichzeichnen, dann wieder scharf schwellen */}
+            <feGaussianBlur in="SourceAlpha" stdDeviation="0.85" result="b" />
+            <feComponentTransfer in="b" result="shape">
               <feFuncA type="linear" slope="12" intercept="-5.2" />
             </feComponentTransfer>
+            {/* Flanken der Prägung */}
+            <feMorphology in="shape" operator="dilate" radius="0.55" result="wall" />
+            <feGaussianBlur in="wall" stdDeviation="0.75" result="wallSoft" />
+            <feOffset in="wallSoft" dx="0.75" dy="1" result="shOff" />
+            <feFlood floodColor="#0c1222" floodOpacity={tone === 'dark' ? 0.55 : 0.42} />
+            <feComposite in2="shOff" operator="in" result="shadow" />
+            <feOffset in="wallSoft" dx="-0.55" dy="-0.75" result="hlOff" />
+            <feFlood floodColor="#ffffff" floodOpacity="1" />
+            <feComposite in2="hlOff" operator="in" result="highlight" />
+            {/* Kontaktverschattung rund um das Zeichen */}
+            <feGaussianBlur in="shape" stdDeviation="1.6" result="ao" />
+            <feFlood floodColor="#0c1222" floodOpacity="0.1" />
+            <feComposite in2="ao" operator="in" result="aoShade" />
+            {/* Mattschwarze Farbe mit feiner Glanzkante oben links */}
+            <feFlood floodColor="#131314" />
+            <feComposite in2="shape" operator="in" result="ink" />
+            <feOffset in="shape" dx="0.5" dy="0.65" result="shapeOff" />
+            <feComposite in="shape" in2="shapeOff" operator="out" result="edge" />
+            <feGaussianBlur in="edge" stdDeviation="0.3" result="edgeSoft" />
+            <feFlood floodColor="#ffffff" floodOpacity="0.2" />
+            <feComposite in2="edgeSoft" operator="in" />
+            <feComposite in2="shape" operator="in" result="gloss" />
+            <feMerge>
+              <feMergeNode in="aoShade" />
+              <feMergeNode in="highlight" />
+              <feMergeNode in="shadow" />
+              <feMergeNode in="ink" />
+              <feMergeNode in="gloss" />
+            </feMerge>
           </filter>
           <filter id={`${id}-shadow`} x="-10%" y="-30%" width="120%" height="180%">
             <feGaussianBlur stdDeviation="3.2" />

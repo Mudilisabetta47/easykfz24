@@ -179,7 +179,8 @@
 }
 .choice {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
   padding: 18px 18px 18px 50px;
   border: 1px solid var(--ez-line-strong);
@@ -827,7 +828,8 @@
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  margin-block-start: 6px;
+  margin-block-start: auto;
+  padding-block-start: 6px;
   font-size: var(--step--1);
 }
 .choice__price strong {
@@ -999,4 +1001,41 @@
   .wish-box {
     grid-template-columns: 1fr;
   }
+}
+
+/* Vorschau der mitgelieferten Kennzeichenschilder (vorne und hinten) */
+.signs-preview {
+  position: relative;
+  display: grid;
+  margin-block-end: 14px;
+  padding: 14px 18px 18px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #eef2f8, #e4e9f2);
+}
+.signs-preview .lp {
+  grid-area: 1 / 1;
+  inline-size: 86%;
+}
+.signs-preview[data-count='2'] .lp:first-child {
+  transform: translate(0, 0) rotate(-1.2deg);
+}
+.signs-preview[data-count='2'] .lp:nth-child(2) {
+  justify-self: end;
+  margin-block-start: 22%;
+  transform: rotate(0.8deg);
+}
+.signs-preview[data-count='1'] .lp {
+  justify-self: center;
+}
+.signs-preview__tag {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline-end: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ez-muted, #5b6476);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

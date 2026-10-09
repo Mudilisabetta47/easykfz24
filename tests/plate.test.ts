@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GLYPHS, layoutPlate, normalizePlateParts, PLATE, splitPlate } from '../src/lib/plate.ts';
+import { GLYPHS, layoutPlate, normalizePlateParts, PLATE, scalePathX, splitPlate } from '../src/lib/plate.ts';
 
 describe('Kennzeichen-Glyphen', () => {
   it('decken A–Z, Umlaute und Ziffern ab', () => {
@@ -47,5 +47,17 @@ describe('layoutPlate', () => {
     assert.deepEqual(splitPlate('HB-EZ 24'), { cityCode: 'HB', letters: 'EZ', numbers: '24' });
     assert.deepEqual(splitPlate('B-EK 42E'), { cityCode: 'B', letters: 'EK', numbers: '42E' });
     assert.equal(splitPlate('HB EZ 24'), null);
+  });
+});
+
+describe('scalePathX', () => {
+  it('staucht nur x-Koordinaten und Bogenradien in x', () => {
+    assert.equal(scalePathX('M5 70L19 5H28.5V9A13 13 0 0 1 42.5 18Z', 0.5), 'M 2.5 70 L 9.5 5 H 14.25 V 9 A 6.5 13 0 0 1 21.25 18 Z');
+  });
+  it('lässt den Pfad bei Faktor 1 unverändert', () => {
+    assert.equal(scalePathX(GLYPHS.S.d[0], 1), GLYPHS.S.d[0]);
+  });
+  it('kann alle Glyphen verarbeiten', () => {
+    for (const g of Object.values(GLYPHS)) for (const d of g.d) assert.doesNotThrow(() => scalePathX(d, 0.8));
   });
 });

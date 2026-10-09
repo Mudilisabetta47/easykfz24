@@ -273,6 +273,9 @@ export function OrderWizard({
   const e = errors;
   const wishCheck = draft.plate.wunschkennzeichen ? checkPlate(draft.plate.wunschkennzeichen) : null;
   const wishParts = wishCheck?.ok ? splitPlate(wishCheck.value) : null;
+  const prevCheck = wahl === 'behalten' && draft.vehicle.bisherigesKennzeichen ? checkPlate(draft.vehicle.bisherigesKennzeichen) : null;
+  const signParts = wahl === 'wunsch' ? wishParts : prevCheck?.ok ? splitPlate(prevCheck.value) : null;
+  const signCount = plateSignCount(draft.vehicle.art || 'pkw');
   const finCheck = draft.vehicle.fin ? checkFin(draft.vehicle.fin) : null;
   const ibanCheck = draft.finish.iban ? checkIban(draft.finish.iban) : null;
 
@@ -411,6 +414,20 @@ export function OrderWizard({
                               update('plate', 'schilder', true);
                             }}
                           />
+                          <span className="signs-preview" aria-hidden="true" data-count={signCount}>
+                            {Array.from({ length: signCount }, (_, k) => (
+                              <GermanLicensePlate
+                                key={k}
+                                id={`wiz-sign-${k}`}
+                                cityCode={signParts?.cityCode ?? 'HB'}
+                                letters={signParts?.letters ?? 'EZ'}
+                                numbers={signParts?.numbers ?? '24'}
+                                size="100%"
+                                detail="lite"
+                              />
+                            ))}
+                            {signParts ? null : <span className="signs-preview__tag">Beispiel</span>}
+                          </span>
                           <span className="choice__title">Ja, Schilder mitliefern</span>
                           <span className="choice__text">Geprägt, passend zum Fahrzeug – kommen fertig zu Ihnen.</span>
                           {PRICES_FINAL ? (

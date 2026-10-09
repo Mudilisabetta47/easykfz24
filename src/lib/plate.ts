@@ -22,7 +22,7 @@ export const PLATE = {
   /** Abstand zwischen Buchstaben und Ziffern */
   GROUP_GAP: 23,
   /** Rand rechts und neben dem Eurofeld */
-  MARGIN: 8,
+  MARGIN: 10,
 } as const;
 
 export interface Glyph {
@@ -91,13 +91,14 @@ export const GLYPHS: Record<string, Glyph> = {
   Ö: { w: LW, d: [...o(19), ...DOTS] },
   Ü: { w: LW, d: [...u(19), ...DOTS] },
   '0': { w: DW, d: ['M17 5H27.5A12 12 0 0 1 39.5 17V58A12 12 0 0 1 27.5 70H17A12 12 0 0 1 5 58V17A12 12 0 0 1 17 5Z'] },
-  '1': { w: DW, d: ['M9.5 18L24.5 5V70', 'M10.5 70H38.5'] },
+  // Die 1 der FE-Schrift hat keinen Fuß, nur Fahne und Stamm.
+  '1': { w: DW, d: ['M8 22L27.5 5V70'] },
   '2': { w: DW, d: ['M5 18A13 13 0 0 1 18 5H26.5A13 13 0 0 1 39.5 18V22A14 14 0 0 1 35.3 32L5 65.5V70H39.5'] },
   '3': { w: DW, d: ['M5 5H39.5L20 32H26A13.5 13.5 0 0 1 39.5 45.5V56.5A13.5 13.5 0 0 1 26 70H18A13 13 0 0 1 5 57'] },
   '4': { w: DW, d: ['M30 70V5L5 49H39.5'] },
   '5': { w: DW, d: ['M38 5H7.5L6.5 36H26A13.5 13.5 0 0 1 39.5 49.5V56.5A13.5 13.5 0 0 1 26 70H18A13 13 0 0 1 5 57'] },
   '6': { w: DW, d: [LOWER_BOWL(35), 'M33 5L8 41'] },
-  '7': { w: DW, d: ['M5 5H39.5V9L17 70'] },
+  '7': { w: DW, d: ['M5 5H39.5L16 70'] },
   '8': {
     w: DW,
     d: ['M17 5H27.5A10.5 10.5 0 0 1 38 15.5V24.5A10.5 10.5 0 0 1 27.5 35H17A10.5 10.5 0 0 1 6.5 24.5V15.5A10.5 10.5 0 0 1 17 5Z', LOWER_BOWL(35)],
@@ -107,6 +108,52 @@ export const GLYPHS: Record<string, Glyph> = {
     d: ['M17.5 5H27A12.5 12.5 0 0 1 39.5 17.5V27.5A12.5 12.5 0 0 1 27 40H17.5A12.5 12.5 0 0 1 5 27.5V17.5A12.5 12.5 0 0 1 17.5 5Z', 'M36.5 34L11.5 70'],
   },
 };
+
+/**
+ * Staucht einen Glyphen-Pfad waagerecht (Engschrift), ohne die Strichstärke zu verändern –
+ * anders als ein scale()-Transform, der senkrechte Striche dünner machen würde.
+ * Unterstützt die in GLYPHS verwendeten absoluten Befehle M, L, H, V, A und Z.
+ */
+export function scalePathX(d: string, sx: number): string {
+  if (sx === 1) return d;
+  const tokens = d.match(/[MLHVAZ]|-?\d*\.?\d+/g) ?? [];
+  const out: string[] = [];
+  const f = (n: number) => String(Math.round(n * 1000) / 1000);
+  let i = 0;
+  let cmd = '';
+  while (i < tokens.length) {
+    if (/[MLHVAZ]/.test(tokens[i])) {
+      cmd = tokens[i++];
+      out.push(cmd);
+      if (cmd === 'Z') continue;
+    }
+    const n = () => Number(tokens[i++]);
+    switch (cmd) {
+      case 'M':
+      case 'L':
+        out.push(f(n() * sx), f(n()));
+        break;
+      case 'H':
+        out.push(f(n() * sx));
+        break;
+      case 'V':
+        out.push(f(n()));
+        break;
+      case 'A': {
+        const rx = n() * sx;
+        const ry = n();
+        const rot = n();
+        const large = n();
+        const sweep = n();
+        out.push(f(rx), f(ry), f(rot), String(large), String(sweep), f(n() * sx), f(n()));
+        break;
+      }
+      default:
+        throw new Error(`Pfadbefehl ${cmd} wird nicht unterstützt`);
+    }
+  }
+  return out.join(' ');
+}
 
 export interface PlacedGlyph {
   char: string;
