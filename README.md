@@ -99,11 +99,9 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
 
 ## Vor dem Livegang
 
-- Lizenz der Kennzeichenschrift klären (siehe „Kennzeichenschrift“) und die Schriftdatei auf dem Server ablegen
-
 1. **Platzhalter** in `src/lib/site.ts` ersetzen (Firma, Anschrift, Kontakt, Register, USt-ID, Betreiberzeile im Footer).
    Impressum und Datenschutz rechtlich prüfen lassen.
-2. **Preise** in `src/lib/pricing.config.ts` bestätigen (aktuell Vorschläge mit ,90-Endungen, `PRICES_FINAL = true`).
+2. **Preise** in `src/lib/pricing.config.ts` bestätigen (aktuell Vorschläge mit ,99-Endungen, `PRICES_FINAL = true`).
    Mit `PRICES_FINAL = false` nennt die Website keine Beträge. Amtliche Gebühren werden nie als feste Beträge genannt.
 3. **Neukundenrabatt** (`NEW_CUSTOMER_PROMO`): 10 % nur auf die Servicepauschale der ersten Beauftragung je E-Mail-Adresse,
    serverseitig geprüft. Durchgestrichen wird nur der reguläre Preis. Mit „nur für kurze Zeit“ erst werben, wenn
@@ -112,3 +110,5 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
 5. **Vollmacht-Vorlage** juristisch prüfen.
 6. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
 7. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
+
+8. **Kennzeichenschrift**: Lizenz klären (siehe „Kennzeichenschrift“) und die Schriftdatei auf dem Server unter `assets-src/fonts/` ablegen.
