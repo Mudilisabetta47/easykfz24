@@ -1264,3 +1264,122 @@
   gap: 14px 40px;
   margin-block-start: 40px;
 }
+.lp__caret {
+  animation: lp-caret 1.05s steps(1, end) infinite;
+}
+@keyframes lp-caret {
+  50% {
+    opacity: 0;
+  }
+}
+html[data-motion='reduced'] .lp__caret {
+  animation: none;
+}
+
+/* ---------- Kennzeichen-Eingabe (PlateInput) ---------- */
+.pi {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  inline-size: 100%;
+}
+.pi__bubble {
+  position: relative;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: var(--ez-blue);
+  color: white;
+  font-size: var(--step--1);
+  font-weight: 600;
+  box-shadow: 0 8px 20px -8px rgb(42 85 255 / 0.6);
+}
+.pi__bubble::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  border: 7px solid transparent;
+  border-block-start-color: var(--ez-blue);
+}
+.pi__plate {
+  position: relative;
+  max-inline-size: 100%;
+  line-height: 0;
+  cursor: text;
+}
+.pi__plate .lp {
+  inline-size: 100%;
+}
+.pi__field {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* verhindert Zoom auf iOS */
+  text-transform: uppercase;
+  cursor: text;
+}
+.pi__field::selection {
+  background: transparent;
+}
+.pi__field:focus {
+  outline: none;
+}
+.pi__field:focus-visible {
+  outline: none;
+}
+.pi__list {
+  position: absolute;
+  inset-block-start: calc(100% - 4px);
+  inset-inline-start: 8%;
+  z-index: 3;
+  inline-size: min(320px, 84%);
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--ez-line-strong);
+  border-radius: 14px;
+  background: white;
+  box-shadow: var(--shadow-float);
+  line-height: 1.3;
+}
+.pi__list button {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  inline-size: 100%;
+  min-block-size: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ez-ink);
+  font: inherit;
+  font-size: var(--step--1);
+  text-align: start;
+  cursor: pointer;
+}
+.pi__list button:hover,
+.pi__list [aria-selected='true'] button {
+  background: var(--ez-sky);
+}
+.pi__list strong {
+  min-inline-size: 3.2em;
+  font-family: var(--font-plate);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+}
+.pi__district {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ez-muted);
+}
+.pi__district strong {
+  color: var(--ez-ink);
+  letter-spacing: 0.04em;
+}

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { layoutPlate, PLATE, GLYPHS, scalePathX, type PlacedGlyph } from '../lib/plate.ts';
+import { groupExtent, layoutPlate, PLATE, PLATE_VIEW, GLYPHS, scalePathX, type PlacedGlyph, type PlateGroup } from '../lib/plate.ts';
 
 interface Props {
   cityCode: string;
@@ -19,12 +19,15 @@ interface Props {
   tone?: 'light' | 'dark';
   /** "lite" für viele kleine Schilder (ohne Körnung und Mikroprismen) */
   detail?: 'full' | 'lite';
+  /** Eingabemodus: diese Gruppen sind nur Platzhalter und erscheinen hellgrau statt geprägt */
+  ghost?: Partial<Record<PlateGroup, boolean>>;
+  /** Eingabemodus: blinkende Schreibmarke hinter dieser Gruppe */
+  caret?: PlateGroup | null;
+  /** Eingabemodus: Gruppen mit Fehler rot markieren */
+  invalid?: PlateGroup | 'all' | null;
 }
 
-// Rand um das Schild für Schatten und Kantenlicht (mm)
-const PAD_X = 6;
-const PAD_Y = 4;
-const PAD_B = 12;
+const { PAD_X, PAD_Y, PAD_B } = PLATE_VIEW;
 
 function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
   return (
@@ -49,6 +52,35 @@ function Embossed({ id, children, part }: { id: string; children: React.ReactNod
       </g>
     </g>
   );
+}
+
+/** Markierung des aktiven (blau) oder fehlerhaften (rot) Eingabebereichs. */
+function FieldMark({ layout, group, error }: { layout: ReturnType<typeof layoutPlate>; group: PlateGroup; error: boolean }) {
+  const ext = groupExtent(layout, group);
+  if (!ext) return null;
+  const x = ext.x0 - 6;
+  const w = Math.max(ext.x1 - ext.x0 + 12, 30);
+  return (
+    <rect
+      className="lp__mark"
+      x={x - (w - (ext.x1 - ext.x0 + 12)) / 2}
+      y={PLATE.CHAR_TOP - 7}
+      width={w}
+      height={PLATE.CHAR_H + 14}
+      rx={5}
+      fill={error ? 'rgb(196 50 43 / 0.1)' : 'rgb(42 85 255 / 0.09)'}
+      stroke={error ? 'rgb(196 50 43 / 0.55)' : 'rgb(42 85 255 / 0.4)'}
+      strokeWidth={1.6}
+    />
+  );
+}
+
+/** Schreibmarke im Eingabemodus: hinter dem letzten Zeichen, bei Platzhaltern davor. */
+function Caret({ layout, group, ghost }: { layout: ReturnType<typeof layoutPlate>; group: PlateGroup; ghost: boolean }) {
+  const ext = groupExtent(layout, group);
+  if (!ext) return null;
+  const x = ghost ? ext.x0 - 2 : ext.x1 + 2.6;
+  return <rect className="lp__caret" x={x - 1.6} y={PLATE.CHAR_TOP - 3} width={3.2} height={PLATE.CHAR_H + 6} rx={1.6} fill="#2a55ff" />;
 }
 
 function star(cx: number, cy: number, r: number): string {
@@ -78,6 +110,9 @@ export function GermanLicensePlate({
   className = '',
   tone = 'light',
   detail = 'full',
+  ghost,
+  caret = null,
+  invalid = null,
 }: Props) {
   const L = layoutPlate(cityCode, letters, numbers, showEuroBand);
   const { W, H, RADIUS } = PLATE;
@@ -285,16 +320,35 @@ export function GermanLicensePlate({
           ) : null}
 
           <g fill="none" strokeWidth={PLATE.STROKE} strokeLinejoin="miter" strokeMiterlimit={1.5} strokeLinecap="butt">
-            <Embossed id={id} part="district">
-              <Glyphs list={L.district} scaleX={L.scaleX} />
-            </Embossed>
-            <Embossed id={id} part="letters">
-              <Glyphs list={L.letters} scaleX={L.scaleX} />
-            </Embossed>
-            <Embossed id={id} part="digits">
-              <Glyphs list={L.digits} scaleX={L.scaleX} />
-            </Embossed>
+            {(
+              [
+                ['district', 'cityCode', L.district],
+                ['letters', 'letters', L.letters],
+                ['digits', 'numbers', L.digits],
+              ] as const
+            ).map(([part, group, list]) => {
+              const real = ghost?.[group] ? [] : list.filter((g) => g.char !== '?');
+              const flat = ghost?.[group] ? list : list.filter((g) => g.char === '?');
+              return (
+                <g key={part}>
+                  <Embossed id={id} part={part}>
+                    <Glyphs list={real} scaleX={L.scaleX} />
+                  </Embossed>
+                  {flat.length ? (
+                    <g stroke="#c3c9d4" className="lp__ghost">
+                      <Glyphs list={flat} scaleX={L.scaleX} />
+                    </g>
+                  ) : null}
+                </g>
+              );
+            })}
           </g>
+          {(['cityCode', 'letters', 'numbers'] as const).map((g) =>
+            invalid === g || invalid === 'all' || caret === g ? (
+              <FieldMark key={g} layout={L} group={g} error={invalid === g || invalid === 'all'} />
+            ) : null,
+          )}
+          {caret ? <Caret layout={L} group={caret} ghost={!!ghost?.[caret]} /> : null}
 
           {/* Plastik: oben Licht, unten leichte Abschattung */}
           <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-relief)`} pointerEvents="none" />

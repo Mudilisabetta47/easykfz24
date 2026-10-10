@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { checkWish, normalizeWish, parseWishText, searchDistricts, type WishInput } from '../../lib/wish-plate.ts';
+import { checkWish, normalizeWish, type WishInput } from '../../lib/wish-plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
+import { PlateInput } from './PlateInput.tsx';
 import { ArrowRight, Close, Restart } from '../icons.tsx';
 
 type Status = 'frei' | 'vergeben' | 'unbekannt';
@@ -70,17 +71,15 @@ export function PlateConfigurator({
   /** Übernahme-Modus (im Auftrag): gewähltes Kennzeichen zurückgeben statt zum Auftrag zu verlinken */
   onPick?: (plate: string) => void;
 }) {
-  const [wish, setWish] = useState<WishInput>(initial ?? { cityCode: '', letters: '??', numbers: '??' });
+  const [wish, setWish] = useState<WishInput>(initial ?? { cityCode: '', letters: '', numbers: '' });
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Suggestion | null>(null);
-  const [showDistricts, setShowDistricts] = useState(false);
   const dialog = useRef<HTMLDivElement>(null);
-  const cityRef = useRef<HTMLInputElement>(null);
 
-  const local = useMemo(() => checkWish(wish), [wish]);
-  const districtHits = useMemo(() => (showDistricts ? searchDistricts(wish.cityCode, 6) : []), [wish.cityCode, showDistricts]);
+  // Leere Buchstaben/Zahlen bedeuten „beliebig“ – dann kommen Vorschläge.
+  const local = useMemo(() => checkWish({ ...wish, letters: wish.letters || '??', numbers: wish.numbers || '??' }), [wish]);
 
   // Scrollsperre, Fokus, Escape, Fokusfalle
   useEffect(() => {
@@ -88,7 +87,7 @@ export function PlateConfigurator({
     root.setAttribute('data-scroll-lock', '');
     const prevOverflow = root.style.overflow;
     root.style.overflow = 'hidden';
-    cityRef.current?.focus();
+    dialog.current?.querySelector<HTMLInputElement>('.pi__field')?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
       if (e.key !== 'Tab' || !dialog.current) return;
@@ -138,19 +137,15 @@ export function PlateConfigurator({
     };
   }, [local, page]);
 
-  const update = useCallback((key: keyof WishInput, value: string) => {
-    // „OHZ ?? ??“ in das erste Feld eingefügt → auf alle Felder verteilen
-    if (key === 'cityCode' && /[\s-]/.test(value.trim())) {
-      setWish(normalizeWish(parseWishText(value)));
-    } else {
-      setWish((w) => normalizeWish({ ...w, [key]: value }));
-    }
+  const update = useCallback((next: WishInput) => {
+    setWish(normalizeWish(next));
     setPage(0);
     setSelected(null);
   }, []);
 
-  const preview = selected ?? (local.ok && local.openSlots === 0 ? local.pattern : null);
   const fieldError = !local.ok && wish.cityCode ? local : null;
+  // Offene Stellen zeigen grau die gerade gewählte Kombination
+  const placeholder = { cityCode: 'HB', letters: selected?.letters ?? 'EZ', numbers: selected?.numbers ?? '24' };
 
   return createPortal(
     <div className="pc" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -166,55 +161,18 @@ export function PlateConfigurator({
         </header>
 
         <div className="pc__preview">
-          <GermanLicensePlate
-            id="pc-preview"
-            cityCode={preview?.cityCode ?? wish.cityCode}
-            letters={preview?.letters ?? wish.letters.replace(/\?/g, '')}
-            numbers={preview?.numbers ?? wish.numbers.replace(/\?/g, '')}
+          <PlateInput
+            id="pc-input"
+            value={wish}
+            onChange={update}
+            placeholder={placeholder}
             size="min(100%, 620px)"
+            bubble="Kennzeichen eingeben"
+            showDistrict={false}
+            invalid={fieldError ? fieldError.field : null}
+            describedBy="pc-district"
+            onEnter={() => selected && onPick?.(selected.plate)}
           />
-        </div>
-
-        <div className="pc__inputs">
-          <div className="pc__field pc__field--city">
-            <label htmlFor="pc-city">Ort</label>
-            <input
-              ref={cityRef}
-              id="pc-city"
-              value={wish.cityCode}
-              onChange={(e) => update('cityCode', e.target.value)}
-              onFocus={() => setShowDistricts(true)}
-              onBlur={() => window.setTimeout(() => setShowDistricts(false), 150)}
-              placeholder="OHZ"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={12}
-              aria-describedby="pc-district"
-              aria-invalid={fieldError?.field === 'cityCode'}
-            />
-            {districtHits.length && !(local.ok && districtHits[0]?.code === wish.cityCode && districtHits.length === 1) ? (
-              <ul className="pc__districts" role="listbox" aria-label="Ortskennzeichen">
-                {districtHits.map((d) => (
-                  <li key={d.code} role="option" aria-selected={d.code === wish.cityCode}>
-                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { update('cityCode', d.code); setShowDistricts(false); }}>
-                      <strong>{d.code}</strong> {d.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-          <span className="pc__dash" aria-hidden="true">
-            –
-          </span>
-          <div className="pc__field">
-            <label htmlFor="pc-letters">Buchstaben</label>
-            <input id="pc-letters" value={wish.letters} onChange={(e) => update('letters', e.target.value)} placeholder="??" autoComplete="off" maxLength={2} aria-invalid={fieldError?.field === 'letters'} />
-          </div>
-          <div className="pc__field">
-            <label htmlFor="pc-numbers">Zahlen</label>
-            <input id="pc-numbers" value={wish.numbers} onChange={(e) => update('numbers', e.target.value)} placeholder="??" inputMode="numeric" autoComplete="off" maxLength={4} aria-invalid={fieldError?.field === 'numbers'} />
-          </div>
         </div>
         <p className="pc__district" id="pc-district" aria-live="polite">
           {local.ok ? (
@@ -224,7 +182,7 @@ export function PlateConfigurator({
           ) : fieldError ? (
             <span className="pc__error">{fieldError.error}</span>
           ) : (
-            'Ortskennzeichen eingeben – „?“ steht für einen beliebigen Buchstaben oder eine Ziffer.'
+            'Einfach ins Schild tippen: Ort, dann Buchstaben und Zahlen. Lässt du die leer, schlagen wir Kombinationen vor.'
           )}
         </p>
 

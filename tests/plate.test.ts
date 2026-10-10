@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GLYPHS, layoutPlate, normalizePlateParts, PLATE, scalePathX, splitPlate } from '../src/lib/plate.ts';
+import { GLYPHS, groupExtent, layoutPlate, normalizePlateParts, PLATE, scalePathX, splitPlate } from '../src/lib/plate.ts';
 
 describe('Kennzeichen-Glyphen', () => {
   it('decken A–Z, Umlaute und Ziffern ab', () => {
@@ -59,5 +59,19 @@ describe('scalePathX', () => {
   });
   it('kann alle Glyphen verarbeiten', () => {
     for (const g of Object.values(GLYPHS)) for (const d of g.d) assert.doesNotThrow(() => scalePathX(d, 0.8));
+  });
+});
+
+describe('Eingabemodus', () => {
+  it('kennt „?“ als Platzhalterzeichen und behält es in Buchstaben und Zahlen', () => {
+    assert.ok(GLYPHS['?']);
+    assert.deepEqual(normalizePlateParts('ohz', 'r?', '?7'), { cityCode: 'OHZ', letters: 'R?', numbers: '?7' });
+  });
+  it('liefert die Ausdehnung jeder Zeichengruppe', () => {
+    const l = layoutPlate('OHZ', 'RO', '87');
+    const c = groupExtent(l, 'cityCode');
+    const n = groupExtent(l, 'numbers');
+    assert.ok(c && n && c.x1 < n.x0);
+    assert.equal(groupExtent(layoutPlate('B', 'A', ''), 'numbers'), null);
   });
 });

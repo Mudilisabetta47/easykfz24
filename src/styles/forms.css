@@ -962,45 +962,31 @@
 }
 .wish-box {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 20px;
+  justify-items: center;
+  gap: 14px;
   margin-block-start: 14px;
-  padding: 18px;
+  padding: 22px 18px 18px;
   border-radius: 18px;
   background:
-    radial-gradient(80% 100% at 0% 100%, rgb(42 85 255 / 0.1), transparent 70%),
+    radial-gradient(70% 90% at 50% 100%, rgb(42 85 255 / 0.1), transparent 70%),
     var(--ez-bg);
   border: 1px solid var(--ez-line);
 }
-.wish-box__preview {
-  display: grid;
-  place-items: center;
-  min-block-size: 96px;
-}
-.wish-box__empty {
-  display: grid;
-  place-items: center;
-  inline-size: min(100%, 360px);
-  aspect-ratio: 520 / 110;
-  border: 1.5px dashed var(--ez-line-strong);
-  border-radius: 8px;
-  font-size: var(--step--1);
-  color: var(--ez-muted);
-  text-align: center;
-  padding: 8px;
+.wish-box > .field__error {
+  margin: 0;
 }
 .wish-box__actions {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  inline-size: 100%;
 }
-.wish-box__actions > .btn {
-  justify-self: start;
-}
-@media (max-width: 760px) {
-  .wish-box {
-    grid-template-columns: 1fr;
-  }
+.wish-box__hint {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ez-muted);
 }
 
 /* Vorschau der mitgelieferten Kennzeichenschilder (vorne und hinten) */
@@ -1038,4 +1024,9 @@
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+@media (max-width: 600px) {
+  .wish-box {
+    padding: 18px 10px 14px;
+  }
 }

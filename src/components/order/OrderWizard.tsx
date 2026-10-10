@@ -36,6 +36,8 @@ import { checkFin, checkIban, checkPlate, formatIban } from '../../lib/validatio
 import { splitPlate } from '../../lib/plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
+import { PlateInput } from '../plate/PlateInput.tsx';
+import { normalizeWish, parseWishText, type WishInput } from '../../lib/wish-plate.ts';
 import { ArrowRight, Check, Close, Doc } from '../icons.tsx';
 import { CarrierMark, PaymentMarks } from '../Brands.tsx';
 import { CARRIER_IDS, CARRIERS, isCarrierId } from '../../lib/shipping.ts';
@@ -273,6 +275,7 @@ export function OrderWizard({
   const e = errors;
   const wishCheck = draft.plate.wunschkennzeichen ? checkPlate(draft.plate.wunschkennzeichen) : null;
   const wishParts = wishCheck?.ok ? splitPlate(wishCheck.value) : null;
+  const wishInput = normalizeWish(wishParts ?? parseWishText(draft.plate.wunschkennzeichen));
   const prevCheck = wahl === 'behalten' && draft.vehicle.bisherigesKennzeichen ? checkPlate(draft.vehicle.bisherigesKennzeichen) : null;
   const signParts = wahl === 'wunsch' ? wishParts : prevCheck?.ok ? splitPlate(prevCheck.value) : null;
   const signCount = plateSignCount(draft.vehicle.art || 'pkw');
@@ -338,7 +341,7 @@ export function OrderWizard({
                           checked={wahl === c}
                           onChange={() => {
                             update('plate', 'wahl', c);
-                            if (c === 'wunsch' && !draft.plate.wunschkennzeichen) setPickerOpen(true);
+                            if (c === 'wunsch' && !draft.plate.wunschkennzeichen) focusWishPlate();
                           }}
                         />
                         <span className="choice__title">{PLATE_CHOICES[c].label}</span>
@@ -375,27 +378,24 @@ export function OrderWizard({
 
                   {wahl === 'wunsch' ? (
                     <div className="wish-box" data-error-anchor="plate.wunschkennzeichen" tabIndex={-1}>
-                      <div className="wish-box__preview">
-                        {wishParts ? (
-                          <GermanLicensePlate id="wiz-wish" {...wishParts} size="min(100%, 360px)" detail="lite" />
-                        ) : (
-                          <span className="wish-box__empty">Noch kein Wunschkennzeichen gewählt</span>
-                        )}
-                      </div>
+                      <PlateInput
+                        id="wiz-wish"
+                        value={wishInput}
+                        onChange={(v) => update('plate', 'wunschkennzeichen', wishText(v))}
+                        placeholder={{ cityCode: 'OHZ', letters: 'AB', numbers: '123' }}
+                        size="min(100%, 520px)"
+                        bubble="Wunschkennzeichen eingeben"
+                        invalid={e['plate.wunschkennzeichen'] ? 'all' : null}
+                        describedBy="wiz-wish-hint"
+                      />
+                      {e['plate.wunschkennzeichen'] ? <p className="field__error">{e['plate.wunschkennzeichen']}</p> : null}
                       <div className="wish-box__actions">
-                        <button type="button" className="btn" onClick={() => setPickerOpen(true)}>
-                          {wishParts ? 'Anderes Kennzeichen suchen' : 'Wunschkennzeichen suchen'}
+                        <p className="wish-box__hint" id="wiz-wish-hint">
+                          Das Ortskennzeichen muss zu Ihrem Wohnsitz gehören.
+                        </p>
+                        <button type="button" className="btn btn--sm btn--ghost" onClick={() => setPickerOpen(true)}>
+                          Freie Kombinationen vorschlagen
                         </button>
-                        <Field path="plate.wunschkennzeichen" label="oder direkt eingeben" error={e['plate.wunschkennzeichen']} hint="z. B. OHZ-ME 34 – Ort muss zu Ihrem Wohnsitz gehören">
-                          <input
-                            id={fieldId('plate.wunschkennzeichen')}
-                            className="input--mono"
-                            autoComplete="off"
-                            value={draft.plate.wunschkennzeichen}
-                            onChange={(ev) => update('plate', 'wunschkennzeichen', ev.target.value.toUpperCase())}
-                            aria-invalid={!!e['plate.wunschkennzeichen']}
-                          />
-                        </Field>
                       </div>
                     </div>
                   ) : null}
@@ -474,7 +474,7 @@ export function OrderWizard({
                         onClick={() => {
                           setSigns('ja');
                           setDraft((d) => withBundle(d, true));
-                          if (!draft.plate.wunschkennzeichen) setPickerOpen(true);
+                          if (!draft.plate.wunschkennzeichen) focusWishPlate();
                         }}
                       >
                         Paket wählen
@@ -488,7 +488,7 @@ export function OrderWizard({
 
               {pickerOpen ? (
                 <PlateConfigurator
-                  initial={wishParts ?? undefined}
+                  initial={wishInput.cityCode ? wishInput : undefined}
                   onClose={() => setPickerOpen(false)}
                   onPick={(plate) => {
                     update('plate', 'wunschkennzeichen', plate);
@@ -1068,6 +1068,17 @@ function ChoicePrice({ id }: { id: ServiceId }) {
 }
 
 /** Übernimmt ein im Konfigurator gewähltes Wunschkennzeichen, sofern die Leistung Wunschkennzeichen erlaubt. */
+/** Eingabe im Schild → Textform „OHZ-AB 123“ (auch unvollständig, damit nichts verloren geht). */
+/** Schreibmarke direkt ins Wunschkennzeichen-Schild setzen (nach dem Rendern). */
+function focusWishPlate() {
+  requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.wish-box .pi__field')?.focus());
+}
+
+function wishText(v: WishInput): string {
+  if (!v.cityCode && !v.letters && !v.numbers) return '';
+  return `${v.cityCode}${v.letters || v.numbers ? '-' : ''}${v.letters}${v.numbers ? ` ${v.numbers}` : ''}`;
+}
+
 function withWish(draft: OrderInput, wish: string): OrderInput {
   if (!wish) return draft;
   const service = isServiceId(draft.service) ? draft.service : null;

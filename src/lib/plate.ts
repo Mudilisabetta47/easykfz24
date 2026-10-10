@@ -2,12 +2,15 @@
 // Zeichen nach dem Raster der FE-Mittelschrift (Höhe 75 mm, Buchstaben 47,5 mm, Ziffern 44,5 mm breit),
 // eigene Nachzeichnung als Mittellinien-Pfade mit 10 mm Strichstärke.
 
+/** Rand um das Schild in der SVG-Ansicht (Schatten, Kantenlicht), in mm */
+export const PLATE_VIEW = { PAD_X: 6, PAD_Y: 4, PAD_B: 12 } as const;
+
 export const PLATE = {
   W: 520,
   H: 110,
   RADIUS: 5.5,
   BORDER_INSET: 1.25,
-  BORDER_W: 1.35,
+  BORDER_W: 1.9,
   BAND_X: 3.2,
   BAND_W: 41,
   CHAR_H: 75,
@@ -90,6 +93,8 @@ export const GLYPHS: Record<string, Glyph> = {
   Ä: { w: LW, d: [...a(19), ...DOTS] },
   Ö: { w: LW, d: [...o(19), ...DOTS] },
   Ü: { w: LW, d: [...u(19), ...DOTS] },
+  // Platzhalter für „beliebiges Zeichen“ in der Wunschkennzeichen-Suche (kein Zeichen der FE-Schrift)
+  '?': { w: LW, d: ['M7 19A14 14 0 0 1 21 5H27.5A14 14 0 0 1 41.5 19V21A13 13 0 0 1 34.5 32.5L23.75 39V51', 'M23.75 60V70'] },
   '0': { w: DW, d: ['M17 5H27.5A12 12 0 0 1 39.5 17V58A12 12 0 0 1 27.5 70H17A12 12 0 0 1 5 58V17A12 12 0 0 1 17 5Z'] },
   // Die 1 der FE-Schrift hat keinen Fuß, nur Fahne und Stamm.
   '1': { w: DW, d: ['M8 22L27.5 5V70'] },
@@ -178,8 +183,8 @@ export function normalizePlateParts(cityCode: string, letters: string, numbers: 
   const clean = (s: string, re: RegExp) => [...s.toUpperCase()].filter((c) => re.test(c) && GLYPHS[c]).join('');
   return {
     cityCode: clean(cityCode, /[A-ZÄÖÜ]/).slice(0, 3),
-    letters: clean(letters, /[A-Z]/).slice(0, 2),
-    numbers: clean(numbers, /[0-9EH]/).slice(0, 5),
+    letters: clean(letters, /[A-Z?]/).slice(0, 2),
+    numbers: clean(numbers, /[0-9EH?]/).slice(0, 5),
   };
 }
 
@@ -219,4 +224,14 @@ export function layoutPlate(cityCode: string, letters: string, numbers: string, 
 export function splitPlate(plate: string): { cityCode: string; letters: string; numbers: string } | null {
   const m = /^([A-ZÄÖÜ]{1,3})-([A-Z]{1,2}) (\d{1,4}[EH]?)$/.exec(plate.trim());
   return m ? { cityCode: m[1], letters: m[2], numbers: m[3] } : null;
+}
+
+export type PlateGroup = 'cityCode' | 'letters' | 'numbers';
+
+/** Horizontale Ausdehnung einer Zeichengruppe (mm, Schild-Koordinaten); null bei leerer Gruppe. */
+export function groupExtent(layout: PlateLayout, group: PlateGroup): { x0: number; x1: number } | null {
+  const list = group === 'cityCode' ? layout.district : group === 'letters' ? layout.letters : layout.digits;
+  if (!list.length) return null;
+  const last = list[list.length - 1];
+  return { x0: list[0].x, x1: last.x + last.glyph.w * layout.scaleX };
 }
