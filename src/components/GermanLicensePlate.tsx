@@ -33,7 +33,14 @@ function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
   return (
     <>
       {list.map((g, i) =>
-        g.glyph.d.map((d, j) => <path key={`${i}-${j}`} d={scalePathX(d, scaleX)} transform={`translate(${g.x.toFixed(2)} ${PLATE.CHAR_TOP})`} />),
+        g.glyph.d.map((d, j) => (
+          <path
+            key={`${i}-${j}`}
+            d={scalePathX(d, scaleX)}
+            transform={`translate(${g.x.toFixed(2)} ${PLATE.CHAR_TOP})`}
+            {...(g.glyph.fill ? { fill: 'currentColor', stroke: 'none' } : { fill: 'none', stroke: 'currentColor' })}
+          />
+        )),
       )}
     </>
   );
@@ -47,7 +54,7 @@ function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
 function Embossed({ id, children, part }: { id: string; children: React.ReactNode; part?: string }) {
   return (
     <g data-plate-part={part} className="lp__part">
-      <g stroke="#000" filter={`url(#${id}-emboss)`}>
+      <g color="#000" stroke="#000" filter={`url(#${id}-emboss)`}>
         {children}
       </g>
     </g>
@@ -301,8 +308,15 @@ export function GermanLicensePlate({
                 const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
                 return <polygon key={i} points={star(starCx + Math.cos(ang) * 12.4, 30 + Math.sin(ang) * 12.4, 2.75)} fill="#ffd200" />;
               })}
-              <g stroke="#ffffff" strokeWidth={PLATE.STROKE} fill="none" strokeLinejoin="miter" strokeMiterlimit={1.5}>
-                <path d={GLYPHS.D.d[0]} transform={`translate(${dX.toFixed(2)} ${dY}) scale(${dScale})`} />
+              <g color="#ffffff" strokeWidth={PLATE.STROKE} strokeLinejoin="miter" strokeMiterlimit={1.5}>
+                {GLYPHS.D.d.map((d, k) => (
+                  <path
+                    key={k}
+                    d={d}
+                    transform={`translate(${dX.toFixed(2)} ${dY}) scale(${dScale})`}
+                    {...(GLYPHS.D.fill ? { fill: 'currentColor', stroke: 'none' } : { fill: 'none', stroke: 'currentColor' })}
+                  />
+                ))}
               </g>
             </g>
           ) : null}
@@ -335,7 +349,7 @@ export function GermanLicensePlate({
                     <Glyphs list={real} scaleX={L.scaleX} />
                   </Embossed>
                   {flat.length ? (
-                    <g stroke="#c3c9d4" className="lp__ghost">
+                    <g color="#c3c9d4" className="lp__ghost">
                       <Glyphs list={flat} scaleX={L.scaleX} />
                     </g>
                   ) : null}

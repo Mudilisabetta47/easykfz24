@@ -69,6 +69,17 @@ Bild. Gemessen wird nur in `refreshAll()` (Resize, ResizeObserver, Fonts), pro F
 | **Wunschkennzeichen-Verfügbarkeit** | Konfigurator mit allen Ortskennzeichen, Platzhaltern und Vorschlägen; Status „wird bei Reservierung geprüft“. | Dienst mit Verfügbarkeitsdaten über `PLATE_AVAILABILITY_URL`/`_KEY` (Format in `src/server/plate-availability.ts`). |
 | **Logos** der Partner | Neutrale Schriftmarken | Offizielle Dateien nach `public/brands/` legen und in `src/lib/shipping.ts` / `src/lib/payment.ts` eintragen. |
 
+## Kennzeichenschrift
+
+Die Schilder werden als SVG gezeichnet. Liegt eine Kennzeichenschrift (FE-Schrift) als `assets-src/fonts/fe-schrift.ttf`
+(oder `.otf`/`.woff2`) vor, übernimmt `npm run plate-font` deren Zeichen als Vektorpfade nach
+`src/lib/plate-font.generated.ts`; `dev`, `build`, `test` und `typecheck` erledigen das automatisch. Fehlende Umlaute werden
+aus A/O/U und zwei Punkten zusammengesetzt. Ohne Schriftdatei greift die eingebaute Nachzeichnung.
+
+Schriftdatei und erzeugte Datei sind bewusst nicht im Repository (`.gitignore`): Die vorliegende „FE-Font“ (1997) enthält
+keine Lizenzangabe und ist als „eingeschränkt einbettbar“ markiert. Erst mit geklärter Lizenz einchecken bzw. auf dem
+Server ablegen.
+
 ## Preise
 
 Alle Preise enden auf ,99 (`src/lib/pricing.config.ts`). Neukundenpreise werden auf …9,99 bzw. ,99 abgerundet –
@@ -87,6 +98,8 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
   diesen Header setzt; bei mehreren Instanzen einen gemeinsamen Speicher (z. B. Redis) verwenden.
 
 ## Vor dem Livegang
+
+- Lizenz der Kennzeichenschrift klären (siehe „Kennzeichenschrift“) und die Schriftdatei auf dem Server ablegen
 
 1. **Platzhalter** in `src/lib/site.ts` ersetzen (Firma, Anschrift, Kontakt, Register, USt-ID, Betreiberzeile im Footer).
    Impressum und Datenschutz rechtlich prüfen lassen.

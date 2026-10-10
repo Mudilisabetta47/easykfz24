@@ -28,8 +28,12 @@ export const PLATE = {
   MARGIN: 10,
 } as const;
 
+import { PLATE_FONT } from './plate-font.generated.ts';
+
 export interface Glyph {
   w: number;
+  /** true: gefüllte Umrisse aus der Kennzeichenschrift; sonst Mittellinien mit Strichstärke STROKE */
+  fill?: boolean;
   /** Mittellinien-Pfade, Koordinaten 0..w × 0..75 inkl. halber Strichstärke */
   d: string[];
 }
@@ -56,7 +60,8 @@ const C_ARC = 'A13 13 0 0 0 29.5 5H18A13 13 0 0 0 5 18V57A13 13 0 0 0 18 70H29.5
 const LOWER_BOWL = (top: number) =>
   `M17.5 ${top}H27A12.5 12.5 0 0 1 39.5 ${top + 12.5}V57.5A12.5 12.5 0 0 1 27 70H17.5A12.5 12.5 0 0 1 5 57.5V${top + 12.5}A12.5 12.5 0 0 1 17.5 ${top}Z`;
 
-export const GLYPHS: Record<string, Glyph> = {
+/** Eingebaute Nachzeichnung (Mittellinien) – Rückfall, wenn keine Schriftdatei vorliegt. */
+export const STROKE_GLYPHS: Record<string, Glyph> = {
   A: { w: LW, d: a(5) },
   B: {
     w: LW,
@@ -114,20 +119,40 @@ export const GLYPHS: Record<string, Glyph> = {
   },
 };
 
+/** Abstand zwischen den Tintenkanten zweier Zeichen bei gefüllten Schriftzeichen (mm) */
+const FONT_GAP = 6;
+
+/**
+ * Zeichen fürs Schild: aus der Kennzeichenschrift (scripts/plate-font.mjs → plate-font.generated.ts),
+ * fehlende Zeichen aus der eingebauten Nachzeichnung.
+ */
+export const GLYPHS: Record<string, Glyph> = {
+  ...STROKE_GLYPHS,
+  ...Object.fromEntries(Object.entries(PLATE_FONT?.glyphs ?? {}).map(([c, g]) => [c, { w: g.w, d: [g.d], fill: true }])),
+};
+export const PLATE_FONT_NAME = PLATE_FONT?.name ?? null;
+
+/** Abstand zwischen zwei Zeichen: Rechteck-Raster der Nachzeichnung bzw. Tintenabstand der Schrift */
+function charGap(a: Glyph, b: Glyph): number {
+  if (a.fill && b.fill) return FONT_GAP;
+  if (!a.fill && !b.fill) return PLATE.GAP;
+  return (PLATE.GAP + FONT_GAP) / 2;
+}
+
 /**
  * Staucht einen Glyphen-Pfad waagerecht (Engschrift), ohne die Strichstärke zu verändern –
  * anders als ein scale()-Transform, der senkrechte Striche dünner machen würde.
- * Unterstützt die in GLYPHS verwendeten absoluten Befehle M, L, H, V, A und Z.
+ * Unterstützt die absoluten Befehle M, L, H, V, A, Q, C und Z.
  */
 export function scalePathX(d: string, sx: number): string {
   if (sx === 1) return d;
-  const tokens = d.match(/[MLHVAZ]|-?\d*\.?\d+/g) ?? [];
+  const tokens = d.match(/[MLHVAQCZ]|-?\d*\.?\d+/g) ?? [];
   const out: string[] = [];
   const f = (n: number) => String(Math.round(n * 1000) / 1000);
   let i = 0;
   let cmd = '';
   while (i < tokens.length) {
-    if (/[MLHVAZ]/.test(tokens[i])) {
+    if (/[MLHVAQCZ]/.test(tokens[i])) {
       cmd = tokens[i++];
       out.push(cmd);
       if (cmd === 'Z') continue;
@@ -143,6 +168,12 @@ export function scalePathX(d: string, sx: number): string {
         break;
       case 'V':
         out.push(f(n()));
+        break;
+      case 'Q':
+        out.push(f(n() * sx), f(n()), f(n() * sx), f(n()));
+        break;
+      case 'C':
+        out.push(f(n() * sx), f(n()), f(n() * sx), f(n()), f(n() * sx), f(n()));
         break;
       case 'A': {
         const rx = n() * sx;
@@ -196,7 +227,7 @@ export function layoutPlate(cityCode: string, letters: string, numbers: string, 
   const avail = textEnd - textStart;
 
   const width = (s: string) =>
-    [...s].reduce((sum, c, i) => sum + GLYPHS[c].w + (i > 0 ? PLATE.GAP : 0), 0);
+    [...s].reduce((sum, c, i) => sum + GLYPHS[c].w + (i > 0 ? charGap(GLYPHS[s[i - 1]], GLYPHS[c]) : 0), 0);
   // Saisons-/E-/H-Zusatz steht mit kleinem Abstand hinter den Ziffern – gleiche Mechanik wie GAP.
   const total =
     width(parts.cityCode) + PLATE.SEAL_W + width(parts.letters) + (parts.numbers ? PLATE.GROUP_GAP + width(parts.numbers) : 0);
@@ -204,8 +235,8 @@ export function layoutPlate(cityCode: string, letters: string, numbers: string, 
   let x = textStart + (avail - total * scaleX) / 2;
 
   const place = (s: string): PlacedGlyph[] =>
-    [...s].map((char, i) => {
-      if (i > 0) x += PLATE.GAP * scaleX;
+    [...s].map((char, i, all) => {
+      if (i > 0) x += charGap(GLYPHS[all[i - 1]], GLYPHS[char]) * scaleX;
       const placed = { char, x, glyph: GLYPHS[char] };
       x += GLYPHS[char].w * scaleX;
       return placed;

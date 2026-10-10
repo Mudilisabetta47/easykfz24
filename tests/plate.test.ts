@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GLYPHS, groupExtent, layoutPlate, normalizePlateParts, PLATE, scalePathX, splitPlate } from '../src/lib/plate.ts';
+import { GLYPHS, groupExtent, layoutPlate, normalizePlateParts, PLATE, scalePathX, splitPlate, STROKE_GLYPHS } from '../src/lib/plate.ts';
 
 describe('Kennzeichen-Glyphen', () => {
   it('decken A–Z, Umlaute und Ziffern ab', () => {
@@ -9,9 +9,9 @@ describe('Kennzeichen-Glyphen', () => {
     }
   });
   it('nutzen die Breiten der Mittelschrift', () => {
-    assert.equal(GLYPHS.H.w, 47.5);
-    assert.equal(GLYPHS['4'].w, 44.5);
-    assert.ok(GLYPHS.I.w < 20, 'I ist schmal');
+    assert.equal(STROKE_GLYPHS.H.w, 47.5);
+    assert.equal(STROKE_GLYPHS['4'].w, 44.5);
+    assert.ok(STROKE_GLYPHS.I.w < 20, 'I ist schmal');
   });
 });
 
@@ -73,5 +73,14 @@ describe('Eingabemodus', () => {
     const n = groupExtent(l, 'numbers');
     assert.ok(c && n && c.x1 < n.x0);
     assert.equal(groupExtent(layoutPlate('B', 'A', ''), 'numbers'), null);
+  });
+});
+
+describe('scalePathX mit Kurven', () => {
+  it('staucht Q- und C-Befehle', () => {
+    assert.equal(scalePathX('M10 0Q20 5 30 10C40 0 50 0 60 10Z', 0.5), 'M 5 0 Q 10 5 15 10 C 20 0 25 0 30 10 Z');
+  });
+  it('verarbeitet alle Schriftzeichen', () => {
+    for (const g of Object.values(GLYPHS)) for (const d of g.d) assert.doesNotThrow(() => scalePathX(d, 0.85));
   });
 });

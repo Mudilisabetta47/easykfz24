@@ -10,3 +10,6 @@ next-env.d.ts
 # Original-Logodateien (Quellen, nicht ausliefern)
 assets-src/
 .DS_Store
+
+# Aus einer lizenzierten Kennzeichenschrift erzeugt (scripts/plate-font.mjs) – nur mit geklärter Lizenz einchecken
+src/lib/plate-font.generated.ts
