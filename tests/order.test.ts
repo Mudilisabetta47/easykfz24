@@ -4,7 +4,7 @@ import { applyServiceDefaults, emptyDraft, errorsForPrefix, validateDocuments, v
 
 function validDraft() {
   const d = emptyDraft('halterwechsel');
-  d.vehicle = { art: 'pkw', hersteller: 'Audi', modell: 'A5 Coupé', fin: 'WAUZZZF55KA012345', bisherigesKennzeichen: 'hb-ez 24', antrieb: 'benzin', eKennzeichen: true };
+  d.vehicle = { art: 'pkw', hersteller: 'Audi', modell: 'A5 Coupé', fin: 'WAUZZZF55KA012345', bisherigesKennzeichen: 'hb-ez 24', antrieb: 'benzin', eKennzeichen: true, hKennzeichen: false };
   d.holder = {
     ...d.holder,
     typ: 'privat',
@@ -136,7 +136,7 @@ describe('validateDocuments', () => {
 describe('Versanddienst', () => {
   it('ist bei Versand Pflicht und bei Abholung leer', () => {
     const d = emptyDraft('abmeldung');
-    d.vehicle = { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin: 'WVWZZZ1JZ3W386752', bisherigesKennzeichen: 'HB-A 1', antrieb: 'benzin', eKennzeichen: false };
+    d.vehicle = { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin: 'WVWZZZ1JZ3W386752', bisherigesKennzeichen: 'HB-A 1', antrieb: 'benzin', eKennzeichen: false, hKennzeichen: false };
     d.holder = { ...d.holder, typ: 'privat', vorname: 'A', nachname: 'B', geburtsdatum: '1980-01-01', strasse: 'X', hausnummer: '1', plz: '28195', ort: 'Bremen', email: 'a@b.de', telefon: '0421 123456' };
     d.finish = { ...d.finish, vollmacht: true, datenschutz: true };
     d.plate = { ...d.plate, zustellung: 'versand', versanddienst: '' };
@@ -149,5 +149,27 @@ describe('Versanddienst', () => {
     d.plate = { ...d.plate, zustellung: 'abholung', versanddienst: 'ups' };
     const r3 = validateOrder(d);
     assert.ok(r3.ok && r3.order.plate.versanddienst === null);
+  });
+});
+
+describe('H-Kennzeichen', () => {
+  it('verlangt das Oldtimer-Gutachten als Unterlage', () => {
+    assert.ok(validateDocuments('halterwechsel', { ausweis: 1, zb1: 1, zb2: 1, hu: 1 }, { hKennzeichen: true })['documents.gutachten']);
+    assert.deepEqual(validateDocuments('halterwechsel', { ausweis: 1, zb1: 1, zb2: 1, hu: 1, gutachten: 1 }, { hKennzeichen: true }), {});
+    assert.ok(validateDocuments('halterwechsel', { ausweis: 1, zb1: 1, zb2: 1, hu: 1, gutachten: 1 })['documents.gutachten'], 'ohne H nicht erlaubt');
+  });
+  it('lässt sich nicht mit dem E-Kennzeichen kombinieren', () => {
+    const d = validDraft();
+    d.vehicle = { ...d.vehicle, antrieb: 'elektro', eKennzeichen: true, hKennzeichen: true };
+    const r = validateOrder(d);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.ok(r.errors['vehicle.hKennzeichen']);
+  });
+  it('wird gespeichert, wenn gewählt', () => {
+    const d = validDraft();
+    d.vehicle = { ...d.vehicle, eKennzeichen: false, hKennzeichen: true };
+    const r = validateOrder(d);
+    assert.ok(r.ok);
+    if (r.ok) assert.equal(r.order.vehicle.hKennzeichen, true);
   });
 });

@@ -3,7 +3,7 @@
 export const SERVICE_IDS = ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung', 'abmeldung'] as const;
 export type ServiceId = (typeof SERVICE_IDS)[number];
 
-export const DOCUMENT_KINDS = ['ausweis', 'zb1', 'zb2', 'coc', 'hu'] as const;
+export const DOCUMENT_KINDS = ['ausweis', 'zb1', 'zb2', 'coc', 'hu', 'gutachten'] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
 export type Requirement = 'pflicht' | 'optional';
@@ -35,7 +35,17 @@ export const DOCUMENTS: Record<DocumentKind, { label: string; short: string; hin
     short: 'HU',
     hint: 'Aktueller Prüfbericht der letzten Hauptuntersuchung.',
   },
+  gutachten: {
+    label: 'Oldtimer-Gutachten nach § 23 StVZO',
+    short: 'H-Gutachten',
+    hint: 'Für das H-Kennzeichen: Gutachten einer Prüforganisation (z. B. TÜV, DEKRA), Fahrzeug mindestens 30 Jahre alt.',
+  },
 };
+
+/** Besondere Kennzeichenarten, die zusätzliche Unterlagen auslösen. */
+export interface DocumentOptions {
+  hKennzeichen?: boolean;
+}
 
 export const PLATE_CHOICES: Record<PlateChoice, { label: string; hint: string }> = {
   behalten: {
@@ -169,13 +179,14 @@ export function getService(id: ServiceId): ServiceDefinition {
 }
 
 /** Unterlagen in fester Reihenfolge, die für eine Leistung abgefragt werden. */
-export function documentsFor(id: ServiceId): { kind: DocumentKind; requirement: Requirement }[] {
-  const docs = SERVICES[id].documents;
+export function documentsFor(id: ServiceId, opts: DocumentOptions = {}): { kind: DocumentKind; requirement: Requirement }[] {
+  const docs: Partial<Record<DocumentKind, Requirement>> = { ...SERVICES[id].documents };
+  if (opts.hKennzeichen && id !== 'abmeldung') docs.gutachten = 'pflicht';
   return DOCUMENT_KINDS.filter((k) => docs[k]).map((kind) => ({ kind, requirement: docs[kind] as Requirement }));
 }
 
-export function requiredDocuments(id: ServiceId): DocumentKind[] {
-  return documentsFor(id)
+export function requiredDocuments(id: ServiceId, opts: DocumentOptions = {}): DocumentKind[] {
+  return documentsFor(id, opts)
     .filter((d) => d.requirement === 'pflicht')
     .map((d) => d.kind);
 }

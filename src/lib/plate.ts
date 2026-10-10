@@ -265,3 +265,224 @@ export function groupExtent(layout: PlateLayout, group: PlateGroup): { x0: numbe
   const last = list[list.length - 1];
   return { x0: list[0].x, x1: last.x + last.glyph.w * layout.scaleX };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Schildformen je Fahrzeugkategorie
+
+/**
+ * eu: einzeilig 520 × 110 (Pkw, Lkw, E/H), motorrad: zweizeilig 220 × 200, leichtkraftrad: zweizeilig 255 × 130,
+ * traktor: zweizeilig 340 × 200 (land- und forstwirtschaftliche Zugmaschinen).
+ */
+export type PlateFormat = 'eu' | 'motorrad' | 'leichtkraftrad' | 'traktor';
+
+interface TwoLineSpec {
+  W: number;
+  H: number;
+  /** Zeichenhöhe relativ zu 75 mm */
+  s: number;
+  /** Breite des Eurofelds */
+  bandW: number;
+  /** Plaketten rechts neben dem Ortskennzeichen (gestapelt) oder als eigene Reihe zwischen den Zeilen */
+  seals: 'right' | 'middle';
+  /** Abstand zwischen den Zeilen (bzw. um die Plakettenreihe) */
+  lineGap: number;
+}
+
+const TWO_LINE: Record<Exclude<PlateFormat, 'eu'>, TwoLineSpec> = {
+  motorrad: { W: 220, H: 200, s: 0.74, bandW: 30, seals: 'middle', lineGap: 6 },
+  leichtkraftrad: { W: 255, H: 130, s: 0.62, bandW: 30, seals: 'right', lineGap: 9 },
+  traktor: { W: 340, H: 200, s: 0.9, bandW: 40, seals: 'right', lineGap: 16 },
+};
+
+export const PLATE_FORMAT_SIZE: Record<PlateFormat, { W: number; H: number }> = {
+  eu: { W: PLATE.W, H: PLATE.H },
+  motorrad: { W: TWO_LINE.motorrad.W, H: TWO_LINE.motorrad.H },
+  leichtkraftrad: { W: TWO_LINE.leichtkraftrad.W, H: TWO_LINE.leichtkraftrad.H },
+  traktor: { W: TWO_LINE.traktor.W, H: TWO_LINE.traktor.H },
+};
+
+/** Schildform zur Fahrzeugart aus dem Auftrag (pkw, motorrad, leichtkraftrad, traktor …). */
+export function plateFormatFor(vehicleType: string): PlateFormat {
+  return vehicleType === 'motorrad' || vehicleType === 'leichtkraftrad' || vehicleType === 'traktor' ? vehicleType : 'eu';
+}
+
+export interface Box {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+export interface PlacedGroup {
+  glyphs: PlacedGlyph[];
+  /** Oberkante der Zeichen */
+  y: number;
+  /** Zeichenhöhe relativ zu 75 mm */
+  s: number;
+  /** Stauchung in x (Engschrift) */
+  scaleX: number;
+}
+
+export interface PlateGeometry {
+  format: PlateFormat;
+  W: number;
+  H: number;
+  band: { x: number; y: number; w: number; h: number; starCx: number; starCy: number; starR: number; starSize: number; dX: number; dY: number; dScale: number } | null;
+  seals: { cx: number; cy: number; r: number }[];
+  groups: Record<PlateGroup, PlacedGroup>;
+  /** Tintenausdehnung je Gruppe (null bei leerer Gruppe) */
+  extents: Record<PlateGroup, Box | null>;
+  /** Tippbereiche je Gruppe für die Eingabe – zusammen decken sie das Schild ab */
+  zones: Record<PlateGroup, Box>;
+}
+
+type RowItem = { chars: string } | { gap: number };
+
+/** Ordnet eine Zeile aus Zeichengruppen und Lücken zentriert zwischen start und end an. */
+function layoutRow(items: RowItem[], start: number, end: number, s: number) {
+  const width = (str: string) =>
+    [...str].reduce((sum, c, i, all) => sum + GLYPHS[c].w + (i > 0 ? charGap(GLYPHS[all[i - 1]], GLYPHS[c]) : 0), 0);
+  const total = items.reduce((t, it) => t + ('chars' in it ? width(it.chars) : it.gap), 0) * s;
+  const avail = end - start;
+  const scaleX = total > avail ? avail / total : 1;
+  let x = start + (avail - total * scaleX) / 2;
+  const out: (PlacedGlyph[] | { x0: number; x1: number })[] = [];
+  for (const it of items) {
+    if ('chars' in it) {
+      const arr: PlacedGlyph[] = [];
+      [...it.chars].forEach((c, i, all) => {
+        if (i > 0) x += charGap(GLYPHS[all[i - 1]], GLYPHS[c]) * s * scaleX;
+        arr.push({ char: c, x, glyph: GLYPHS[c] });
+        x += GLYPHS[c].w * s * scaleX;
+      });
+      out.push(arr);
+    } else {
+      out.push({ x0: x, x1: x + it.gap * s * scaleX });
+      x += it.gap * s * scaleX;
+    }
+  }
+  return { out, scaleX };
+}
+
+function extentOf(g: PlacedGroup): Box | null {
+  if (!g.glyphs.length) return null;
+  const last = g.glyphs[g.glyphs.length - 1];
+  return { x0: g.glyphs[0].x, x1: last.x + last.glyph.w * g.s * g.scaleX, y0: g.y, y1: g.y + PLATE.CHAR_H * g.s };
+}
+
+function bandFor(x: number, y: number, w: number, h: number): NonNullable<PlateGeometry['band']> {
+  const k = w / PLATE.BAND_W;
+  const dScale = 0.3 * k;
+  const starCx = x + w / 2;
+  return {
+    x,
+    y,
+    w,
+    h,
+    starCx,
+    starCy: y + Math.min(h * 0.36, 27 * k),
+    starR: 12.4 * k,
+    starSize: 2.75 * k,
+    dScale,
+    dX: starCx - (GLYPHS.D.w * dScale) / 2,
+    dY: y + h - PLATE.CHAR_H * dScale - Math.min(h * 0.1, 10 * k),
+  };
+}
+
+/** Vollständige Geometrie eines Schilds in mm – Grundlage für Darstellung und Eingabe. */
+export function plateGeometry(format: PlateFormat, cityCode: string, letters: string, numbers: string, euroBand = true): PlateGeometry {
+  const parts = normalizePlateParts(cityCode, letters, numbers);
+  const inner = PLATE.BORDER_INSET + PLATE.BORDER_W;
+
+  if (format === 'eu') {
+    const L = layoutPlate(cityCode, letters, numbers, euroBand);
+    const group = (glyphs: PlacedGlyph[]): PlacedGroup => ({ glyphs, y: PLATE.CHAR_TOP, s: 1, scaleX: L.scaleX });
+    const groups = { cityCode: group(L.district), letters: group(L.letters), numbers: group(L.digits) };
+    const extents = { cityCode: extentOf(groups.cityCode), letters: extentOf(groups.letters), numbers: extentOf(groups.numbers) };
+    const sealCx = L.sealX + L.sealW / 2;
+    const start = euroBand ? PLATE.BAND_X + PLATE.BAND_W : 0;
+    const c = extents.cityCode;
+    const l = extents.letters;
+    const n = extents.numbers;
+    const cut1 = c && l ? (c.x1 + l.x0) / 2 : sealCx;
+    const cut2 = l && n ? (l.x1 + n.x0) / 2 : (cut1 + PLATE.W) / 2;
+    return {
+      format,
+      W: PLATE.W,
+      H: PLATE.H,
+      band: euroBand ? bandFor(PLATE.BAND_X, PLATE.BAND_X, PLATE.BAND_W, PLATE.H - PLATE.BAND_X * 2) : null,
+      seals: [37, 73].map((cy) => ({ cx: sealCx, cy, r: 14.5 })),
+      groups,
+      extents,
+      zones: {
+        cityCode: { x0: start, x1: cut1, y0: 0, y1: PLATE.H },
+        letters: { x0: cut1, x1: cut2, y0: 0, y1: PLATE.H },
+        numbers: { x0: cut2, x1: PLATE.W, y0: 0, y1: PLATE.H },
+      },
+    };
+  }
+
+  const spec = TWO_LINE[format];
+  const { W, H, s } = spec;
+  const ch = PLATE.CHAR_H * s;
+  const r = 14.5 * Math.max(s, 0.7);
+  const middle = spec.seals === 'middle';
+  const blockH = 2 * ch + (middle ? 2 * spec.lineGap + 2 * r : spec.lineGap);
+  const y1 = (H - blockH) / 2;
+  const y2 = y1 + blockH - ch;
+  const mid1 = y1 + ch + (middle ? spec.lineGap + r : spec.lineGap / 2);
+  const bandX = PLATE.BAND_X;
+  const bandBottom = middle ? y1 + ch + spec.lineGap / 2 : mid1;
+  const band = euroBand ? bandFor(bandX, bandX, spec.bandW, bandBottom - bandX) : null;
+  const margin = 11 * Math.max(s, 0.7);
+  const line1Start = (band ? band.x + band.w : inner) + margin;
+  const lineEnd = W - inner - margin;
+
+  // Zeile 1: Ortskennzeichen (+ Plaketten rechts daneben)
+  const sealGap = (2 * r + 10) / s;
+  const row1 = layoutRow(middle ? [{ chars: parts.cityCode }] : [{ chars: parts.cityCode }, { gap: sealGap }], line1Start, lineEnd, s);
+  const district = row1.out[0] as PlacedGlyph[];
+  // Zeile 2: Erkennungsbuchstaben und -zahl über die ganze Breite
+  const row2 = layoutRow(
+    [{ chars: parts.letters }, { gap: parts.numbers ? PLATE.GROUP_GAP : 0 }, { chars: parts.numbers }],
+    inner + margin,
+    lineEnd,
+    s,
+  );
+
+  let seals: PlateGeometry['seals'];
+  if (middle) {
+    const cx = W / 2;
+    seals = [{ cx: cx - r - 3, cy: mid1, r }, { cx: cx + r + 3, cy: mid1, r }];
+  } else {
+    const gapBox = row1.out[1] as { x0: number; x1: number };
+    const cx = (gapBox.x0 + gapBox.x1) / 2 + 2;
+    const cy = y1 + ch / 2;
+    seals = [{ cx, cy: cy - r - 1.5, r }, { cx, cy: cy + r + 1.5, r }];
+  }
+
+  const groups: Record<PlateGroup, PlacedGroup> = {
+    cityCode: { glyphs: district, y: y1, s, scaleX: row1.scaleX },
+    letters: { glyphs: row2.out[0] as PlacedGlyph[], y: y2, s, scaleX: row2.scaleX },
+    numbers: { glyphs: row2.out[2] as PlacedGlyph[], y: y2, s, scaleX: row2.scaleX },
+  };
+  const extents = { cityCode: extentOf(groups.cityCode), letters: extentOf(groups.letters), numbers: extentOf(groups.numbers) };
+  const split = y2 - (middle ? r : spec.lineGap / 2);
+  const l = extents.letters;
+  const n = extents.numbers;
+  const cut = l && n ? (l.x1 + n.x0) / 2 : W / 2;
+  return {
+    format,
+    W,
+    H,
+    band,
+    seals,
+    groups,
+    extents,
+    zones: {
+      cityCode: { x0: band ? band.x + band.w : 0, x1: W, y0: 0, y1: split },
+      letters: { x0: 0, x1: cut, y0: split, y1: H },
+      numbers: { x0: cut, x1: W, y0: split, y1: H },
+    },
+  };
+}

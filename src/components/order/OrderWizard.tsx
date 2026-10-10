@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { DRIVE_TYPE_IDS, DRIVE_TYPES, isEKennzeichenEligible, MANUFACTURER_SUGGESTIONS, VEHICLE_TYPE_IDS, VEHICLE_TYPES } from '../../lib/catalog.ts';
+import { DRIVE_TYPE_IDS, DRIVE_TYPES, isEKennzeichenEligible, isVehicleTypeId, MANUFACTURER_SUGGESTIONS, VEHICLE_TYPE_IDS, VEHICLE_TYPES } from '../../lib/catalog.ts';
 import { formatBytes, formatEuro, formatIsoDay } from '../../lib/format.ts';
 import { ACCEPT_ATTRIBUTE, ALLOWED_TYPES_TEXT, checkUpload, MAX_FILES_PER_DOCUMENT } from '../../lib/files.ts';
 import {
@@ -33,7 +33,7 @@ import {
   type ServiceId,
 } from '../../lib/services.ts';
 import { checkFin, checkIban, checkPlate, formatIban } from '../../lib/validation.ts';
-import { splitPlate } from '../../lib/plate.ts';
+import { plateFormatFor, splitPlate } from '../../lib/plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
 import { PlateInput } from '../plate/PlateInput.tsx';
@@ -84,6 +84,8 @@ const describedBy = (path: string, error?: string, hint?: boolean) =>
 export function OrderWizard({
   initial,
   currentPlate = '',
+  vehicleType = '',
+  plateKind = null,
   wish = '',
   payOnline = false,
   bundle = false,
@@ -91,6 +93,10 @@ export function OrderWizard({
   initial: string;
   /** Bisheriges Kennzeichen (z. B. von der Startseite bei Abmeldung) */
   currentPlate?: string;
+  /** Fahrzeugart von der Startseite (pkw, motorrad, leichtkraftrad, traktor …) */
+  vehicleType?: string;
+  /** Besondere Kennzeichenart von der Startseite */
+  plateKind?: 'e' | 'h' | null;
   wish?: string;
   payOnline?: boolean;
   bundle?: boolean;
@@ -98,7 +104,12 @@ export function OrderWizard({
   const router = useRouter();
   const [draft, setDraft] = useState<OrderInput>(() => {
     const d = withBundle(withWish(emptyDraft(isServiceId(initial) ? initial : ''), wish), bundle);
-    return currentPlate ? { ...d, vehicle: { ...d.vehicle, bisherigesKennzeichen: currentPlate } } : d;
+    const v = { ...d.vehicle };
+    if (currentPlate) v.bisherigesKennzeichen = currentPlate;
+    if (isVehicleTypeId(vehicleType)) v.art = vehicleType;
+    if (plateKind === 'e') Object.assign(v, { eKennzeichen: true, antrieb: v.antrieb || 'elektro' });
+    if (plateKind === 'h') v.hKennzeichen = true;
+    return { ...d, vehicle: v };
   });
   const [files, setFiles] = useState<Files>({});
   // Immer im ersten Schritt beginnen – dort stehen neben der Leistung auch Kennzeichen und Schilder.
@@ -114,6 +125,7 @@ export function OrderWizard({
   const topRef = useRef<HTMLDivElement>(null);
 
   const service = isServiceId(draft.service) ? draft.service : null;
+  const docOpts = { hKennzeichen: draft.vehicle.hKennzeichen };
   const def = service ? SERVICES[service] : null;
   const wahl = (def?.plateChoices.includes(draft.plate.wahl as PlateChoice) ? draft.plate.wahl : null) as PlateChoice | null;
 
@@ -139,15 +151,15 @@ export function OrderWizard({
     setErrors({});
   };
 
-  const counts = useMemo(
-    () => Object.fromEntries(Object.entries(files).map(([k, v]) => [k, v?.length ?? 0])) as Partial<Record<string, number>>,
-    [files],
-  );
+  // Nur Unterlagen, die zur aktuellen Auswahl gehören (z. B. H-Gutachten nur mit H-Kennzeichen)
+  const allowedKinds = new Set<string>(service ? documentsFor(service, docOpts).map((d) => d.kind) : []);
+  const activeFiles = Object.entries(files).filter(([k]) => allowedKinds.has(k));
+  const counts = Object.fromEntries(activeFiles.map(([k, v]) => [k, v?.length ?? 0])) as Partial<Record<string, number>>;
 
   const stepErrors = (i: number): FieldErrors => {
     const st = STEPS[i];
     if (st.key === 'review') return {};
-    if (st.key === 'documents') return service ? validateDocuments(service, counts) : { service: 'Bitte eine Leistung wählen' };
+    if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
     const res = validateOrder(draft);
     const errs: FieldErrors = {};
     if (!res.ok) {
@@ -206,7 +218,7 @@ export function OrderWizard({
     }
     const body = new FormData();
     body.set('data', JSON.stringify(draft));
-    for (const [kind, list] of Object.entries(files)) for (const f of list ?? []) body.append(`doc_${kind}`, f, f.name);
+    for (const [kind, list] of activeFiles) for (const f of list ?? []) body.append(`doc_${kind}`, f, f.name);
     setBusy(true);
     try {
       const res = await fetch('/api/auftrag', { method: 'POST', body });
@@ -286,6 +298,8 @@ export function OrderWizard({
   const prevCheck = wahl === 'behalten' && draft.vehicle.bisherigesKennzeichen ? checkPlate(draft.vehicle.bisherigesKennzeichen) : null;
   const signParts = wahl === 'wunsch' ? wishParts : prevCheck?.ok ? splitPlate(prevCheck.value) : null;
   const signCount = plateSignCount(draft.vehicle.art || 'pkw');
+  const plateFormat = plateFormatFor(draft.vehicle.art);
+  const plateSuffix = draft.vehicle.hKennzeichen ? 'H' : draft.vehicle.eKennzeichen ? 'E' : undefined;
   const finCheck = draft.vehicle.fin ? checkFin(draft.vehicle.fin) : null;
   const ibanCheck = draft.finish.iban ? checkIban(draft.finish.iban) : null;
 
@@ -391,6 +405,8 @@ export function OrderWizard({
                         onChange={(v) => update('plate', 'wunschkennzeichen', wishText(v))}
                         placeholder={{ cityCode: 'OHZ', letters: 'AB', numbers: '123' }}
                         size="min(100%, 520px)"
+                        format={plateFormat}
+                        suffix={plateSuffix}
                         bubble="Wunschkennzeichen eingeben"
                         invalid={e['plate.wunschkennzeichen'] ? 'all' : null}
                         describedBy="wiz-wish-hint"
@@ -421,14 +437,15 @@ export function OrderWizard({
                               update('plate', 'schilder', true);
                             }}
                           />
-                          <span className="signs-preview" aria-hidden="true" data-count={signCount}>
+                          <span className="signs-preview" aria-hidden="true" data-count={signCount} data-format={plateFormat}>
                             {Array.from({ length: signCount }, (_, k) => (
                               <GermanLicensePlate
                                 key={k}
                                 id={`wiz-sign-${k}`}
                                 cityCode={signParts?.cityCode ?? 'HB'}
                                 letters={signParts?.letters ?? 'EZ'}
-                                numbers={signParts?.numbers ?? '24'}
+                                numbers={`${signParts?.numbers ?? '24'}${plateSuffix ?? ''}`}
+                                format={plateFormat}
                                 size="100%"
                                 detail="lite"
                               />
@@ -589,12 +606,36 @@ export function OrderWizard({
                 ) : null}
                 {isEKennzeichenEligible(draft.vehicle.antrieb) ? (
                   <label className="check form-grid__full">
-                    <input type="checkbox" checked={draft.vehicle.eKennzeichen} onChange={(ev) => update('vehicle', 'eKennzeichen', ev.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={draft.vehicle.eKennzeichen}
+                      onChange={(ev) => {
+                        update('vehicle', 'eKennzeichen', ev.target.checked);
+                        if (ev.target.checked) update('vehicle', 'hKennzeichen', false);
+                      }}
+                    />
                     <span>
                       E-Kennzeichen beantragen <span className="muted">(sofern die Voraussetzungen erfüllt sind)</span>
                     </span>
                   </label>
                 ) : null}
+                {service !== 'abmeldung' ? (
+                  <label className="check form-grid__full" data-error-anchor="vehicle.hKennzeichen">
+                    <input
+                      type="checkbox"
+                      checked={draft.vehicle.hKennzeichen}
+                      onChange={(ev) => {
+                        update('vehicle', 'hKennzeichen', ev.target.checked);
+                        if (ev.target.checked) update('vehicle', 'eKennzeichen', false);
+                      }}
+                    />
+                    <span>
+                      H-Kennzeichen (Oldtimer) beantragen{' '}
+                      <span className="muted">– Fahrzeug mindestens 30 Jahre alt, Gutachten nach § 23 StVZO laden Sie im Schritt „Unterlagen“ hoch</span>
+                    </span>
+                  </label>
+                ) : null}
+                {e['vehicle.hKennzeichen'] ? <p className="field__error form-grid__full">{e['vehicle.hKennzeichen']}</p> : null}
               </div>
             </section>
           )}
@@ -678,7 +719,7 @@ export function OrderWizard({
                 Fotos oder Scans genügen – gut lesbar, alle Ecken sichtbar. {ALLOWED_TYPES_TEXT}, bis zu {MAX_FILES_PER_DOCUMENT} Dateien je Unterlage.
               </p>
               <div className="uploads">
-                {documentsFor(service).map(({ kind, requirement }) => {
+                {documentsFor(service, docOpts).map(({ kind, requirement }) => {
                   const list = files[kind] ?? [];
                   const err = e[`documents.${kind}`] ?? fileMsg[kind];
                   const inputId = fieldId(`documents.${kind}`);
@@ -907,6 +948,7 @@ export function OrderWizard({
                   ['FIN', draft.vehicle.fin.replace(/[\s-]/g, '')],
                   ...(draft.vehicle.bisherigesKennzeichen ? [['Bisheriges Kennzeichen', draft.vehicle.bisherigesKennzeichen] as [string, string]] : []),
                   ...(draft.vehicle.eKennzeichen && isEKennzeichenEligible(draft.vehicle.antrieb) ? [['E-Kennzeichen', 'gewünscht'] as [string, string]] : []),
+                  ...(draft.vehicle.hKennzeichen && service !== 'abmeldung' ? [['H-Kennzeichen', 'gewünscht'] as [string, string]] : []),
                 ]}
               />
               <Summary
@@ -922,7 +964,7 @@ export function OrderWizard({
               <Summary
                 title="Unterlagen"
                 onEdit={() => goTo(3)}
-                rows={documentsFor(service).map(({ kind }) => [DOCUMENTS[kind].short, (files[kind] ?? []).length ? `${(files[kind] ?? []).length} Datei(en)` : '–'])}
+                rows={documentsFor(service, docOpts).map(({ kind }) => [DOCUMENTS[kind].short, (files[kind] ?? []).length ? `${(files[kind] ?? []).length} Datei(en)` : '–'])}
               />
               <Summary
                 title="Kennzeichen"

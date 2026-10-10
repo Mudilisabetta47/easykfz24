@@ -14,6 +14,7 @@ import {
   isServiceId,
   DOCUMENT_KINDS,
   type DocumentKind,
+  type DocumentOptions,
   type PlateChoice,
   type ServiceId,
 } from './services.ts';
@@ -44,6 +45,7 @@ export const orderInputSchema = z.object({
       bisherigesKennzeichen: str(20),
       antrieb: str(20),
       eKennzeichen: flag(),
+      hKennzeichen: flag(),
     })
     .default({}),
   holder: z
@@ -100,6 +102,8 @@ export interface ValidatedOrder {
     bisherigesKennzeichen: string;
     antrieb: DriveTypeId;
     eKennzeichen: boolean;
+    /** H-Kennzeichen (Oldtimer) – erfordert ein Gutachten nach § 23 StVZO */
+    hKennzeichen: boolean;
   };
   holder: {
     typ: 'privat' | 'firma';
@@ -216,6 +220,8 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
     }
   }
   const eKennzeichen = v.eKennzeichen && antrieb !== null && isEKennzeichenEligible(antrieb);
+  const hKennzeichen = v.hKennzeichen && service !== 'abmeldung';
+  if (eKennzeichen && hKennzeichen) errors['vehicle.hKennzeichen'] = 'E- und H-Kennzeichen lassen sich nicht kombinieren – bitte eines wählen';
 
   // Halter
   const h = input.holder;
@@ -277,7 +283,7 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
     ok: true,
     order: {
       service,
-      vehicle: { art, hersteller, modell, fin, bisherigesKennzeichen, antrieb, eKennzeichen },
+      vehicle: { art, hersteller, modell, fin, bisherigesKennzeichen, antrieb, eKennzeichen, hKennzeichen },
       holder: {
         typ,
         vorname,
@@ -308,15 +314,15 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
 }
 
 /** Prüft, ob alle Pflicht-Unterlagen vorhanden sind und keine unbekannten/zu vielen Dateien kommen. */
-export function validateDocuments(service: ServiceId, counts: Partial<Record<string, number>>): FieldErrors {
+export function validateDocuments(service: ServiceId, counts: Partial<Record<string, number>>, opts: DocumentOptions = {}): FieldErrors {
   const errors: FieldErrors = {};
-  const allowed = new Set<string>(documentsFor(service).map((d) => d.kind));
+  const allowed = new Set<string>(documentsFor(service, opts).map((d) => d.kind));
   for (const [kind, count] of Object.entries(counts)) {
     if (!count) continue;
     if (!allowed.has(kind)) errors[`documents.${kind}`] = 'Diese Unterlage wird für die Leistung nicht benötigt';
     else if (count > MAX_FILES_PER_DOCUMENT) errors[`documents.${kind}`] = `Höchstens ${MAX_FILES_PER_DOCUMENT} Dateien je Unterlage`;
   }
-  for (const d of documentsFor(service)) {
+  for (const d of documentsFor(service, opts)) {
     if (d.requirement === 'pflicht' && !counts[d.kind]) {
       errors[`documents.${d.kind}`] = `Bitte ${DOCUMENTS[d.kind].short} hochladen`;
     }

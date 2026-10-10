@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { groupExtent, layoutPlate, PLATE, PLATE_VIEW, GLYPHS, scalePathX, type PlacedGlyph, type PlateGroup } from '../lib/plate.ts';
+import { plateGeometry, PLATE, PLATE_VIEW, GLYPHS, scalePathX, type Box, type PlacedGroup, type PlateFormat, type PlateGroup } from '../lib/plate.ts';
 
 interface Props {
   cityCode: string;
@@ -25,23 +25,28 @@ interface Props {
   caret?: PlateGroup | null;
   /** Eingabemodus: Gruppen mit Fehler rot markieren */
   invalid?: PlateGroup | 'all' | null;
+  /** Schildform: einzeilig (eu) oder zweizeilig für Motorrad, Leichtkraftrad, Traktor */
+  format?: PlateFormat;
 }
 
 const { PAD_X, PAD_Y, PAD_B } = PLATE_VIEW;
 
-function Glyphs({ list, scaleX }: { list: PlacedGlyph[]; scaleX: number }) {
+function Glyphs({ group, only }: { group: PlacedGroup; only?: (char: string) => boolean }) {
+  const t = (x: number) => `translate(${x.toFixed(2)} ${group.y.toFixed(2)})${group.s !== 1 ? ` scale(${group.s})` : ''}`;
   return (
     <>
-      {list.map((g, i) =>
-        g.glyph.d.map((d, j) => (
-          <path
-            key={`${i}-${j}`}
-            d={scalePathX(d, scaleX)}
-            transform={`translate(${g.x.toFixed(2)} ${PLATE.CHAR_TOP})`}
-            {...(g.glyph.fill ? { fill: 'currentColor', stroke: 'none' } : { fill: 'none', stroke: 'currentColor' })}
-          />
-        )),
-      )}
+      {group.glyphs
+        .filter((g) => !only || only(g.char))
+        .map((g, i) =>
+          g.glyph.d.map((d, j) => (
+            <path
+              key={`${i}-${j}`}
+              d={scalePathX(d, group.scaleX)}
+              transform={t(g.x)}
+              {...(g.glyph.fill ? { fill: 'currentColor', stroke: 'none' } : { fill: 'none', stroke: 'currentColor' })}
+            />
+          )),
+        )}
     </>
   );
 }
@@ -62,18 +67,17 @@ function Embossed({ id, children, part }: { id: string; children: React.ReactNod
 }
 
 /** Markierung des aktiven (blau) oder fehlerhaften (rot) Eingabebereichs. */
-function FieldMark({ layout, group, error }: { layout: ReturnType<typeof layoutPlate>; group: PlateGroup; error: boolean }) {
-  const ext = groupExtent(layout, group);
-  if (!ext) return null;
-  const x = ext.x0 - 6;
-  const w = Math.max(ext.x1 - ext.x0 + 12, 30);
+function FieldMark({ ext, error }: { ext: Box; error: boolean }) {
+  const pad = 6 * Math.max((ext.y1 - ext.y0) / PLATE.CHAR_H, 0.7);
+  const w = Math.max(ext.x1 - ext.x0 + 2 * pad, 30);
+  const cx = (ext.x0 + ext.x1) / 2;
   return (
     <rect
       className="lp__mark"
-      x={x - (w - (ext.x1 - ext.x0 + 12)) / 2}
-      y={PLATE.CHAR_TOP - 7}
+      x={cx - w / 2}
+      y={ext.y0 - pad}
       width={w}
-      height={PLATE.CHAR_H + 14}
+      height={ext.y1 - ext.y0 + 2 * pad}
       rx={5}
       fill={error ? 'rgb(196 50 43 / 0.1)' : 'rgb(42 85 255 / 0.09)'}
       stroke={error ? 'rgb(196 50 43 / 0.55)' : 'rgb(42 85 255 / 0.4)'}
@@ -83,11 +87,9 @@ function FieldMark({ layout, group, error }: { layout: ReturnType<typeof layoutP
 }
 
 /** Schreibmarke im Eingabemodus: hinter dem letzten Zeichen, bei Platzhaltern davor. */
-function Caret({ layout, group, ghost }: { layout: ReturnType<typeof layoutPlate>; group: PlateGroup; ghost: boolean }) {
-  const ext = groupExtent(layout, group);
-  if (!ext) return null;
+function Caret({ ext, ghost }: { ext: Box; ghost: boolean }) {
   const x = ghost ? ext.x0 - 2 : ext.x1 + 2.6;
-  return <rect className="lp__caret" x={x - 1.6} y={PLATE.CHAR_TOP - 3} width={3.2} height={PLATE.CHAR_H + 6} rx={1.6} fill="#2a55ff" />;
+  return <rect className="lp__caret" x={x - 1.6} y={ext.y0 - 3} width={3.2} height={ext.y1 - ext.y0 + 6} rx={1.6} fill="#2a55ff" />;
 }
 
 function star(cx: number, cy: number, r: number): string {
@@ -101,7 +103,7 @@ function star(cx: number, cy: number, r: number): string {
 }
 
 /**
- * Realistisches deutsches Kennzeichen (520 × 110 mm) als SVG: reflektierende Aluminiumfläche mit feiner Körnung,
+ * Realistisches deutsches Kennzeichen als SVG – einzeilig 520 × 110 mm oder zweizeilig (Motorrad, Leichtkraftrad, Traktor): reflektierende Aluminiumfläche mit feiner Körnung,
  * geprägter schwarzer Rand und geprägte Zeichen, Eurofeld mit 12 Sternen. Einzelne Bestandteile tragen
  * data-plate-part (body, band, district, letters, digits, seal), die Lichtreflexion data-plate-sweep.
  */
@@ -120,9 +122,11 @@ export function GermanLicensePlate({
   ghost,
   caret = null,
   invalid = null,
+  format = 'eu',
 }: Props) {
-  const L = layoutPlate(cityCode, letters, numbers, showEuroBand);
-  const { W, H, RADIUS } = PLATE;
+  const G = plateGeometry(format, cityCode, letters, numbers, showEuroBand);
+  const { W, H } = G;
+  const { RADIUS } = PLATE;
   const bi = PLATE.BORDER_INSET;
   const label = `Kennzeichen ${[cityCode, letters, numbers].filter(Boolean).join(' ')}`;
   const vbW = W + PAD_X * 2;
@@ -133,15 +137,7 @@ export function GermanLicensePlate({
     '--lp-tilt': `${perspective}deg`,
   } as CSSProperties;
   const bandR = RADIUS - bi - 0.6;
-  const bx = PLATE.BAND_X;
-  const bw = PLATE.BAND_W;
-  const bh = H - bx * 2;
-  const starCx = bx + bw / 2;
-  const sealCx = L.sealX + L.sealW / 2;
-  // Zeichen für "D" im Eurofeld (Kennzeichenschrift, verkleinert)
-  const dScale = 0.3;
-  const dX = starCx - (GLYPHS.D.w * dScale) / 2;
-  const dY = 72;
+  const B = G.band;
 
   return (
     <span className={`lp${perspective ? ' lp--tilt' : ''} ${className}`} style={style} role="img" aria-label={label}>
@@ -178,8 +174,8 @@ export function GermanLicensePlate({
             <stop offset="1" stopColor="#0d2f86" />
           </linearGradient>
           <radialGradient id={`${id}-seal`} cx="0.4" cy="0.35" r="0.7">
-            <stop offset="0" stopColor="#f4f4ef" />
-            <stop offset="1" stopColor="#dcdcd4" />
+            <stop offset="0" stopColor="#eceef1" />
+            <stop offset="1" stopColor="#cfd3da" />
           </radialGradient>
           <linearGradient id={`${id}-sweep-soft`} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor="#dce6ff" stopOpacity="0" />
@@ -254,7 +250,7 @@ export function GermanLicensePlate({
         <g className={perspective ? 'lp__tilt' : undefined}>
           {/* Schatten unter dem Schild */}
           <rect x="6" y="9" width={W - 12} height={H - 2} rx={RADIUS} fill={tone === 'dark' ? '#000' : '#0a1433'} opacity={tone === 'dark' ? 0.55 : 0.3} filter={`url(#${id}-shadow)`} />
-          <rect x="14" y={H - 1} width={W - 28} height="4" rx="2" fill="#000" opacity={tone === 'dark' ? 0.45 : 0.18} filter={`url(#${id}-soft)`} />
+          <rect x="14" y={H - 1} width={Math.max(W - 28, 10)} height="4" rx="2" fill="#000" opacity={tone === 'dark' ? 0.45 : 0.18} filter={`url(#${id}-soft)`} />
 
           <g data-plate-part="body" className="lp__part">
             <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-base)`} />
@@ -297,23 +293,23 @@ export function GermanLicensePlate({
             />
           </g>
 
-          {showEuroBand ? (
+          {B ? (
             <g data-plate-part="band" className="lp__part lp__band">
               <path
-                d={`M${bx + bandR} ${bx}H${bx + bw}V${bx + bh}H${bx + bandR}A${bandR} ${bandR} 0 0 1 ${bx} ${bx + bh - bandR}V${bx + bandR}A${bandR} ${bandR} 0 0 1 ${bx + bandR} ${bx}Z`}
+                d={`M${B.x + bandR} ${B.y}H${B.x + B.w}V${B.y + B.h}${format === 'eu' ? `H${B.x + bandR}A${bandR} ${bandR} 0 0 1 ${B.x} ${B.y + B.h - bandR}` : `H${B.x}`}V${B.y + bandR}A${bandR} ${bandR} 0 0 1 ${B.x + bandR} ${B.y}Z`}
                 fill={`url(#${id}-blue)`}
               />
-              <path d={`M${bx + bw - 0.4} ${bx}V${bx + bh}`} stroke="#000" strokeOpacity="0.25" strokeWidth="0.8" />
+              <path d={`M${B.x + B.w - 0.4} ${B.y}V${B.y + B.h}`} stroke="#000" strokeOpacity="0.25" strokeWidth="0.8" />
               {Array.from({ length: 12 }, (_, i) => {
                 const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
-                return <polygon key={i} points={star(starCx + Math.cos(ang) * 12.4, 30 + Math.sin(ang) * 12.4, 2.75)} fill="#ffd200" />;
+                return <polygon key={i} points={star(B.starCx + Math.cos(ang) * B.starR, B.starCy + Math.sin(ang) * B.starR, B.starSize)} fill="#ffd200" />;
               })}
               <g color="#ffffff" strokeWidth={PLATE.STROKE} strokeLinejoin="miter" strokeMiterlimit={1.5}>
                 {GLYPHS.D.d.map((d, k) => (
                   <path
                     key={k}
                     d={d}
-                    transform={`translate(${dX.toFixed(2)} ${dY}) scale(${dScale})`}
+                    transform={`translate(${B.dX.toFixed(2)} ${B.dY.toFixed(2)}) scale(${B.dScale.toFixed(4)})`}
                     {...(GLYPHS.D.fill ? { fill: 'currentColor', stroke: 'none' } : { fill: 'none', stroke: 'currentColor' })}
                   />
                 ))}
@@ -323,11 +319,11 @@ export function GermanLicensePlate({
 
           {showSealPlaceholder ? (
             <g data-plate-part="seal" className="lp__part" aria-hidden="true">
-              {[37, 73].map((cy) => (
-                <g key={cy}>
-                  <circle cx={sealCx} cy={cy} r="14.5" fill={`url(#${id}-seal)`} fillOpacity="0.55" />
-                  <circle cx={sealCx} cy={cy} r="14.5" fill="none" stroke="#000" strokeOpacity="0.07" strokeWidth="0.45" />
-                  <path d={`M${sealCx - 10} ${cy - 10.4}A14.5 14.5 0 0 1 ${sealCx + 10} ${cy - 10.4}`} fill="none" stroke="#fff" strokeOpacity="0.8" strokeWidth="0.5" />
+              {G.seals.map(({ cx, cy, r }) => (
+                <g key={`${cx}-${cy}`}>
+                  <circle cx={cx} cy={cy} r={r} fill={`url(#${id}-seal)`} />
+                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="#000" strokeOpacity="0.12" strokeWidth="0.5" />
+                  <path d={`M${cx - r * 0.69} ${cy - r * 0.72}A${r} ${r} 0 0 1 ${cx + r * 0.69} ${cy - r * 0.72}`} fill="none" stroke="#fff" strokeOpacity="0.8" strokeWidth="0.5" />
                 </g>
               ))}
             </g>
@@ -336,33 +332,35 @@ export function GermanLicensePlate({
           <g fill="none" strokeWidth={PLATE.STROKE} strokeLinejoin="miter" strokeMiterlimit={1.5} strokeLinecap="butt">
             {(
               [
-                ['district', 'cityCode', L.district],
-                ['letters', 'letters', L.letters],
-                ['digits', 'numbers', L.digits],
+                ['district', 'cityCode'],
+                ['letters', 'letters'],
+                ['digits', 'numbers'],
               ] as const
-            ).map(([part, group, list]) => {
-              const real = ghost?.[group] ? [] : list.filter((g) => g.char !== '?');
-              const flat = ghost?.[group] ? list : list.filter((g) => g.char === '?');
+            ).map(([part, group]) => {
+              const g = G.groups[group];
+              const isGhost = !!ghost?.[group];
+              const hasWild = g.glyphs.some((x) => x.char === '?');
               return (
                 <g key={part}>
                   <Embossed id={id} part={part}>
-                    <Glyphs list={real} scaleX={L.scaleX} />
+                    {isGhost ? null : <Glyphs group={g} only={(c) => c !== '?'} />}
                   </Embossed>
-                  {flat.length ? (
+                  {isGhost || hasWild ? (
                     <g color="#c3c9d4" className="lp__ghost">
-                      <Glyphs list={flat} scaleX={L.scaleX} />
+                      <Glyphs group={g} only={isGhost ? undefined : (c) => c === '?'} />
                     </g>
                   ) : null}
                 </g>
               );
             })}
           </g>
-          {(['cityCode', 'letters', 'numbers'] as const).map((g) =>
-            invalid === g || invalid === 'all' || caret === g ? (
-              <FieldMark key={g} layout={L} group={g} error={invalid === g || invalid === 'all'} />
-            ) : null,
-          )}
-          {caret ? <Caret layout={L} group={caret} ghost={!!ghost?.[caret]} /> : null}
+          {(['cityCode', 'letters', 'numbers'] as const).map((g) => {
+            const ext = G.extents[g];
+            return ext && (invalid === g || invalid === 'all' || caret === g) ? (
+              <FieldMark key={g} ext={ext} error={invalid === g || invalid === 'all'} />
+            ) : null;
+          })}
+          {caret && G.extents[caret] ? <Caret ext={G.extents[caret]!} ghost={!!ghost?.[caret]} /> : null}
 
           {/* Plastik: oben Licht, unten leichte Abschattung */}
           <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-relief)`} pointerEvents="none" />

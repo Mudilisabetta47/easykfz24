@@ -89,7 +89,9 @@ export function initHero(root: HTMLElement): () => void {
     const enter = ease.inOutCubic(win(p, 0, 0.14));
     const dim = ease.inOutCubic(band(p, 0.46, 0.52, 0.8, 0.87));
     const drive = ease.inOutCubic(win(p, 0.87, 1));
-    const x = lerp(small ? 0 : vw * 0.1, 0, enter) + drive * vw * (small ? 0.22 : 0.17);
+    // Start links unter dem Text (rechts steht der Schnellstart), beim Scrollen fährt das Auto in die Mitte
+    const startX = small ? 0 : -vw * 0.19;
+    const x = lerp(startX, 0, enter) + drive * vw * (small ? 0.22 : 0.17);
     const push = 1 + 0.07 * ease.inOutSine(win(p, 0.06, 0.45));
     pose(car, {
       x,
@@ -99,7 +101,7 @@ export function initHero(root: HTMLElement): () => void {
     });
     // Räder drehen sich passend zur zurückgelegten Strecke
     const wheelR = (carW * 68) / 1200 || 1;
-    const deg = ((x - (small ? 0 : vw * 0.1)) / wheelR) * (180 / Math.PI);
+    const deg = ((x - startX) / wheelR) * (180 / Math.PI);
     wheels.forEach((w) => pose(w, { rotate: deg }));
 
     const glowO = 0.5 + 0.5 * Math.max(band(p, 0.06, 0.14, 0.44, 0.5), win(p, 0.84, 0.94));

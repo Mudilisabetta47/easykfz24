@@ -1,13 +1,16 @@
 // Stammdaten für Fahrzeugangaben im Auftragsformular.
 
-export const VEHICLE_TYPE_IDS = ['pkw', 'motorrad', 'lkw', 'wohnmobil', 'anhaenger'] as const;
+export const VEHICLE_TYPE_IDS = ['pkw', 'motorrad', 'leichtkraftrad', 'lkw', 'wohnmobil', 'traktor', 'anhaenger'] as const;
 export type VehicleTypeId = (typeof VEHICLE_TYPE_IDS)[number];
 
 export const VEHICLE_TYPES: Record<VehicleTypeId, { label: string; plates: number }> = {
   pkw: { label: 'Pkw', plates: 2 },
-  motorrad: { label: 'Motorrad / Leichtkraftrad', plates: 1 },
+  motorrad: { label: 'Motorrad', plates: 1 },
+  leichtkraftrad: { label: 'Leichtkraftrad (bis 125 cm³)', plates: 1 },
   lkw: { label: 'Lkw / Transporter', plates: 2 },
   wohnmobil: { label: 'Wohnmobil', plates: 2 },
+  // Land- und forstwirtschaftliche Zugmaschinen brauchen nur ein Kennzeichen hinten.
+  traktor: { label: 'Traktor / Zugmaschine', plates: 1 },
   anhaenger: { label: 'Anhänger', plates: 1 },
 };
 

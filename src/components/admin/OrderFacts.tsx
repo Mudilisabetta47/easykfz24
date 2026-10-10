@@ -36,6 +36,7 @@ export function OrderFacts({ order }: { order: OrderDetail }) {
           ['Antrieb', DRIVE_TYPES[d.vehicle.antrieb]],
           ['Bisheriges Kennzeichen', d.vehicle.bisherigesKennzeichen],
           ['E-Kennzeichen', d.vehicle.eKennzeichen ? 'gewünscht' : 'nein'],
+          ['H-Kennzeichen', d.vehicle.hKennzeichen ? 'gewünscht (Gutachten § 23 StVZO)' : 'nein'],
         ]}
       />
       <Facts

@@ -8,6 +8,7 @@ import type { ServiceId } from '../../lib/services.ts';
 import { checkPlate } from '../../lib/validation.ts';
 import type { WishInput } from '../../lib/wish-plate.ts';
 import { ArrowRight } from '../icons.tsx';
+import { CarClassic, CarElectric, CarFront, LightBike, Motorcycle, Tractor } from '../VehicleIcons.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
 import { PlateInput } from '../plate/PlateInput.tsx';
 
@@ -39,10 +40,24 @@ const MODES: Record<Mode, { label: string; service: string; priceOf: ServiceId[]
 
 const EMPTY: WishInput = { cityCode: '', letters: '', numbers: '' };
 
+const VEHICLES = [
+  { id: 'auto', label: 'Auto', icon: CarFront, fahrzeug: 'pkw' },
+  { id: 'e', label: 'E-Kennzeichen', icon: CarElectric, fahrzeug: 'pkw', art: 'e', suffix: 'E' },
+  { id: 'h', label: 'H-Kennzeichen', icon: CarClassic, fahrzeug: 'pkw', art: 'h', suffix: 'H' },
+  { id: 'traktor', label: 'Traktor', icon: Tractor, fahrzeug: 'traktor', format: 'traktor' },
+  { id: 'motorrad', label: 'Motorrad', icon: Motorcycle, fahrzeug: 'motorrad', format: 'motorrad' },
+  { id: 'leichtkraftrad', label: 'Leichtkraftrad', icon: LightBike, fahrzeug: 'leichtkraftrad', format: 'leichtkraftrad' },
+] as const;
+type VehicleId = (typeof VEHICLES)[number]['id'];
+
 /** Schnellstart im ersten Bildschirm: Leistung wählen, Kennzeichen direkt ins Schild tippen, weiter zum Auftrag. */
 export function HeroQuickStart() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('anmelden');
+  const [vehicle, setVehicle] = useState<VehicleId>('auto');
+  const veh = VEHICLES.find((v) => v.id === vehicle) ?? VEHICLES[0];
+  const suffix = 'suffix' in veh ? veh.suffix : undefined;
+  const format = 'format' in veh ? veh.format : 'eu';
   const [plate, setPlate] = useState<WishInput>(EMPTY);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +69,7 @@ export function HeroQuickStart() {
   const complete = !!plate.cityCode && !!plate.letters && !!plate.numbers;
 
   const go = (params: Record<string, string>) => {
-    const q = new URLSearchParams({ leistung: m.service, ...params });
+    const q = new URLSearchParams({ leistung: m.service, fahrzeug: veh.fahrzeug, ...('art' in veh ? { art: veh.art } : {}), ...params });
     router.push(`/kfz-anmelden/auftrag?${q}`);
   };
 
@@ -101,6 +116,19 @@ export function HeroQuickStart() {
         ))}
       </div>
 
+      <fieldset className="quick__vehicles">
+        <legend className="quick__legend">Dein Fahrzeug</legend>
+        <div className="quick__grid">
+          {VEHICLES.map((v) => (
+            <label key={v.id} className={`quick__vehicle${vehicle === v.id ? ' is-active' : ''}`}>
+              <input type="radio" name="quick-vehicle" value={v.id} checked={vehicle === v.id} onChange={() => setVehicle(v.id)} />
+              <v.icon className="quick__vehicle-icon" />
+              <span>{v.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <PlateInput
         id="hero-quick"
         value={plate}
@@ -108,7 +136,9 @@ export function HeroQuickStart() {
           setPlate(v);
           setError(null);
         }}
-        placeholder={{ cityCode: 'HB', letters: 'EZ', numbers: '24' }}
+        placeholder={format === 'eu' ? { cityCode: 'HB', letters: 'EZ', numbers: '24' } : { cityCode: 'HB', letters: 'X', numbers: '12' }}
+        suffix={suffix}
+        format={format}
         size="100%"
         bubble={m.bubble}
         idleText=""

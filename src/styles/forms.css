@@ -1030,3 +1030,12 @@
     padding: 18px 10px 14px;
   }
 }
+.signs-preview[data-format='motorrad'] .lp {
+  inline-size: 34%;
+}
+.signs-preview[data-format='leichtkraftrad'] .lp {
+  inline-size: 42%;
+}
+.signs-preview[data-format='traktor'] .lp {
+  inline-size: 52%;
+}

@@ -10,8 +10,8 @@ export const metadata: Metadata = {
   description: 'Kfz-Zulassung, Ummeldung, Wiederzulassung oder Abmeldung online beauftragen.',
 };
 
-export default async function AuftragPage({ searchParams }: { searchParams: Promise<{ leistung?: string; wunsch?: string; paket?: string; kennzeichen?: string }> }) {
-  const { leistung = '', wunsch = '', paket = '', kennzeichen = '' } = await searchParams;
+export default async function AuftragPage({ searchParams }: { searchParams: Promise<{ leistung?: string; wunsch?: string; paket?: string; kennzeichen?: string; fahrzeug?: string; art?: string }> }) {
+  const { leistung = '', wunsch = '', paket = '', kennzeichen = '', fahrzeug = '', art = '' } = await searchParams;
   const wish = checkPlate(wunsch.slice(0, 20));
   const current = checkPlate(kennzeichen.slice(0, 20));
   return (
@@ -29,7 +29,7 @@ export default async function AuftragPage({ searchParams }: { searchParams: Prom
         </div>
       </header>
       <div className="shell wizard-shell">
-        <OrderWizard initial={leistung.slice(0, 30)} wish={wish.ok ? wish.value : ''} currentPlate={current.ok ? current.value : ''} payOnline={paymentsEnabled()} bundle={paket === '1'} />
+        <OrderWizard initial={leistung.slice(0, 30)} wish={wish.ok ? wish.value : ''} currentPlate={current.ok ? current.value : ''} vehicleType={fahrzeug.slice(0, 20)} plateKind={art === 'e' || art === 'h' ? art : null} payOnline={paymentsEnabled()} bundle={paket === '1'} />
       </div>
     </>
   );

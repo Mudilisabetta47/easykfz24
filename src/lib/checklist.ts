@@ -1,6 +1,6 @@
 // Unterlagen-Checkliste für die Sachbearbeitung, abgeleitet aus Leistung und Auftragsdaten.
 
-import { DOCUMENTS, documentsFor, isEvbRequired, isPlateChange, SERVICES, type PlateChoice, type ServiceId } from './services.ts';
+import { DOCUMENTS, documentsFor, isEvbRequired, isPlateChange, SERVICES, type DocumentOptions, type PlateChoice, type ServiceId } from './services.ts';
 
 export interface ChecklistItem {
   key: string;
@@ -10,9 +10,9 @@ export interface ChecklistItem {
 
 export type ChecklistState = Record<string, { checked: boolean; at: string }>;
 
-export function buildChecklist(service: ServiceId, plateChoice: PlateChoice | null): ChecklistItem[] {
+export function buildChecklist(service: ServiceId, plateChoice: PlateChoice | null, opts: DocumentOptions = {}): ChecklistItem[] {
   const def = SERVICES[service];
-  const items: ChecklistItem[] = documentsFor(service).map((d) => ({
+  const items: ChecklistItem[] = documentsFor(service, opts).map((d) => ({
     key: `dok_${d.kind}`,
     label: `${DOCUMENTS[d.kind].short} geprüft (Upload lesbar und vollständig)`,
     required: d.requirement === 'pflicht',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-import { groupExtent, layoutPlate, PLATE, PLATE_VIEW, type PlateGroup } from '../../lib/plate.ts';
+import { PLATE, PLATE_VIEW, plateGeometry, type PlateFormat, type PlateGroup } from '../../lib/plate.ts';
 import { lookupDistrict, normalizeWish, parseWishText, searchDistricts, type WishInput } from '../../lib/wish-plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 
@@ -27,6 +27,10 @@ interface Props {
   idleText?: string;
   onEnter?: () => void;
   describedBy?: string;
+  /** Fester Zusatz hinter den Ziffern: E (Elektro) oder H (Oldtimer) – nicht editierbar */
+  suffix?: 'E' | 'H';
+  /** Schildform; size gilt für das einzeilige Schild, andere Formen behalten den Maßstab */
+  format?: PlateFormat;
 }
 
 /**
@@ -47,6 +51,8 @@ export function PlateInput({
   idleText = 'Ins Schild tippen: Ort, Buchstaben, Zahlen',
   onEnter,
   describedBy,
+  suffix,
+  format = 'eu',
 }: Props) {
   const auto = useId().replace(/:/g, '');
   const id = idProp ?? `pi-${auto}`;
@@ -57,34 +63,30 @@ export function PlateInput({
   const display = {
     cityCode: value.cityCode || placeholder.cityCode,
     letters: value.letters || placeholder.letters,
-    numbers: value.numbers || placeholder.numbers,
+    numbers: (value.numbers || placeholder.numbers) + (suffix ?? ''),
   };
   const ghost = { cityCode: !value.cityCode, letters: !value.letters, numbers: !value.numbers };
-  const layout = useMemo(() => layoutPlate(display.cityCode, display.letters, display.numbers), [display.cityCode, display.letters, display.numbers]);
+  const geo = useMemo(
+    () => plateGeometry(format, display.cityCode, display.letters, display.numbers),
+    [format, display.cityCode, display.letters, display.numbers],
+  );
   const districts = useMemo(() => (focus === 'cityCode' && value.cityCode ? searchDistricts(value.cityCode, 6) : []), [focus, value.cityCode]);
   const showList = districts.length > 0 && !(districts.length === 1 && districts[0].code === value.cityCode);
   const districtName = value.cityCode ? lookupDistrict(value.cityCode) : null;
 
-  const vbW = PLATE.W + PLATE_VIEW.PAD_X * 2;
-  const vbH = PLATE.H + PLATE_VIEW.PAD_Y + PLATE_VIEW.PAD_B;
-  // Tippzonen: das ganze Schild wird in drei Bereiche geteilt – auch auf dem Handy gut zu treffen.
-  const zones = (() => {
-    const c = groupExtent(layout, 'cityCode');
-    const l = groupExtent(layout, 'letters');
-    const n = groupExtent(layout, 'numbers');
-    const start = PLATE.BAND_X + PLATE.BAND_W;
-    const end = PLATE.W;
-    const cut1 = c && l ? (c.x1 + l.x0) / 2 : layout.sealX + layout.sealW / 2;
-    const cut2 = l && n ? (l.x1 + n.x0) / 2 : (cut1 + end) / 2;
-    return { cityCode: [start, cut1], letters: [cut1, cut2], numbers: [cut2, end] } as Record<PlateGroup, [number, number]>;
-  })();
+  const vbW = geo.W + PLATE_VIEW.PAD_X * 2;
+  const vbH = geo.H + PLATE_VIEW.PAD_Y + PLATE_VIEW.PAD_B;
+  // Gleicher Maßstab wie das einzeilige Schild: zweizeilige Schilder sind entsprechend schmaler
+  const ratio = geo.W / PLATE.W;
+  const plateWidth = typeof size === 'number' ? `${size * ratio}px` : ratio === 1 ? size : `calc(${size} * ${ratio.toFixed(4)})`;
+  // Tippzonen decken das ganze Schild ab – auch auf dem Handy gut zu treffen.
   const box = (g: PlateGroup) => {
-    const [x0, x1] = zones[g];
+    const z = geo.zones[g];
     return {
-      left: `${((x0 + PLATE_VIEW.PAD_X) / vbW) * 100}%`,
-      width: `${((x1 - x0) / vbW) * 100}%`,
-      top: `${(PLATE_VIEW.PAD_Y / vbH) * 100}%`,
-      height: `${(PLATE.H / vbH) * 100}%`,
+      left: `${((z.x0 + PLATE_VIEW.PAD_X) / vbW) * 100}%`,
+      width: `${((z.x1 - z.x0) / vbW) * 100}%`,
+      top: `${((z.y0 + PLATE_VIEW.PAD_Y) / vbH) * 100}%`,
+      height: `${((z.y1 - z.y0) / vbH) * 100}%`,
     };
   };
 
@@ -178,7 +180,7 @@ export function PlateInput({
       ) : null}
       <div
         className="pi__plate"
-        style={{ inlineSize: typeof size === 'number' ? `${size}px` : size }}
+        style={{ inlineSize: plateWidth }}
         onMouseDown={(e) => {
           if ((e.target as HTMLElement).tagName === 'INPUT') return;
           e.preventDefault();
@@ -194,6 +196,7 @@ export function PlateInput({
           ghost={ghost}
           caret={focus}
           invalid={invalid}
+          format={format}
           showSealPlaceholder
         />
         {GROUPS.map((g) => (

@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     }
     files.push({ kind, name: value.name || `${kind}.${check.type.ext}`, bytes, type: check.type });
   }
-  const docErrors = { ...validateDocuments(order.service, counts), ...fileErrors };
+  const docErrors = { ...validateDocuments(order.service, counts, { hKennzeichen: order.vehicle.hKennzeichen }), ...fileErrors };
   if (Object.keys(docErrors).length > 0) return fail(422, 'Bitte prüfen Sie die hochgeladenen Unterlagen.', docErrors);
 
   // Erst zählen, wenn die Anfrage gültig ist – Tippfehler sollen niemanden aussperren.
