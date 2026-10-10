@@ -23,6 +23,8 @@ interface Props {
   bubble?: string;
   /** Ortsname unter dem Schild anzeigen */
   showDistrict?: boolean;
+  /** Text unter dem Schild, solange kein Ort erkannt ist */
+  idleText?: string;
   onEnter?: () => void;
   describedBy?: string;
 }
@@ -42,6 +44,7 @@ export function PlateInput({
   invalid = null,
   bubble,
   showDistrict = true,
+  idleText = 'Ins Schild tippen: Ort, Buchstaben, Zahlen',
   onEnter,
   describedBy,
 }: Props) {
@@ -249,7 +252,7 @@ export function PlateInput({
               <strong>{value.cityCode}</strong> · {districtName}
             </>
           ) : (
-            'Ins Schild tippen: Ort, Buchstaben, Zahlen'
+            idleText
           )}
         </p>
       ) : null}

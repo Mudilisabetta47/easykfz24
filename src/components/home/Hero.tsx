@@ -4,6 +4,7 @@ import { CarSvg } from '../CarSvg.tsx';
 import { ArrowRight, Check, Doc, Receipt, Shield } from '../icons.tsx';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateTrigger } from '../plate/PlateConfigurator.tsx';
+import { HeroQuickStart } from './HeroQuickStart.tsx';
 import { Split } from '../Split.tsx';
 import { PromoBadge, promoActive } from '../Promo.tsx';
 import { formatEuro } from '../../lib/format.ts';
@@ -47,31 +48,31 @@ export function Hero() {
           </div>
 
           <div className="hero__intro shell" data-intro>
-            <p className="hero__eyebrow" data-reveal="fade">
-              <span className="hero__live" aria-hidden="true" />
-              Digitaler Zulassungsservice
-            </p>
-            <Split as="h1" id="hero-title" className="hero__title" text={'Einfach.\nZugelassen.'} reveal="mask" delay={120} />
-            <p className="hero__sub" data-reveal="up" style={{ '--rv-delay': '380ms' } as CSSProperties}>
-              Zulassen, ummelden oder abmelden – digital, schnell und deutschlandweit.
-            </p>
-            <div className="hero__ctas" data-reveal="up" style={{ '--rv-delay': '500ms' } as CSSProperties}>
-              <Link href="/kfz-anmelden/auftrag" className="btn btn--lg" data-magnetic="0.22" data-cursor="Start">
-                Jetzt Zulassung starten
+            <div className="hero__copy">
+              <p className="hero__eyebrow" data-reveal="fade">
+                <span className="hero__live" aria-hidden="true" />
+                Digitaler Zulassungsservice
+              </p>
+              <Split as="h1" id="hero-title" className="hero__title" text={'Einfach.\nZugelassen.'} reveal="mask" delay={120} />
+              <p className="hero__sub" data-reveal="up" style={{ '--rv-delay': '380ms' } as CSSProperties}>
+                Zulassen, ummelden oder abmelden – digital, schnell und deutschlandweit.
+              </p>
+              {promoActive() ? (
+                <p className="hero__promo" data-reveal="up" style={{ '--rv-delay': '500ms' } as CSSProperties}>
+                  <PromoBadge tone="dark" />
+                  <span>
+                    auf die Servicepauschale – Abmeldung schon ab <strong>{formatEuro(ABMELDUNG.promoCents)}</strong>
+                  </span>
+                </p>
+              ) : null}
+              <Link href="#ablauf" className="hero__how" data-reveal="up" style={{ '--rv-delay': '600ms' } as CSSProperties}>
+                So funktioniert&apos;s
                 <ArrowRight className="btn__icon" />
               </Link>
-              <Link href="#ablauf" className="btn btn--glass btn--lg">
-                So funktioniert&apos;s
-              </Link>
             </div>
-            {promoActive() ? (
-              <p className="hero__promo" data-reveal="up" style={{ '--rv-delay': '640ms' } as CSSProperties}>
-                <PromoBadge tone="dark" />
-                <span>
-                  auf die Servicepauschale – Abmeldung schon ab <strong>{formatEuro(ABMELDUNG.promoCents)}</strong>
-                </span>
-              </p>
-            ) : null}
+            <div className="hero__quick" data-reveal="up" style={{ '--rv-delay': '420ms' } as CSSProperties}>
+              <HeroQuickStart />
+            </div>
           </div>
 
           <ol className="hero__acts" role="list" aria-label="Ablauf in fünf Schritten">

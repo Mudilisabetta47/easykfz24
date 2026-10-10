@@ -57,11 +57,19 @@ export function initHero(root: HTMLElement): () => void {
   let carW = 1;
   let small = false;
   let radius = -1;
+  let introGone = false;
 
   const render = (p: number) => {
     // Intro (Headline + CTAs) gibt die Bühne frei
     const introOut = ease.inOutCubic(win(p, 0.015, 0.09));
     pose(intro, { y: -introOut * vh * 0.08, opacity: 1 - introOut, blur: introOut * 6 });
+    // Ausgeblendeter Schnellstart darf keine Klicks oder Fokus mehr annehmen
+    const gone = introOut > 0.6;
+    if (intro && gone !== introGone) {
+      introGone = gone;
+      intro.inert = gone;
+      if (gone && intro.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    }
     pose(hint, { opacity: 1 - win(p, 0, 0.03) });
 
     // Hintergrund: leichte Parallaxe

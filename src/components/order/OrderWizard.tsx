@@ -83,20 +83,27 @@ const describedBy = (path: string, error?: string, hint?: boolean) =>
 
 export function OrderWizard({
   initial,
+  currentPlate = '',
   wish = '',
   payOnline = false,
   bundle = false,
 }: {
   initial: string;
+  /** Bisheriges Kennzeichen (z. B. von der Startseite bei Abmeldung) */
+  currentPlate?: string;
   wish?: string;
   payOnline?: boolean;
   bundle?: boolean;
 }) {
   const router = useRouter();
-  const [draft, setDraft] = useState<OrderInput>(() => withBundle(withWish(emptyDraft(isServiceId(initial) ? initial : ''), wish), bundle));
+  const [draft, setDraft] = useState<OrderInput>(() => {
+    const d = withBundle(withWish(emptyDraft(isServiceId(initial) ? initial : ''), wish), bundle);
+    return currentPlate ? { ...d, vehicle: { ...d.vehicle, bisherigesKennzeichen: currentPlate } } : d;
+  });
   const [files, setFiles] = useState<Files>({});
-  const [step, setStep] = useState(isServiceId(initial) ? 1 : 0);
-  const [maxStep, setMaxStep] = useState(isServiceId(initial) ? 1 : 0);
+  // Immer im ersten Schritt beginnen – dort stehen neben der Leistung auch Kennzeichen und Schilder.
+  const [step, setStep] = useState(0);
+  const [maxStep, setMaxStep] = useState(0);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -311,7 +318,7 @@ export function OrderWizard({
               <h2 id="st-0" tabIndex={-1}>Was möchten Sie erledigen?</h2>
               <p className="wizard__lead">Leistung wählen, Kennzeichen festlegen – den Preis sehen Sie rechts sofort.</p>
               {initial === 'ummeldung' && !service ? <p className="wizard__note">Ummeldung: Bitte wählen Sie, ob der Halter wechselt oder Sie umgezogen sind.</p> : null}
-              {wish ? (
+              {wish && !service ? (
                 <p className="wizard__note">
                   Ihr Wunschkennzeichen <strong>{wish}</strong> ist vorgemerkt. Wählen Sie jetzt die Leistung – die Reservierung übernehmen wir.
                 </p>
