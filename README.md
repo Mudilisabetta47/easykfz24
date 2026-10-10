@@ -71,14 +71,22 @@ Bild. Gemessen wird nur in `refreshAll()` (Resize, ResizeObserver, Fonts), pro F
 
 ## Kennzeichenschrift
 
-Die Schilder werden als SVG gezeichnet. Liegt eine Kennzeichenschrift (FE-Schrift) als `assets-src/fonts/fe-schrift.ttf`
-(oder `.otf`/`.woff2`) vor, übernimmt `npm run plate-font` deren Zeichen als Vektorpfade nach
-`src/lib/plate-font.generated.ts`; `dev`, `build`, `test` und `typecheck` erledigen das automatisch. Fehlende Umlaute werden
-aus A/O/U und zwei Punkten zusammengesetzt. Ohne Schriftdatei greift die eingebaute Nachzeichnung.
+Die Schilder werden als SVG gezeichnet, die Zeichen stammen aus der FE-Schrift (Nutzung für die Website vom Betreiber
+bestätigt, 10.10.2026). Schutz der Schriftdatei:
 
-Schriftdatei und erzeugte Datei sind bewusst nicht im Repository (`.gitignore`): Die vorliegende „FE-Font“ (1997) enthält
-keine Lizenzangabe und ist als „eingeschränkt einbettbar“ markiert. Erst mit geklärter Lizenz einchecken bzw. auf dem
-Server ablegen.
+- Die Website liefert **keine Schriftdatei** aus. `scripts/plate-font.mjs` übernimmt beim Build nur die Umrisse der
+  benötigten Zeichen (A–Z, Ä Ö Ü, 0–9) nach `src/lib/plate-font.generated.ts`, ohne Schriftnamen oder Metadaten.
+- Im Repository liegt die Schrift nur **verschlüsselt** (`assets-src/fonts/fe-schrift.enc`, AES-256-GCM). Die
+  unverschlüsselte Datei und die erzeugten Umrisse sind per `.gitignore` ausgeschlossen.
+- Der Schlüssel `PLATE_FONT_KEY` steht in `.env.local` und muss auf dem Server als Umgebungsvariable gesetzt sein.
+  Ohne (oder mit falschem) Schlüssel baut die Seite trotzdem – dann mit der eingebauten Nachzeichnung.
+
+Neue Schriftdatei: als `assets-src/fonts/fe-schrift.ttf` (oder `.otf`/`.woff2`) ablegen, dann
+`npm run plate-font -- --encrypt` und `npm run plate-font`. `dev`, `build`, `test` und `typecheck` erzeugen die Umrisse
+automatisch. Fehlende Umlaute werden aus A/O/U und zwei Punkten zusammengesetzt.
+
+Was im Browser sichtbar ist, lässt sich grundsätzlich abzeichnen – verhindert wird, dass die Schrift als Datei
+heruntergeladen oder aus dem Repository entnommen werden kann.
 
 ## Preise
 
@@ -110,4 +118,4 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
 5. **Vollmacht-Vorlage** juristisch prüfen.
 6. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
 7. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
-8. **Kennzeichenschrift**: Lizenz klären (siehe „Kennzeichenschrift“) und die Schriftdatei auf dem Server unter `assets-src/fonts/` ablegen.
+8. **Kennzeichenschrift**: `PLATE_FONT_KEY` aus `.env.local` auf dem Server als Umgebungsvariable setzen (siehe „Kennzeichenschrift“).

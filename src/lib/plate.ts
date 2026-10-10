@@ -130,7 +130,6 @@ export const GLYPHS: Record<string, Glyph> = {
   ...STROKE_GLYPHS,
   ...Object.fromEntries(Object.entries(PLATE_FONT?.glyphs ?? {}).map(([c, g]) => [c, { w: g.w, d: [g.d], fill: true }])),
 };
-export const PLATE_FONT_NAME = PLATE_FONT?.name ?? null;
 
 /** Abstand zwischen zwei Zeichen: Rechteck-Raster der Nachzeichnung bzw. Tintenabstand der Schrift */
 function charGap(a: Glyph, b: Glyph): number {

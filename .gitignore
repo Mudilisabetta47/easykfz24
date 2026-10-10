@@ -7,9 +7,12 @@ data/
 *.tsbuildinfo
 next-env.d.ts
 
-# Original-Logodateien (Quellen, nicht ausliefern)
-assets-src/
+# Quelldateien (Original-Logos, Schrift) – nicht ausliefern; die Kennzeichenschrift nur verschlüsselt einchecken
+assets-src/*
+!assets-src/fonts/
+assets-src/fonts/*
+!assets-src/fonts/fe-schrift.enc
 .DS_Store
 
-# Aus einer lizenzierten Kennzeichenschrift erzeugt (scripts/plate-font.mjs) – nur mit geklärter Lizenz einchecken
+# Aus der Kennzeichenschrift erzeugt (scripts/plate-font.mjs, beim Build automatisch)
 src/lib/plate-font.generated.ts
