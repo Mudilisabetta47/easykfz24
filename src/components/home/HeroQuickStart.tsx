@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import '../../styles/quick.css';
 import { useState } from 'react';
 import { formatEuro } from '../../lib/format.ts';
 import { fromPrice } from '../../lib/pricing.ts';
@@ -51,14 +52,14 @@ const VEHICLES = [
 type VehicleId = (typeof VEHICLES)[number]['id'];
 
 /** Schnellstart im ersten Bildschirm: Leistung wählen, Kennzeichen direkt ins Schild tippen, weiter zum Auftrag. */
-export function HeroQuickStart() {
+export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = {}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('anmelden');
   const [vehicle, setVehicle] = useState<VehicleId>('auto');
   const veh = VEHICLES.find((v) => v.id === vehicle) ?? VEHICLES[0];
   const suffix = 'suffix' in veh ? veh.suffix : undefined;
   const format = 'format' in veh ? veh.format : 'eu';
-  const [plate, setPlate] = useState<WishInput>(EMPTY);
+  const [plate, setPlate] = useState<WishInput>(initialCity ? { ...EMPTY, cityCode: initialCity } : EMPTY);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const m = MODES[mode];

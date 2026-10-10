@@ -29,6 +29,7 @@ export function SiteFooter() {
             <h2>Service</h2>
             <ul>
               <li><Link href="/kfz-anmelden/auftrag">Vorgang starten</Link></li>
+              <li><Link href="/kennzeichen">Kennzeichen A–Z</Link></li>
               <li><Link href="/status">Status abrufen</Link></li>
               <li><Link href="/#ablauf">So funktioniert&apos;s</Link></li>
               <li><Link href="/#faq">Hilfe &amp; FAQ</Link></li>

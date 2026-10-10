@@ -5,6 +5,7 @@ import '../styles/base.css';
 import '../styles/components.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.PUBLIC_BASE_URL || 'http://localhost:3024'),
   title: {
     default: 'EasyKFZ24 – Kfz-Zulassung digital beauftragen',
     template: '%s · EasyKFZ24',

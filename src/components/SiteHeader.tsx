@@ -14,6 +14,7 @@ export const NAV_ITEMS = [
   { href: '/kfz-anmelden#neuzulassung', label: 'Zulassung' },
   { href: '/kfz-anmelden#ummeldung', label: 'Ummeldung' },
   { href: '/kfz-anmelden#abmeldung', label: 'Abmeldung' },
+  { href: '/kennzeichen', label: 'Kennzeichen' },
   { href: '/#ablauf', label: "So funktioniert's" },
   { href: '/#haendler', label: 'Für Händler' },
   { href: '/#preise', label: 'Preise' },

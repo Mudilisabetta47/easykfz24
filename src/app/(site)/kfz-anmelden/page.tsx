@@ -30,7 +30,7 @@ const STEPS = [
   { t: 'Online beauftragen', d: 'Leistung wählen, Fahrzeug- und Halterdaten eingeben, Unterlagen hochladen. Dauer: wenige Minuten.' },
   { t: 'Originale per Post', d: 'Unterschriebene Vollmacht und die benötigten Originale an uns senden – mit Ihrer Auftragsnummer.' },
   { t: 'Prüfung & Einreichung', d: 'Wir prüfen alles auf Vollständigkeit und reichen den Vorgang bei der zuständigen Behörde ein.' },
-  { t: 'Zustellung', d: 'Papiere und ggf. Kennzeichen kommen per Einschreiben – oder Sie holen sie ab. Den Stand sehen Sie jederzeit online.' },
+  { t: 'Zustellung', d: 'Papiere und ggf. Kennzeichen kommen per DHL oder UPS mit Sendungsverfolgung – oder Sie holen sie ab. Den Stand sehen Sie jederzeit online.' },
 ];
 
 export default function KfzAnmeldenPage() {
