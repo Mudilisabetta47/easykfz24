@@ -110,5 +110,4 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
 5. **Vollmacht-Vorlage** juristisch prüfen.
 6. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
 7. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
-
 8. **Kennzeichenschrift**: Lizenz klären (siehe „Kennzeichenschrift“) und die Schriftdatei auf dem Server unter `assets-src/fonts/` ablegen.
