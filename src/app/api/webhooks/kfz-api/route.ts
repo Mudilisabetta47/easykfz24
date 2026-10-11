@@ -10,10 +10,16 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   // Rohtext lesen – die Signatur gilt für die exakten Bytes des Rumpfs.
-  const raw = await req.text();
-  const { result, after } = handleKfzWebhook(raw, req.headers);
-  after?.();
-  return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store' } });
+  try {
+    const raw = await req.text();
+    const { result, after } = handleKfzWebhook(raw, req.headers);
+    after?.();
+    return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store' } });
+  } catch (e) {
+    // Letzte Absicherung: nachvollziehbar protokollieren, ohne Rumpf oder Kundendaten
+    console.error('[kfz-api] Unerwarteter Fehler im Webhook:', (e as Error).stack ?? (e as Error).message);
+    return NextResponse.json({ error: 'Interner Fehler' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+  }
 }
 
 /** Erreichbarkeit prüfen (z. B. im Browser) – verrät nichts über die Konfiguration. */

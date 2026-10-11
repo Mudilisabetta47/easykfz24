@@ -159,6 +159,11 @@ export function getDb(): DatabaseSync {
   return g.__ekDb;
 }
 
+/** Aktuelle Schema-Version (Anzahl ausgeführter Migrationen). */
+export function schemaVersion(): number {
+  return (getDb().prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+}
+
 /** Führt fn in einer Schreibtransaktion aus (BEGIN IMMEDIATE verhindert doppelte Auftragsnummern). */
 export function transaction<T>(fn: (db: DatabaseSync) => T): T {
   const db = getDb();

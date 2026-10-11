@@ -120,6 +120,15 @@ function findOrder(ev: KfzEvent): number | null {
   return null;
 }
 
+/** Protokolliert ohne Risiko: Ein Fehler beim Speichern darf die Antwort an kfz-api.de nicht verhindern. */
+function tryRecord(eventId: string, outcome: WebhookOutcome, bodyHash: string, ev: KfzEvent | null, error = ''): void {
+  try {
+    recordEvent(eventId, outcome, bodyHash, ev, null, error);
+  } catch (e) {
+    console.error(`[kfz-api] Protokoll (${outcome}) konnte nicht gespeichert werden:`, (e as Error).message);
+  }
+}
+
 /** Kürzester erlaubter Weg im Auftrags-Workflow (ohne Storno), höchstens drei Schritte. */
 function workflowPath(from: StatusId, to: StatusId): StatusId[] | null {
   if (from === to) return [];
@@ -279,21 +288,30 @@ export function handleKfzWebhook(raw: string, headers: Headers): { result: Webho
   try {
     json = raw.trim() ? JSON.parse(raw) : {};
   } catch {
-    recordEvent(eventId, 'fehler', bodyHash, null, null, 'Rumpf ist kein gültiges JSON');
+    tryRecord(eventId, 'fehler', bodyHash, null, 'Rumpf ist kein gültiges JSON');
     return { result: { status: 400, body: { error: 'Ungültiges JSON' } } };
   }
 
-  const db = getDb();
+  const ev = parseKfzEvent(json);
+
+  // PING / Test ohne Vorgang: immer bestätigen – auch wenn das Protokoll gerade nicht geschrieben werden kann.
+  if (!ev.hasOrder) {
+    tryRecord(eventId, 'ping', bodyHash, ev);
+    return { result: { status: 200, body: { received: true, ping: true } } };
+  }
+
+  // Ab hier wird gespeichert. Ist der Speicher nicht erreichbar: 503, damit kfz-api.de später erneut zustellt.
+  let db: ReturnType<typeof getDb>;
+  try {
+    db = getDb();
+  } catch (e) {
+    console.error('[kfz-api] Datenbank nicht verfügbar – Meldung wird nicht verarbeitet:', (e as Error).message);
+    return { result: { status: 503, body: { error: 'Speicher vorübergehend nicht verfügbar' } } };
+  }
   const seen = db.prepare('SELECT outcome FROM kfz_webhook_events WHERE event_id = ?').get(eventId) as { outcome: WebhookOutcome } | undefined;
   if (seen && seen.outcome !== 'fehler') {
     db.prepare('UPDATE kfz_webhook_events SET last_seen_at = ?, deliveries = deliveries + 1 WHERE event_id = ?').run(now(), eventId);
     return { result: { status: 200, body: { received: true, duplicate: true } } };
-  }
-
-  const ev = parseKfzEvent(json);
-  if (!ev.hasOrder) {
-    recordEvent(eventId, 'ping', bodyHash, ev, null);
-    return { result: { status: 200, body: { received: true, ping: true } } };
   }
 
   try {
