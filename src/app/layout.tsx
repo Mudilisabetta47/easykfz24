@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from 'next';
+import { siteUrl } from '../lib/site-url.ts';
 import type { ReactNode } from 'react';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import '../styles/components.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.PUBLIC_BASE_URL || 'http://localhost:3024'),
+  metadataBase: new URL(siteUrl()),
   title: {
     default: 'EasyKFZ24 – Kfz-Zulassung digital beauftragen',
     template: '%s · EasyKFZ24',

@@ -8,6 +8,7 @@
 //   PUBLIC_BASE_URL=https://easykfz24.de
 // Ohne STRIPE_SECRET_KEY bleibt die Zahlung „offen“ und wird manuell im Admin gepflegt.
 
+import { siteUrl } from '../lib/site-url.ts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export function paymentsEnabled(): boolean {
@@ -15,10 +16,8 @@ export function paymentsEnabled(): boolean {
 }
 
 export function publicBaseUrl(req?: Request): string {
-  const env = process.env.PUBLIC_BASE_URL;
-  if (env) return env.replace(/\/$/, '');
-  if (req) return new URL(req.url).origin;
-  return 'http://localhost:3000';
+  if (!process.env.PUBLIC_BASE_URL && req && process.env.NODE_ENV !== 'production') return new URL(req.url).origin;
+  return siteUrl();
 }
 
 export interface CheckoutInput {
