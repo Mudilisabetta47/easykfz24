@@ -76,10 +76,11 @@ bestätigt, 10.10.2026). Schutz der Schriftdatei:
 
 - Die Website liefert **keine Schriftdatei** aus. `scripts/plate-font.mjs` übernimmt beim Build nur die Umrisse der
   benötigten Zeichen (A–Z, Ä Ö Ü, 0–9) nach `src/lib/plate-font.generated.ts`, ohne Schriftnamen oder Metadaten.
-- Im Repository liegt die Schrift nur **verschlüsselt** (`assets-src/fonts/fe-schrift.enc`, AES-256-GCM). Die
-  unverschlüsselte Datei und die erzeugten Umrisse sind per `.gitignore` ausgeschlossen.
-- Der Schlüssel `PLATE_FONT_KEY` steht in `.env.local` und muss auf dem Server als Umgebungsvariable gesetzt sein.
-  Ohne (oder mit falschem) Schlüssel baut die Seite trotzdem – dann mit der eingebauten Nachzeichnung.
+- Im Repository liegt die Schriftdatei nur **verschlüsselt** (`assets-src/fonts/fe-schrift.enc`, AES-256-GCM); die
+  unverschlüsselte Datei ist per `.gitignore` ausgeschlossen.
+- Eingecheckt sind die erzeugten Zeichenumrisse (`src/lib/plate-font.generated.ts`) – genau das, was der Browser
+  ohnehin erhält. Jeder Build zeigt damit die FE-Schrift, auch ohne Schlüssel auf dem Server.
+- `PLATE_FONT_KEY` (in `.env.local`) wird nur gebraucht, um die Umrisse aus der verschlüsselten Datei neu zu erzeugen.
 
 Neue Schriftdatei: als `assets-src/fonts/fe-schrift.ttf` (oder `.otf`/`.woff2`) ablegen, dann
 `npm run plate-font -- --encrypt` und `npm run plate-font`. `dev`, `build`, `test` und `typecheck` erzeugen die Umrisse
@@ -112,6 +113,22 @@ unter kfz-api.de/api und kfz-api.de/software-anbieter; die vollständige Doku li
 Umgebung: `KFZ_API_WEBHOOK_SECRET` (Pflicht), `KFZ_API_BASE_URL`, `KFZ_API_LOGIN`, `KFZ_API_PASSWORD` (lesend, Belege),
 `SMTP_URL`, `MAIL_FROM` (E-Mails), `PUBLIC_BASE_URL` (öffentliche Adresse).
 
+## Betrieb auf Cloudflare (D1 + R2)
+
+Die Website läuft auf Cloudflare Workers. Dort gibt es kein beschreibbares Dateisystem – Daten liegen deshalb in
+**Cloudflare D1** (Datenbank, Bindung `DB`) und Uploads in **Cloudflare R2** (Bindung `UPLOADS`). Lokal und in den
+Tests wird stattdessen die SQLite-Datei unter `DATA_DIR` benutzt; die Schnittstelle ist dieselbe (`src/server/db.ts`,
+`src/server/blobs.ts`). Das Schema legt die App beim ersten Zugriff selbst an (`schema_migrations`).
+
+Einrichtung im Cloudflare-Dashboard:
+
+1. **D1** → „Create database“, Name `easykfz24`. Die Database-ID notieren.
+2. **R2** → „Create bucket“, Name `easykfz24-uploads` (nicht öffentlich).
+3. Die Bindungen stehen in `wrangler.jsonc` (Worker-Name und D1-ID eintragen).
+4. Prüfen: `https://easykfz24.de/api/health` muss `"platform":"cloudflare","db":true,"uploads":true,"storage":"ok"` melden.
+
+E-Mails auf Cloudflare nur über `RESEND_API_KEY` (HTTP); SMTP funktioniert dort nicht.
+
 ## Preise
 
 Alle Preise enden auf ,99 (`src/lib/pricing.config.ts`). Neukundenpreise werden auf …9,99 bzw. ,99 abgerundet –
@@ -142,4 +159,3 @@ die Ersparnis liegt dadurch immer bei mindestens 10 % der Servicepauschale. Komp
 5. **Vollmacht-Vorlage** juristisch prüfen.
 6. Es werden keine E-Mails versendet; Kunden sehen Hinweise über die Statusabfrage.
 7. Händlerzugang und Express sind als „Bald verfügbar“ gekennzeichnet.
-8. **Kennzeichenschrift**: `PLATE_FONT_KEY` aus `.env.local` auf dem Server als Umgebungsvariable setzen (siehe „Kennzeichenschrift“).
