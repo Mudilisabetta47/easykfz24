@@ -84,6 +84,47 @@ const MIGRATIONS: string[] = [
   ALTER TABLE orders ADD COLUMN payment_ref TEXT NOT NULL DEFAULT '';
   ALTER TABLE orders ADD COLUMN payment_token TEXT NOT NULL DEFAULT '';
   `,
+  // v3: kfz-api.de – Vorgang bei der Zulassungsschnittstelle, Webhook-Protokoll, Benachrichtigungen
+  `
+  ALTER TABLE orders ADD COLUMN kfz_order_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN kfz_transaction TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN kfz_status TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN kfz_display TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN kfz_updated_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN kfz_files_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE orders ADD COLUMN kfz_messages_json TEXT NOT NULL DEFAULT '[]';
+  CREATE INDEX orders_kfz ON orders(kfz_order_id);
+
+  CREATE TABLE kfz_webhook_events (
+    event_id TEXT PRIMARY KEY,
+    received_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    deliveries INTEGER NOT NULL DEFAULT 1,
+    outcome TEXT NOT NULL,
+    order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    kfz_order_id TEXT NOT NULL DEFAULT '',
+    external_id TEXT NOT NULL DEFAULT '',
+    business_transaction TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    derived_status TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    body_sha256 TEXT NOT NULL,
+    event_json TEXT NOT NULL DEFAULT '{}'
+  );
+  CREATE INDEX kfz_events_received ON kfz_webhook_events(received_at);
+  CREATE INDEX kfz_events_order ON kfz_webhook_events(order_id);
+
+  CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    at TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    state TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX notifications_order ON notifications(order_id, at);
+  `,
 ];
 
 function migrate(db: DatabaseSync): void {

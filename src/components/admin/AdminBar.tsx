@@ -14,6 +14,7 @@ export function AdminBar() {
         </Link>
         <nav className="admin-bar__nav" aria-label="Verwaltung">
           <Link href="/admin">Aufträge</Link>
+          <Link href="/admin/kfz-api">kfz-api.de</Link>
           <Link href="/" target="_blank">
             Website
           </Link>

@@ -589,3 +589,71 @@
 .admin-mini-form .btn {
   justify-self: start;
 }
+
+/* kfz-api.de */
+.kfz-url {
+  padding: 12px 14px;
+  border: 1px dashed var(--ez-line-strong);
+  border-radius: 10px;
+  background: var(--ez-bg);
+  word-break: break-all;
+  user-select: all;
+}
+.kfz-checks {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+.kfz-check {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: var(--step--1);
+}
+.kfz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 6px 12px;
+}
+.table--compact th,
+.table--compact td {
+  padding: 8px 6px;
+  vertical-align: top;
+}
+.kfz-bt {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kfz-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0 0 12px;
+  font-size: var(--step--1);
+}
+.kfz-facts dt {
+  color: var(--ez-muted);
+}
+.kfz-facts dd {
+  margin: 0;
+}
+.kfz-list {
+  margin: 0 0 12px;
+  padding-inline-start: 18px;
+  font-size: var(--step--1);
+}
+.panel__sub {
+  margin: 14px 0 6px;
+  font-size: var(--step--1);
+  font-weight: 650;
+}
+#h-kfz .badge {
+  margin-inline-start: 8px;
+  vertical-align: middle;
+}

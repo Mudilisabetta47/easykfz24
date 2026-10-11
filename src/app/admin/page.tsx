@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { AdminBar } from '../../components/admin/AdminBar.tsx';
 import { StatusBadge } from '../../components/admin/StatusBadge.tsx';
+import { KfzBadge } from '../../components/admin/KfzBadge.tsx';
+import { AutoRefresh } from '../../components/AutoRefresh.tsx';
 import { formatDateTime, formatEuro } from '../../lib/format.ts';
 import { SERVICES } from '../../lib/services.ts';
 import { STATUS_IDS, STATUSES } from '../../lib/status.ts';
@@ -30,6 +32,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
   return (
     <>
       <AdminBar />
+      <AutoRefresh seconds={30} />
       <main className="admin-shell admin-main">
         <h1 className="admin-h1">Aufträge</h1>
         <ul className="kpis" role="list">
@@ -82,6 +85,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
                 <th scope="col">IBAN</th>
                 <th scope="col">Status</th>
                 <th scope="col">Zahlung</th>
+                <th scope="col">Zulassung</th>
                 <th scope="col" className="num">
                   Service
                 </th>
@@ -90,7 +94,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="table__empty">
+                  <td colSpan={10} className="table__empty">
                     Keine Aufträge für diese Auswahl.
                   </td>
                 </tr>
@@ -120,6 +124,9 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
                       <span className={`badge badge--${o.payment_status === 'bezahlt' ? 'green' : o.payment_status === 'erstattet' ? 'slate' : 'amber'}`}>
                         {PAYMENT_STATUS_LABEL[o.payment_status]}
                       </span>
+                    </td>
+                    <td>
+                      <KfzBadge display={o.kfz_display} />
                     </td>
                     <td className="num">{formatEuro(o.total_cents)}</td>
                   </tr>

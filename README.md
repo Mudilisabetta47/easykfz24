@@ -88,6 +88,30 @@ automatisch. Fehlende Umlaute werden aus A/O/U und zwei Punkten zusammengesetzt.
 Was im Browser sichtbar ist, lässt sich grundsätzlich abzeichnen – verhindert wird, dass die Schrift als Datei
 heruntergeladen oder aus dem Repository entnommen werden kann.
 
+## kfz-api.de (Zulassung über die KBA-Großkundenschnittstelle)
+
+Statusmeldungen von kfz-api.de kommen per Webhook an `POST /api/webhooks/kfz-api`
+(öffentliche URL: `https://easykfz24.de/api/webhooks/kfz-api`). Grundlage sind die öffentlich dokumentierten Angaben
+unter kfz-api.de/api und kfz-api.de/software-anbieter; die vollständige Doku liegt hinter dem Login.
+
+- **Signatur:** `X-Signature` = HMAC-SHA256 (hex) über den Rohtext, Schlüssel `KFZ_API_WEBHOOK_SECRET`. Ohne gültige
+  Signatur → 401, ohne konfigurierten Schlüssel → 503. Es wird nichts verarbeitet, bevor die Signatur stimmt.
+- **Doppelt:** `X-Event-Id` (bei Wiederholungen gleich) → bereits verarbeitete Ereignisse werden nur gezählt.
+- **PING:** signierte Nachricht ohne `order` → 200, im Protokoll als „PING / Test“.
+- **Zuordnung:** `order.externalId` = EasyKFZ24-Auftragsnummer, sonst die im Auftrag verknüpfte kfz-api-Vorgangsnummer.
+  Nicht zuordenbare Meldungen werden gespeichert und lassen sich in der Verwaltung einem Auftrag zuweisen.
+- **Status → Anzeige:** ACCEPTED/FORWARDED → In Bearbeitung · APPROVED(_WITH_DOCUMENTS) → Erfolgreich abgeschlossen ·
+  REJECTED(_WITH_DOCUMENTS) → Weitere Angaben erforderlich · FAILED → Fehlgeschlagen (retryable → In Bearbeitung).
+  Der Auftrags-Workflow wird nachgezogen (Bei Zulassungsstelle, Zugelassen inkl. Kennzeichen, Unterlagen fehlen).
+- **Kunden:** Bearbeitungsstatus in der Statusabfrage, E-Mail bei Wechsel (nur Auftragsnummer, Stand, Link).
+- **Verwaltung:** `/admin/kfz-api` mit Einrichtung, Selbsttest (signierter PING an die eigene URL), lesendem
+  Verbindungstest, Webhook-Protokoll und Zuordnung; im Auftrag Karte „Zulassung über kfz-api.de“ mit Belegen.
+- **Anträge** werden nicht automatisch an kfz-api.de gesendet: Es gibt keine Testumgebung, jeder gültige Antrag geht
+  produktiv an das KBA.
+
+Umgebung: `KFZ_API_WEBHOOK_SECRET` (Pflicht), `KFZ_API_BASE_URL`, `KFZ_API_LOGIN`, `KFZ_API_PASSWORD` (lesend, Belege),
+`SMTP_URL`, `MAIL_FROM` (E-Mails), `PUBLIC_BASE_URL` (öffentliche Adresse).
+
 ## Preise
 
 Alle Preise enden auf ,99 (`src/lib/pricing.config.ts`). Neukundenpreise werden auf …9,99 bzw. ,99 abgerundet –

@@ -33,6 +33,8 @@ export interface OrderRow {
   carrier: CarrierId | '';
   tracking_number: string;
   payment_status: PaymentStatus;
+  /** Bearbeitungsstand laut kfz-api.de (leer, solange keine Meldung vorliegt) */
+  kfz_display: string;
 }
 
 export interface OrderDetail extends OrderRow {
@@ -59,7 +61,7 @@ export interface DocumentRow {
 export interface EventRow {
   id: number;
   at: string;
-  type: 'created' | 'status' | 'note' | 'plate' | 'checklist' | 'shipment' | 'payment';
+  type: 'created' | 'status' | 'note' | 'plate' | 'checklist' | 'shipment' | 'payment' | 'kfz';
   from_status: StatusId | null;
   to_status: StatusId | null;
   message: string;
@@ -81,11 +83,11 @@ export interface UploadFile {
 }
 
 const LIST_COLUMNS =
-  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents, carrier, tracking_number, payment_status';
+  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents, carrier, tracking_number, payment_status, kfz_display';
 
 const now = () => new Date().toISOString();
 
-function addEvent(
+export function addEvent(
   orderId: number,
   e: { type: EventRow['type']; from?: StatusId | null; to?: StatusId | null; message?: string; publicMessage?: string; actor: string },
 ): void {
@@ -94,7 +96,7 @@ function addEvent(
     .run(orderId, now(), e.type, e.from ?? null, e.to ?? null, e.message ?? '', e.publicMessage ?? '', e.actor);
 }
 
-function touch(orderId: number): void {
+export function touch(orderId: number): void {
   getDb().prepare('UPDATE orders SET updated_at = ? WHERE id = ?').run(now(), orderId);
 }
 
@@ -412,12 +414,15 @@ export interface PublicStatus {
   paymentToken: string;
   totalCents: number;
   timeline: { at: string; status: StatusId; message: string }[];
+  /** Bearbeitungsstand laut kfz-api.de ('' = noch keine Meldung → „Auftrag eingegangen“) */
+  kfzDisplay: string;
+  kfzTimeline: { at: string; label: string }[];
 }
 
 export function lookupStatus(number: string, email: string): PublicStatus | null {
   const row = getDb()
     .prepare(
-      'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents FROM orders WHERE number = ?',
+      'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents, kfz_display FROM orders WHERE number = ?',
     )
     .get(number) as
     | {
@@ -434,6 +439,7 @@ export function lookupStatus(number: string, email: string): PublicStatus | null
         payment_status: PaymentStatus;
         payment_token: string;
         total_cents: number;
+        kfz_display: string;
       }
     | undefined;
   // Gleiche Antwort für „unbekannte Nummer“ und „falsche E-Mail“ – verrät nichts.
@@ -454,5 +460,11 @@ export function lookupStatus(number: string, email: string): PublicStatus | null
     paymentToken: row.payment_token,
     totalCents: row.total_cents,
     timeline: events.map((e) => ({ at: e.at, status: e.to_status, message: e.public_message })),
+    kfzDisplay: row.kfz_display,
+    kfzTimeline: (
+      getDb()
+        .prepare("SELECT at, public_message FROM events WHERE order_id = ? AND type = 'kfz' AND public_message != '' ORDER BY at ASC, id ASC")
+        .all(row.id) as { at: string; public_message: string }[]
+    ).map((e) => ({ at: e.at, label: e.public_message })),
   };
 }

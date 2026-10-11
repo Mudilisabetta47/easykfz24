@@ -7,6 +7,8 @@ import { passwordMatches } from '../../lib/session.ts';
 import { adminConfig, endSession, requireAdmin, startSession } from '../../server/auth.ts';
 import { clientIp, limits } from '../../server/limits.ts';
 import { addNote, changeStatus, setAssignedPlate, setChecklistItem, setPaymentStatus, setShipment, type ActionResult } from '../../server/orders.ts';
+import { assignKfzEvent, checkKfzConnection, kfzWebhookUrl, linkKfzOrder } from '../../server/kfz-api.ts';
+import { signKfzBody } from '../../lib/kfz-api.ts';
 
 export type LoginState = { error?: string };
 
@@ -93,4 +95,58 @@ export async function paymentAction(form: FormData): Promise<void> {
   const id = orderId(form);
   const result = setPaymentStatus(id, String(form.get('payment') ?? ''), String(form.get('ref') ?? '').trim().slice(0, 80));
   back(id, result, 'Zahlungsstatus gespeichert');
+}
+
+/* ---------- kfz-api.de ---------- */
+
+function kfzBack(q: string): never {
+  revalidatePath('/admin/kfz-api');
+  redirect(`/admin/kfz-api?${q}`);
+}
+
+export async function kfzLinkAction(form: FormData): Promise<void> {
+  await requireAdmin();
+  const id = orderId(form);
+  const result = linkKfzOrder(id, String(form.get('kfzOrderId') ?? '').slice(0, 80));
+  back(id, result, 'Verknüpfung mit kfz-api.de gespeichert');
+}
+
+export async function kfzAssignAction(form: FormData): Promise<void> {
+  await requireAdmin();
+  const result = assignKfzEvent(String(form.get('eventId') ?? '').slice(0, 200), String(form.get('number') ?? '').slice(0, 30));
+  kfzBack(result.ok ? `meldung=${encodeURIComponent('Ereignis zugeordnet und verarbeitet')}` : `fehler=${encodeURIComponent(result.error)}`);
+}
+
+export async function kfzCheckAction(): Promise<void> {
+  await requireAdmin();
+  const r = await checkKfzConnection();
+  const text = `${r.message}${r.status ? ` (HTTP ${r.status})` : ''}${r.traceId ? ` · Trace-Id ${r.traceId}` : ''}`;
+  kfzBack(`${r.ok ? 'meldung' : 'fehler'}=${encodeURIComponent(`Verbindungstest: ${text}`)}`);
+}
+
+/**
+ * Selbsttest: signierter PING an die eigene öffentliche Webhook-Adresse – prüft DNS, HTTPS, Routing und Schlüssel.
+ * Ersetzt nicht den PING aus dem kfz-api.de-Dashboard, zeigt aber, ob der Endpunkt von außen erreichbar antwortet.
+ */
+export async function kfzSelfTestAction(): Promise<void> {
+  await requireAdmin();
+  const secret = process.env.KFZ_API_WEBHOOK_SECRET;
+  if (!secret) kfzBack(`fehler=${encodeURIComponent('KFZ_API_WEBHOOK_SECRET fehlt')}`);
+  const raw = JSON.stringify({ test: 'easykfz24-selbsttest', at: new Date().toISOString() });
+  let text: string;
+  let ok = false;
+  try {
+    const res = await fetch(kfzWebhookUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Signature': signKfzBody(raw, secret as string), 'X-Event-Id': `selbsttest-${Date.now()}` },
+      body: raw,
+      signal: AbortSignal.timeout(10_000),
+      cache: 'no-store',
+    });
+    ok = res.status === 200;
+    text = `HTTP ${res.status} von ${kfzWebhookUrl()}`;
+  } catch (e) {
+    text = `nicht erreichbar (${(e as Error).message})`;
+  }
+  kfzBack(`${ok ? 'meldung' : 'fehler'}=${encodeURIComponent(`Selbsttest: ${text}`)}`);
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
+import { DISPLAY, type DisplayStatus } from '../../../lib/kfz-status.ts';
 import { formatDateTime } from '../../../lib/format.ts';
 import { SERVICES } from '../../../lib/services.ts';
 import { STATUSES, statusLabel } from '../../../lib/status.ts';
@@ -16,10 +17,20 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
   const [state, action, pending] = useActionState<StatusState, FormData>(lookupAction, { nr: initialNr });
   const r = state.result;
   const plateParts = r?.assignedPlate ? splitPlate(r.assignedPlate) : null;
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Stand alle drei Minuten selbst aktualisieren, solange die Seite sichtbar ist (schont das Abfragelimit).
+  useEffect(() => {
+    if (!r) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !pending) formRef.current?.requestSubmit();
+    }, 180_000);
+    return () => window.clearInterval(t);
+  }, [r, pending]);
 
   return (
     <div className="status-grid">
-      <form action={action} className="card status-form" noValidate>
+      <form action={action} className="card status-form" noValidate ref={formRef}>
         <h2>Vorgang abrufen</h2>
         <div className="field">
           <label htmlFor="st-nr" className="field__label">
@@ -58,6 +69,7 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
               <span className={`badge badge--${STATUSES[r.status].tone}`}>{statusLabel(r.status, r.service, 'kunde')}</span>
             </div>
             <p className="status-result__text">{STATUSES[r.status].publicText}</p>
+            <ProcessSteps display={(r.kfzDisplay || 'eingegangen') as DisplayStatus} timeline={r.kfzTimeline} />
             <dl className="status-facts">
               <div>
                 <dt>Servicekosten</dt>
@@ -117,5 +129,35 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Bearbeitungsstand bei der Zulassung: eingegangen → in Bearbeitung → abgeschlossen (mit Sonderfällen). */
+function ProcessSteps({ display, timeline }: { display: DisplayStatus; timeline: { at: string; label: string }[] }) {
+  const middle: DisplayStatus = display === 'angaben_erforderlich' ? 'angaben_erforderlich' : 'in_bearbeitung';
+  const last: DisplayStatus = display === 'fehlgeschlagen' ? 'fehlgeschlagen' : 'abgeschlossen';
+  const steps: DisplayStatus[] = ['eingegangen', middle, last];
+  const current = display === 'eingegangen' ? 0 : display === 'in_bearbeitung' || display === 'angaben_erforderlich' ? 1 : 2;
+  const lastAt = timeline.length ? timeline[timeline.length - 1].at : null;
+  return (
+    <section className="process" aria-label="Bearbeitungsstatus bei der Zulassung">
+      <p className="label">Bearbeitungsstatus</p>
+      <ol className="process__steps" role="list">
+        {steps.map((s, i) => (
+          <li
+            key={s}
+            className={`process__step process__step--${DISPLAY[s].tone}${i < current ? ' is-done' : ''}${i === current ? ' is-current' : ''}`}
+            aria-current={i === current ? 'step' : undefined}
+          >
+            <span className="process__dot" aria-hidden="true" />
+            <span className="process__label">{DISPLAY[s].label}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="process__text">
+        {DISPLAY[display].text}
+        {lastAt ? <span className="muted"> · Stand {formatDateTime(lastAt)}</span> : null}
+      </p>
+    </section>
   );
 }

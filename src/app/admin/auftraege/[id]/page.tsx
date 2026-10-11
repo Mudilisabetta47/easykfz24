@@ -9,10 +9,14 @@ import { DOCUMENTS, SERVICES } from '../../../../lib/services.ts';
 import { STATUSES, statusLabel, transitionOptions } from '../../../../lib/status.ts';
 import { requireAdmin } from '../../../../server/auth.ts';
 import { getOrder, listDocuments, listEvents, listNotes } from '../../../../server/orders.ts';
-import { checklistAction, noteAction, paymentAction, plateAction, shipmentAction, statusAction } from '../../actions.ts';
+import { checklistAction, kfzLinkAction, noteAction, paymentAction, plateAction, shipmentAction, statusAction } from '../../actions.ts';
 import { CARRIER_IDS, CARRIERS } from '../../../../lib/shipping.ts';
 import { PAYMENT_STATUS, PAYMENT_STATUS_LABEL } from '../../../../lib/payment.ts';
 import { formatEuro } from '../../../../lib/format.ts';
+import { AutoRefresh } from '../../../../components/AutoRefresh.tsx';
+import { KfzBadge } from '../../../../components/admin/KfzBadge.tsx';
+import { BUSINESS_TRANSACTIONS, purposeLabel } from '../../../../lib/kfz-api.ts';
+import { getKfzOrderInfo, kfzApiConfigured } from '../../../../server/kfz-api.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,11 +52,14 @@ export default async function OrderPage({
     hasAssignedPlate: order.assigned_plate !== '',
   });
   const forward = options.filter((o) => o.to !== 'storniert');
+  const kfz = getKfzOrderInfo(id);
+  const filesAvailable = kfzApiConfigured();
   const canCancel = options.some((o) => o.to === 'storniert');
 
   return (
     <>
       <AdminBar />
+      <AutoRefresh seconds={30} />
       <main className="admin-shell admin-main">
         <nav className="crumbs" aria-label="Brotkrumen">
           <Link href="/admin">Aufträge</Link> / <span>{order.number}</span>
@@ -152,6 +159,91 @@ export default async function OrderPage({
                     </button>
                   </form>
                 </details>
+              ) : null}
+            </section>
+
+            <section className="card panel" aria-labelledby="h-kfz">
+              <h2 id="h-kfz" className="panel__title">
+                Zulassung über kfz-api.de <KfzBadge display={kfz?.display ?? ''} empty="noch keine Meldung" />
+              </h2>
+              {kfz && (kfz.kfzOrderId || kfz.status) ? (
+                <dl className="kfz-facts">
+                  <dt>Vorgang</dt>
+                  <dd className="mono">{kfz.kfzOrderId || '–'}</dd>
+                  <dt>Vorgangsart</dt>
+                  <dd>
+                    {kfz.transaction
+                      ? `${kfz.transaction} · ${BUSINESS_TRANSACTIONS[kfz.transaction as keyof typeof BUSINESS_TRANSACTIONS]?.label ?? ''}`
+                      : '–'}
+                  </dd>
+                  <dt>Letzter Status</dt>
+                  <dd className="mono">{kfz.status || '–'}</dd>
+                  <dt>Aktualisiert</dt>
+                  <dd>{kfz.updatedAt ? formatDateTime(kfz.updatedAt) : '–'}</dd>
+                </dl>
+              ) : (
+                <p className="muted small">
+                  Meldungen werden über die Auftragsnummer (externalId) zugeordnet. Wurde der Vorgang im kfz-api.de-Dashboard
+                  ohne diese Nummer erfasst, hier die Vorgangsnummer verknüpfen.
+                </p>
+              )}
+              {kfz?.messages.length ? (
+                <>
+                  <h3 className="panel__sub">Meldungen</h3>
+                  <ul className="kfz-list">
+                    {kfz.messages.map((m, i) => (
+                      <li key={i}>
+                        {m.code ? <span className="mono">{m.code}</span> : null} {m.text}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {kfz?.files.length ? (
+                <>
+                  <h3 className="panel__sub">Belege</h3>
+                  <ul className="kfz-list">
+                    {kfz.files.map((f) => (
+                      <li key={f.fileAccessKey}>
+                        {filesAvailable ? (
+                          <a href={`/api/admin/kfz-belege?auftrag=${id}&key=${encodeURIComponent(f.fileAccessKey)}`} target="_blank" rel="noreferrer">
+                            {purposeLabel(f.purposeType)}
+                          </a>
+                        ) : (
+                          <span>
+                            {purposeLabel(f.purposeType)} <span className="muted">(Abruf erst mit API-Zugang)</span>
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <form action={kfzLinkAction} className="admin-mini-form">
+                <input type="hidden" name="id" value={id} />
+                <label htmlFor="kfz-order-id" className="small">
+                  Vorgangsnummer bei kfz-api.de
+                </label>
+                <input id="kfz-order-id" name="kfzOrderId" defaultValue={kfz?.kfzOrderId ?? ''} className="input--mono" placeholder="z. B. 4711" />
+                <button type="submit" className="btn btn--ghost btn--sm">
+                  Verknüpfen
+                </button>
+              </form>
+              {kfz?.notifications.length ? (
+                <>
+                  <h3 className="panel__sub">Kundenbenachrichtigungen</h3>
+                  <ul className="kfz-list">
+                    {kfz.notifications.map((n, i) => (
+                      <li key={i}>
+                        {formatDateTime(n.at)} · {n.subject} ·{' '}
+                        <span className={`badge badge--${n.state === 'versendet' ? 'green' : n.state === 'fehler' ? 'red' : 'amber'}`}>
+                          {n.state === 'versendet' ? 'versendet' : n.state === 'fehler' ? 'Fehler' : 'nicht versendet (SMTP fehlt)'}
+                        </span>
+                        {n.error ? <span className="muted"> {n.error}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
               ) : null}
             </section>
 

@@ -1039,3 +1039,84 @@
 .signs-preview[data-format='traktor'] .lp {
   inline-size: 52%;
 }
+
+/* Bearbeitungsstatus (kfz-api.de) in der Statusabfrage */
+.process {
+  margin-block: 18px;
+  padding: 16px;
+  border: 1px solid var(--ez-line);
+  border-radius: 14px;
+  background: var(--ez-bg);
+}
+.process__steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.process__step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  font-size: var(--step--1);
+  color: var(--ez-muted);
+}
+.process__step::before {
+  content: '';
+  position: absolute;
+  inset-block-start: 7px;
+  inset-inline: calc(-50% + 10px) calc(50% + 10px);
+  block-size: 2px;
+  background: var(--ez-line-strong);
+}
+.process__step:first-child::before {
+  display: none;
+}
+.process__dot {
+  position: relative;
+  z-index: 1;
+  inline-size: 16px;
+  block-size: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--ez-line-strong);
+  background: white;
+}
+.process__step.is-done,
+.process__step.is-current {
+  color: var(--ez-ink);
+  font-weight: 600;
+}
+.process__step.is-done .process__dot,
+.process__step.is-done::before,
+.process__step.is-current::before {
+  border-color: var(--ez-blue);
+  background: var(--ez-blue);
+}
+.process__step.is-current .process__dot {
+  border-color: var(--ez-blue);
+  box-shadow: 0 0 0 4px var(--ez-blue-soft);
+}
+.process__step--amber.is-current .process__dot {
+  border-color: #c98a00;
+  background: #ffd36b;
+  box-shadow: 0 0 0 4px #fff3d6;
+}
+.process__step--green.is-current .process__dot {
+  border-color: #1f9d55;
+  background: #1f9d55;
+  box-shadow: 0 0 0 4px #ddf5e6;
+}
+.process__step--red.is-current .process__dot {
+  border-color: var(--ez-danger);
+  background: var(--ez-danger);
+  box-shadow: 0 0 0 4px var(--ez-danger-soft);
+}
+.process__text {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
