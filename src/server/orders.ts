@@ -1,8 +1,6 @@
 // Auftragsdaten in SQLite: Anlage, Suche, Kennzahlen, Statuswechsel, Checkliste, Notizen, Verlauf.
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { buildChecklist, isChecklistComplete, type ChecklistItem, type ChecklistState } from '../lib/checklist.ts';
 import type { DetectedType } from '../lib/files.ts';
 import { holderDisplayName, type ValidatedOrder } from '../lib/order.ts';
@@ -13,7 +11,8 @@ import { checkTransition, isStatusId, OPEN_STATUSES, STATUS_IDS, type StatusId }
 import { checkPlate } from '../lib/validation.ts';
 import { isPaymentStatus, PAYMENT_STATUS_LABEL, type PaymentStatus } from '../lib/payment.ts';
 import { CARRIERS, isCarrierId, normalizeTrackingNumber, type CarrierId } from '../lib/shipping.ts';
-import { getDb, transaction, uploadsDir } from './db.ts';
+import { deleteBlobs, getBlob, putBlob } from './blobs.ts';
+import { getDb, q, type Stmt } from './db.ts';
 
 export interface OrderRow {
   id: number;
@@ -87,111 +86,127 @@ const LIST_COLUMNS =
 
 const now = () => new Date().toISOString();
 
-export function addEvent(
-  orderId: number,
-  e: { type: EventRow['type']; from?: StatusId | null; to?: StatusId | null; message?: string; publicMessage?: string; actor: string },
-): void {
-  getDb()
-    .prepare('INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(orderId, now(), e.type, e.from ?? null, e.to ?? null, e.message ?? '', e.publicMessage ?? '', e.actor);
+type EventInput = { type: EventRow['type']; from?: StatusId | null; to?: StatusId | null; message?: string; publicMessage?: string; actor: string };
+
+/** Verlaufseintrag als Befehl – wird zusammen mit der eigentlichen Änderung atomar geschrieben. */
+export function eventStmt(orderId: number, e: EventInput): Stmt {
+  return q(
+    'INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    orderId,
+    now(),
+    e.type,
+    e.from ?? null,
+    e.to ?? null,
+    e.message ?? '',
+    e.publicMessage ?? '',
+    e.actor,
+  );
 }
 
-export function touch(orderId: number): void {
-  getDb().prepare('UPDATE orders SET updated_at = ? WHERE id = ?').run(now(), orderId);
+export function touchStmt(orderId: number): Stmt {
+  return q('UPDATE orders SET updated_at = ? WHERE id = ?', now(), orderId);
 }
 
 /* ---------- Anlage ---------- */
 
-export function createOrder(
+export async function createOrder(
   order: ValidatedOrder,
   files: UploadFile[],
-): { id: number; number: string; discountApplied: boolean; totalCents: number; paymentToken: string } {
+): Promise<{ id: number; number: string; discountApplied: boolean; totalCents: number; paymentToken: string }> {
+  const db = await getDb();
   const created = now();
   const year = new Date().getFullYear();
 
-  // Dateien zuerst schreiben (außerhalb der Transaktion), bei Fehler wieder entfernen.
+  // Dateien zuerst ablegen; schlägt die Anlage fehl, werden sie wieder entfernt.
   const dirName = randomBytes(12).toString('hex');
-  const dir = path.join(uploadsDir(), dirName);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const stored = files.map((f) => {
     const id = randomBytes(16).toString('hex');
-    const storedName = path.join(dirName, `${id}.${f.type.ext}`);
-    fs.writeFileSync(path.join(uploadsDir(), storedName), f.bytes, { mode: 0o600 });
-    return { id, f, storedName, sha256: createHash('sha256').update(f.bytes).digest('hex') };
+    return { id, f, storedName: `${dirName}/${id}.${f.type.ext}`, sha256: createHash('sha256').update(f.bytes).digest('hex') };
   });
-
   try {
-    return transaction((db) => {
-      const counter = db.prepare('SELECT last FROM order_counters WHERE year = ?').get(year) as { last: number } | undefined;
-      const seq = (counter?.last ?? 0) + 1;
-      if (counter) db.prepare('UPDATE order_counters SET last = ? WHERE year = ?').run(seq, year);
-      else db.prepare('INSERT INTO order_counters (year, last) VALUES (?, ?)').run(year, seq);
-      const number = formatOrderNumber(year, seq);
+    for (const s of stored) await putBlob(s.storedName, s.f.bytes, s.f.type.mime);
 
-      // Neukunde = noch kein (nicht stornierter) Auftrag mit dieser E-Mail-Adresse. In der Transaktion geprüft,
-      // damit zwei gleichzeitige Erstaufträge nicht beide den Rabatt erhalten.
-      const existing = db.prepare("SELECT 1 FROM orders WHERE email = ? AND status != 'storniert' LIMIT 1").get(order.holder.email);
-      const price = calculatePrice({
-        service: order.service,
-        vehicleType: order.vehicle.art,
-        plateChoice: order.plate.wahl,
-        plateSigns: order.plate.schilder,
-        delivery: order.plate.zustellung,
-        newCustomer: !existing,
-        carrier: order.plate.versanddienst ?? undefined,
-      });
-      const paymentToken = randomBytes(18).toString('base64url');
+    // Laufende Nummer atomar hochzählen (ein einziger Befehl – sicher auch bei gleichzeitigen Aufträgen).
+    const counter = await db.first<{ last: number }>(
+      'INSERT INTO order_counters (year, last) VALUES (?, 1) ON CONFLICT(year) DO UPDATE SET last = last + 1 RETURNING last',
+      year,
+    );
+    if (!counter) throw new Error('Auftragsnummer konnte nicht vergeben werden');
+    const number = formatOrderNumber(year, counter.last);
 
-      const res = db
-        .prepare(
-          `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at, carrier, payment_token)
-           VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
-        )
-        .run(
-          number,
-          created,
-          created,
-          order.service,
-          order.holder.email,
-          holderDisplayName(order.holder),
-          order.vehicle.fin,
-          order.vehicle.bisherigesKennzeichen,
-          order.finish.iban,
-          order.plate.zustellung,
-          JSON.stringify(order),
-          JSON.stringify(price),
-          price.totalCents,
-          created,
-          order.plate.versanddienst ?? '',
-          paymentToken,
-        );
-      const orderId = Number(res.lastInsertRowid);
-      const insertDoc = db.prepare(
-        'INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      );
-      for (const s of stored) {
-        insertDoc.run(s.id, orderId, s.f.kind, s.f.name.slice(0, 200), s.f.type.mime, s.f.bytes.byteLength, s.storedName, s.sha256, created);
-      }
-      addEvent(orderId, {
-        type: 'created',
-        to: 'neu',
-        message: `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
-        actor: 'Kunde',
-      });
-      return { id: orderId, number, discountApplied: price.discountCents > 0, totalCents: price.totalCents, paymentToken };
+    // Neukunde = noch kein (nicht stornierter) Auftrag mit dieser E-Mail-Adresse.
+    const existing = await db.first("SELECT 1 AS x FROM orders WHERE email = ? AND status != 'storniert' LIMIT 1", order.holder.email);
+    const price = calculatePrice({
+      service: order.service,
+      vehicleType: order.vehicle.art,
+      plateChoice: order.plate.wahl,
+      plateSigns: order.plate.schilder,
+      delivery: order.plate.zustellung,
+      newCustomer: !existing,
+      carrier: order.plate.versanddienst ?? undefined,
     });
+    const paymentToken = randomBytes(18).toString('base64url');
+    const idOf = '(SELECT id FROM orders WHERE number = ?)';
+
+    await db.batch([
+      q(
+        `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at, carrier, payment_token)
+         VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
+        number,
+        created,
+        created,
+        order.service,
+        order.holder.email,
+        holderDisplayName(order.holder),
+        order.vehicle.fin,
+        order.vehicle.bisherigesKennzeichen,
+        order.finish.iban,
+        order.plate.zustellung,
+        JSON.stringify(order),
+        JSON.stringify(price),
+        price.totalCents,
+        created,
+        order.plate.versanddienst ?? '',
+        paymentToken,
+      ),
+      ...stored.map((s) =>
+        q(
+          `INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at) VALUES (?, ${idOf}, ?, ?, ?, ?, ?, ?, ?)`,
+          s.id,
+          number,
+          s.f.kind,
+          s.f.name.slice(0, 200),
+          s.f.type.mime,
+          s.f.bytes.byteLength,
+          s.storedName,
+          s.sha256,
+          created,
+        ),
+      ),
+      q(
+        `INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (${idOf}, ?, 'created', NULL, 'neu', ?, '', 'Kunde')`,
+        number,
+        created,
+        `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
+      ),
+    ]);
+    const row = await db.first<{ id: number }>('SELECT id FROM orders WHERE number = ?', number);
+    if (!row) throw new Error('Auftrag wurde nicht gespeichert');
+    return { id: row.id, number, discountApplied: price.discountCents > 0, totalCents: price.totalCents, paymentToken };
   } catch (e) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    await deleteBlobs(stored.map((s) => s.storedName)).catch(() => undefined);
     throw e;
   }
 }
 
 /* ---------- Lesen ---------- */
 
-export function getOrder(id: number): OrderDetail | null {
-  const row = getDb().prepare(`SELECT ${LIST_COLUMNS}, data_json, price_json, checklist_json, consent_at, payment_token FROM orders WHERE id = ?`).get(id) as
-    | (OrderRow & { data_json: string; price_json: string; checklist_json: string; consent_at: string; payment_token: string })
-    | undefined;
+export async function getOrder(id: number): Promise<OrderDetail | null> {
+  const db = await getDb();
+  const row = await db.first<OrderRow & { data_json: string; price_json: string; checklist_json: string; consent_at: string; payment_token: string }>(
+    `SELECT ${LIST_COLUMNS}, data_json, price_json, checklist_json, consent_at, payment_token FROM orders WHERE id = ?`,
+    id,
+  );
   if (!row) return null;
   const data = JSON.parse(row.data_json) as ValidatedOrder;
   const { data_json: _d, price_json, checklist_json, ...rest } = row;
@@ -210,7 +225,7 @@ export interface ListFilter {
   limit?: number;
 }
 
-export function listOrders(filter: ListFilter = {}): OrderRow[] {
+export async function listOrders(filter: ListFilter = {}): Promise<OrderRow[]> {
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (filter.status === 'offen') {
@@ -220,9 +235,9 @@ export function listOrders(filter: ListFilter = {}): OrderRow[] {
     where.push('status = ?');
     params.push(filter.status);
   }
-  const q = filter.q?.trim();
-  if (q) {
-    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const qText = filter.q?.trim();
+  if (qText) {
+    const like = `%${qText.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     where.push(
       "(number LIKE ? ESCAPE '\\' OR holder_name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR fin LIKE ? ESCAPE '\\' OR previous_plate LIKE ? ESCAPE '\\' OR assigned_plate LIKE ? ESCAPE '\\')",
     );
@@ -230,7 +245,7 @@ export function listOrders(filter: ListFilter = {}): OrderRow[] {
   }
   const sql = `SELECT ${LIST_COLUMNS} FROM orders ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC, id DESC LIMIT ?`;
   params.push(Math.min(filter.limit ?? 200, 500));
-  return getDb().prepare(sql).all(...params) as unknown as OrderRow[];
+  return (await getDb()).all<OrderRow>(sql, ...params);
 }
 
 export interface Stats {
@@ -240,50 +255,47 @@ export interface Stats {
   last7Days: number;
 }
 
-export function getStats(): Stats {
-  const db = getDb();
+export async function getStats(): Promise<Stats> {
+  const db = await getDb();
   const byStatus = Object.fromEntries(STATUS_IDS.map((s) => [s, 0])) as Record<StatusId, number>;
-  for (const r of db.prepare('SELECT status, COUNT(*) AS n FROM orders GROUP BY status').all() as { status: StatusId; n: number }[]) {
+  for (const r of await db.all<{ status: StatusId; n: number }>('SELECT status, COUNT(*) AS n FROM orders GROUP BY status')) {
     if (r.status in byStatus) byStatus[r.status] = r.n;
   }
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-  const last7 = db.prepare('SELECT COUNT(*) AS n FROM orders WHERE created_at >= ?').get(since) as { n: number };
+  const last7 = await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM orders WHERE created_at >= ?', since);
   const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
-  return { total, open: OPEN_STATUSES.reduce((a, s) => a + byStatus[s], 0), byStatus, last7Days: last7.n };
+  return { total, open: OPEN_STATUSES.reduce((a, s) => a + byStatus[s], 0), byStatus, last7Days: last7?.n ?? 0 };
 }
 
-export function listDocuments(orderId: number): DocumentRow[] {
-  return getDb().prepare('SELECT * FROM documents WHERE order_id = ? ORDER BY kind, created_at').all(orderId) as unknown as DocumentRow[];
+export async function listDocuments(orderId: number): Promise<DocumentRow[]> {
+  return (await getDb()).all<DocumentRow>('SELECT * FROM documents WHERE order_id = ? ORDER BY kind, created_at', orderId);
 }
 
-export function getDocument(id: string): DocumentRow | null {
+export async function getDocument(id: string): Promise<DocumentRow | null> {
   if (!/^[a-f0-9]{32}$/.test(id)) return null;
-  return (getDb().prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as DocumentRow | undefined) ?? null;
+  return (await getDb()).first<DocumentRow>('SELECT * FROM documents WHERE id = ?', id);
 }
 
-/** Liest die Datei eines Dokuments; der Pfad muss innerhalb des Upload-Verzeichnisses liegen. */
-export function readDocumentFile(doc: DocumentRow): Buffer {
-  const base = uploadsDir();
-  const full = path.resolve(base, doc.stored_name);
-  if (!full.startsWith(base + path.sep)) throw new Error('Ungültiger Dokumentpfad');
-  return fs.readFileSync(full);
+/** Datei eines Dokuments aus dem Dateispeicher (R2 bzw. lokal). */
+export async function readDocumentFile(doc: DocumentRow): Promise<Uint8Array | null> {
+  return getBlob(doc.stored_name);
 }
 
-export function listEvents(orderId: number): EventRow[] {
-  return getDb().prepare('SELECT * FROM events WHERE order_id = ? ORDER BY at DESC, id DESC').all(orderId) as unknown as EventRow[];
+export async function listEvents(orderId: number): Promise<EventRow[]> {
+  return (await getDb()).all<EventRow>('SELECT * FROM events WHERE order_id = ? ORDER BY at DESC, id DESC', orderId);
 }
 
-export function listNotes(orderId: number): NoteRow[] {
-  return getDb().prepare('SELECT id, at, text FROM notes WHERE order_id = ? ORDER BY at DESC, id DESC').all(orderId) as unknown as NoteRow[];
+export async function listNotes(orderId: number): Promise<NoteRow[]> {
+  return (await getDb()).all<NoteRow>('SELECT id, at, text FROM notes WHERE order_id = ? ORDER BY at DESC, id DESC', orderId);
 }
 
 /* ---------- Ändern (Admin) ---------- */
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-export function changeStatus(orderId: number, to: string, publicMessage: string, internalMessage = ''): ActionResult {
+export async function changeStatus(orderId: number, to: string, publicMessage: string, internalMessage = ''): Promise<ActionResult> {
   if (!isStatusId(to)) return { ok: false, error: 'Unbekannter Status' };
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   const check = checkTransition(order.status, to, {
     service: order.service,
@@ -292,35 +304,35 @@ export function changeStatus(orderId: number, to: string, publicMessage: string,
     hasAssignedPlate: order.assigned_plate !== '',
   });
   if (!check.ok) return { ok: false, error: check.reason };
-  transaction((db) => {
-    db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(to, now(), orderId);
-    addEvent(orderId, {
+  await (await getDb()).batch([
+    q('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', to, now(), orderId),
+    eventStmt(orderId, {
       type: 'status',
       from: order.status,
       to,
       message: internalMessage.trim().slice(0, 1000),
       publicMessage: publicMessage.trim().slice(0, 1000),
       actor: 'Admin',
-    });
-  });
+    }),
+  ]);
   return { ok: true };
 }
 
-export function setChecklistItem(orderId: number, key: string, checked: boolean): ActionResult {
-  const order = getOrder(orderId);
+export async function setChecklistItem(orderId: number, key: string, checked: boolean): Promise<ActionResult> {
+  const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   const item = order.checklistItems.find((i) => i.key === key);
   if (!item) return { ok: false, error: 'Unbekannter Checklistenpunkt' };
   const state: ChecklistState = { ...order.checklist, [key]: { checked, at: now() } };
-  transaction((db) => {
-    db.prepare('UPDATE orders SET checklist_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(state), now(), orderId);
-    addEvent(orderId, { type: 'checklist', message: `${item.label}: ${checked ? 'abgehakt' : 'zurückgesetzt'}`, actor: 'Admin' });
-  });
+  await (await getDb()).batch([
+    q('UPDATE orders SET checklist_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(state), now(), orderId),
+    eventStmt(orderId, { type: 'checklist', message: `${item.label}: ${checked ? 'abgehakt' : 'zurückgesetzt'}`, actor: 'Admin' }),
+  ]);
   return { ok: true };
 }
 
-export function setAssignedPlate(orderId: number, input: string): ActionResult {
-  const order = getOrder(orderId);
+export async function setAssignedPlate(orderId: number, input: string): Promise<ActionResult> {
+  const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   let plate = '';
   if (input.trim()) {
@@ -328,28 +340,28 @@ export function setAssignedPlate(orderId: number, input: string): ActionResult {
     if (!c.ok) return { ok: false, error: c.error };
     plate = c.value;
   }
-  transaction((db) => {
-    db.prepare('UPDATE orders SET assigned_plate = ?, updated_at = ? WHERE id = ?').run(plate, now(), orderId);
-    addEvent(orderId, { type: 'plate', message: plate ? `Zugeteiltes Kennzeichen: ${plate}` : 'Zugeteiltes Kennzeichen entfernt', actor: 'Admin' });
-  });
+  await (await getDb()).batch([
+    q('UPDATE orders SET assigned_plate = ?, updated_at = ? WHERE id = ?', plate, now(), orderId),
+    eventStmt(orderId, { type: 'plate', message: plate ? `Zugeteiltes Kennzeichen: ${plate}` : 'Zugeteiltes Kennzeichen entfernt', actor: 'Admin' }),
+  ]);
   return { ok: true };
 }
 
-export function addNote(orderId: number, text: string): ActionResult {
+export async function addNote(orderId: number, text: string): Promise<ActionResult> {
   const t = text.trim();
   if (!t) return { ok: false, error: 'Notiz ist leer' };
   if (t.length > 4000) return { ok: false, error: 'Notiz ist zu lang (max. 4000 Zeichen)' };
-  if (!getOrder(orderId)) return { ok: false, error: 'Auftrag nicht gefunden' };
-  transaction((db) => {
-    db.prepare('INSERT INTO notes (order_id, at, text) VALUES (?, ?, ?)').run(orderId, now(), t);
-    addEvent(orderId, { type: 'note', message: 'Interne Notiz hinzugefügt', actor: 'Admin' });
-  });
-  touch(orderId);
+  if (!(await getOrder(orderId))) return { ok: false, error: 'Auftrag nicht gefunden' };
+  await (await getDb()).batch([
+    q('INSERT INTO notes (order_id, at, text) VALUES (?, ?, ?)', orderId, now(), t),
+    eventStmt(orderId, { type: 'note', message: 'Interne Notiz hinzugefügt', actor: 'Admin' }),
+    touchStmt(orderId),
+  ]);
   return { ok: true };
 }
 
-export function setShipment(orderId: number, carrier: string, trackingInput: string): ActionResult {
-  const order = getOrder(orderId);
+export async function setShipment(orderId: number, carrier: string, trackingInput: string): Promise<ActionResult> {
+  const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   if (order.delivery !== 'versand') return { ok: false, error: 'Der Kunde hat Abholung gewählt' };
   if (!isCarrierId(carrier)) return { ok: false, error: 'Bitte DHL oder UPS wählen' };
@@ -359,34 +371,38 @@ export function setShipment(orderId: number, carrier: string, trackingInput: str
     if (!t) return { ok: false, error: 'Sendungsnummer: 8–40 Buchstaben oder Ziffern' };
     tracking = t;
   }
-  transaction((db) => {
-    db.prepare('UPDATE orders SET carrier = ?, tracking_number = ?, updated_at = ? WHERE id = ?').run(carrier, tracking, now(), orderId);
-    addEvent(orderId, {
+  await (await getDb()).batch([
+    q('UPDATE orders SET carrier = ?, tracking_number = ?, updated_at = ? WHERE id = ?', carrier, tracking, now(), orderId),
+    eventStmt(orderId, {
       type: 'shipment',
       message: tracking ? `Sendung ${CARRIERS[carrier].name} ${tracking}` : `Versandpartner ${CARRIERS[carrier].name}`,
       actor: 'Admin',
-    });
-  });
+    }),
+  ]);
   return { ok: true };
 }
 
-export function setPaymentStatus(orderId: number, status: string, ref = '', actor = 'Admin'): ActionResult {
+export async function setPaymentStatus(orderId: number, status: string, ref = '', actor = 'Admin'): Promise<ActionResult> {
   if (!isPaymentStatus(status)) return { ok: false, error: 'Unbekannter Zahlungsstatus' };
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   if (order.payment_status === status) return { ok: true };
-  transaction((db) => {
-    db.prepare("UPDATE orders SET payment_status = ?, payment_ref = CASE WHEN ? = '' THEN payment_ref ELSE ? END, updated_at = ? WHERE id = ?").run(status, ref, ref, now(), orderId);
-    addEvent(orderId, { type: 'payment', message: `${PAYMENT_STATUS_LABEL[status]}${ref ? ` (${ref})` : ''}`, actor });
-  });
+  await (await getDb()).batch([
+    q("UPDATE orders SET payment_status = ?, payment_ref = CASE WHEN ? = '' THEN payment_ref ELSE ? END, updated_at = ? WHERE id = ?", status, ref, ref, now(), orderId),
+    eventStmt(orderId, { type: 'payment', message: `${PAYMENT_STATUS_LABEL[status]}${ref ? ` (${ref})` : ''}`, actor }),
+  ]);
   return { ok: true };
 }
 
 /** Für Zahlungslinks: Auftrag nur mit passendem Zufallstoken herausgeben. */
-export function getOrderForPayment(number: string, token: string): { id: number; number: string; email: string; totalCents: number; paymentStatus: PaymentStatus; token: string } | null {
-  const row = getDb().prepare('SELECT id, number, email, total_cents, payment_status, payment_token FROM orders WHERE number = ?').get(number) as
-    | { id: number; number: string; email: string; total_cents: number; payment_status: PaymentStatus; payment_token: string }
-    | undefined;
+export async function getOrderForPayment(
+  number: string,
+  token: string,
+): Promise<{ id: number; number: string; email: string; totalCents: number; paymentStatus: PaymentStatus; token: string } | null> {
+  const row = await (await getDb()).first<{ id: number; number: string; email: string; total_cents: number; payment_status: PaymentStatus; payment_token: string }>(
+    'SELECT id, number, email, total_cents, payment_status, payment_token FROM orders WHERE number = ?',
+    number,
+  );
   if (!row || !row.payment_token || !token) return null;
   const a = Buffer.from(row.payment_token);
   const b = Buffer.from(token);
@@ -394,8 +410,8 @@ export function getOrderForPayment(number: string, token: string): { id: number;
   return { id: row.id, number: row.number, email: row.email, totalCents: row.total_cents, paymentStatus: row.payment_status, token: row.payment_token };
 }
 
-export function getOrderIdByNumber(number: string): number | null {
-  const row = getDb().prepare('SELECT id FROM orders WHERE number = ?').get(number) as { id: number } | undefined;
+export async function getOrderIdByNumber(number: string): Promise<number | null> {
+  const row = await (await getDb()).first<{ id: number }>('SELECT id FROM orders WHERE number = ?', number);
   return row?.id ?? null;
 }
 
@@ -419,34 +435,37 @@ export interface PublicStatus {
   kfzTimeline: { at: string; label: string }[];
 }
 
-export function lookupStatus(number: string, email: string): PublicStatus | null {
-  const row = getDb()
-    .prepare(
-      'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents, kfz_display FROM orders WHERE number = ?',
-    )
-    .get(number) as
-    | {
-        id: number;
-        number: string;
-        service: ServiceId;
-        status: StatusId;
-        created_at: string;
-        assigned_plate: string;
-        delivery: 'versand' | 'abholung';
-        email: string;
-        carrier: CarrierId | '';
-        tracking_number: string;
-        payment_status: PaymentStatus;
-        payment_token: string;
-        total_cents: number;
-        kfz_display: string;
-      }
-    | undefined;
+export async function lookupStatus(number: string, email: string): Promise<PublicStatus | null> {
+  const db = await getDb();
+  const row = await db.first<{
+    id: number;
+    number: string;
+    service: ServiceId;
+    status: StatusId;
+    created_at: string;
+    assigned_plate: string;
+    delivery: 'versand' | 'abholung';
+    email: string;
+    carrier: CarrierId | '';
+    tracking_number: string;
+    payment_status: PaymentStatus;
+    payment_token: string;
+    total_cents: number;
+    kfz_display: string;
+  }>(
+    'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents, kfz_display FROM orders WHERE number = ?',
+    number,
+  );
   // Gleiche Antwort für „unbekannte Nummer“ und „falsche E-Mail“ – verrät nichts.
   if (!row || row.email !== email.trim().toLowerCase()) return null;
-  const events = getDb()
-    .prepare("SELECT at, to_status, public_message FROM events WHERE order_id = ? AND type IN ('created', 'status') ORDER BY at ASC, id ASC")
-    .all(row.id) as { at: string; to_status: StatusId; public_message: string }[];
+  const events = await db.all<{ at: string; to_status: StatusId; public_message: string }>(
+    "SELECT at, to_status, public_message FROM events WHERE order_id = ? AND type IN ('created', 'status') ORDER BY at ASC, id ASC",
+    row.id,
+  );
+  const kfz = await db.all<{ at: string; public_message: string }>(
+    "SELECT at, public_message FROM events WHERE order_id = ? AND type = 'kfz' AND public_message != '' ORDER BY at ASC, id ASC",
+    row.id,
+  );
   return {
     number: row.number,
     service: row.service,
@@ -461,10 +480,6 @@ export function lookupStatus(number: string, email: string): PublicStatus | null
     totalCents: row.total_cents,
     timeline: events.map((e) => ({ at: e.at, status: e.to_status, message: e.public_message })),
     kfzDisplay: row.kfz_display,
-    kfzTimeline: (
-      getDb()
-        .prepare("SELECT at, public_message FROM events WHERE order_id = ? AND type = 'kfz' AND public_message != '' ORDER BY at ASC, id ASC")
-        .all(row.id) as { at: string; public_message: string }[]
-    ).map((e) => ({ at: e.at, label: e.public_message })),
+    kfzTimeline: kfz.map((e) => ({ at: e.at, label: e.public_message })),
   };
 }

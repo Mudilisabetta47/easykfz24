@@ -1,9 +1,12 @@
-// E-Mail-Versand über SMTP. Konfiguration per Umgebung:
-//   SMTP_URL   z. B. smtps://benutzer:passwort@smtp.example.de:465 oder smtp://…:587 (STARTTLS)
-//   MAIL_FROM  z. B. "EasyKFZ24 <service@easykfz24.de>"
+// E-Mail-Versand. Zwei Wege:
+//   1. HTTP-API von Resend (funktioniert auch auf Cloudflare Workers):
+//        RESEND_API_KEY  API-Schlüssel (resend.com → API Keys), Absender-Domain dort verifizieren
+//   2. SMTP (nur auf einem Node-Server, nicht auf Cloudflare Workers – dort sind keine SMTP-Verbindungen möglich):
+//        SMTP_URL        z. B. smtps://benutzer:passwort@smtp.example.de:465
+//   In beiden Fällen: MAIL_FROM, z. B. "EasyKFZ24 <service@easykfz24.de>"
 // Ohne Konfiguration wird nichts versendet; die Benachrichtigung wird als „nicht konfiguriert“ protokolliert.
 
-import nodemailer, { type Transporter } from 'nodemailer';
+import { platform } from './db.ts';
 
 export interface Mail {
   to: string;
@@ -14,25 +17,45 @@ export interface Mail {
 
 export type SendResult = { state: 'versendet' } | { state: 'nicht_konfiguriert' } | { state: 'fehler'; error: string };
 
-const g = globalThis as unknown as { __ekMailer?: Transporter };
+type Transport = { sendMail(m: Record<string, unknown>): Promise<unknown> };
+const g = globalThis as unknown as { __ekMailer?: Transport };
 
-export function mailConfigured(): boolean {
-  return !!process.env.SMTP_URL && !!process.env.MAIL_FROM;
+function mode(): 'resend' | 'smtp' | null {
+  if (!process.env.MAIL_FROM) return null;
+  if (process.env.RESEND_API_KEY) return 'resend';
+  if (process.env.SMTP_URL && platform() === 'node') return 'smtp';
+  return null;
 }
 
+export function mailConfigured(): boolean {
+  return mode() !== null;
+}
+
+/** Fehlermeldungen ohne Zugangsdaten protokollieren. */
+const clean = (msg: string) => msg.replace(/\/\/[^@\s]+@/g, '//***@').replace(/re_[A-Za-z0-9_]{8,}/g, 're_***').slice(0, 300);
+
 export async function sendMail(mail: Mail): Promise<SendResult> {
-  if (!mailConfigured()) return { state: 'nicht_konfiguriert' };
+  const m = mode();
+  if (!m) return { state: 'nicht_konfiguriert' };
   try {
-    g.__ekMailer ??= nodemailer.createTransport(process.env.SMTP_URL as string, {
-      // Keine Dateien oder URLs als Inhalt nachladen – wir senden nur fest aufgebaute Texte.
-      disableFileAccess: true,
-      disableUrlAccess: true,
-    });
+    if (m === 'resend') {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: process.env.MAIL_FROM, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) return { state: 'fehler', error: clean(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`) };
+      return { state: 'versendet' };
+    }
+    if (!g.__ekMailer) {
+      // Erst bei Bedarf laden – nodemailer braucht TCP-Verbindungen (nur Node-Server).
+      const nodemailer = (await import('nodemailer')).default;
+      g.__ekMailer = nodemailer.createTransport(process.env.SMTP_URL as string, { disableFileAccess: true, disableUrlAccess: true });
+    }
     await g.__ekMailer.sendMail({ from: process.env.MAIL_FROM, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html });
     return { state: 'versendet' };
   } catch (e) {
-    // Fehlermeldung ohne Zugangsdaten protokollieren
-    const msg = (e as Error).message.replace(/\/\/[^@\s]+@/g, '//***@');
-    return { state: 'fehler', error: msg.slice(0, 300) };
+    return { state: 'fehler', error: clean((e as Error).message) };
   }
 }

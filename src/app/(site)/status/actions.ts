@@ -21,7 +21,7 @@ export async function lookupAction(_prev: StatusState, form: FormData): Promise<
   const email = checkEmail(emailRaw);
   if (!nr || !email.ok) return { ...keep, error: 'Bitte Auftragsnummer (EK-JJJJ-NNNNN) und E-Mail-Adresse prüfen.' };
 
-  const result = lookupStatus(nr, email.value);
+  const result = await lookupStatus(nr, email.value);
   if (!result) return { ...keep, error: 'Zu dieser Kombination aus Auftragsnummer und E-Mail-Adresse wurde kein Auftrag gefunden.' };
   return { ...keep, result, payOnline: paymentsEnabled() };
 }

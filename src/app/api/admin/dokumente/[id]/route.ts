@@ -11,14 +11,15 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdmin())) return new NextResponse('Nicht angemeldet', { status: 401 });
   const { id } = await params;
-  const doc = getDocument(id);
+  const doc = await getDocument(id);
   if (!doc) return new NextResponse('Nicht gefunden', { status: 404 });
-  let body: Buffer;
+  let body: Uint8Array | null;
   try {
-    body = readDocumentFile(doc);
+    body = await readDocumentFile(doc);
   } catch {
-    return new NextResponse('Datei fehlt', { status: 404 });
+    body = null;
   }
+  if (!body) return new NextResponse('Datei fehlt', { status: 404 });
   const download = new URL(req.url).searchParams.has('download');
   const name = safeFileName(doc.original_name);
   return new NextResponse(new Uint8Array(body), {

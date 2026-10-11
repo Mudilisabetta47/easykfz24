@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const orderId = Number(q.get('auftrag'));
   const key = q.get('key') ?? '';
-  const info = Number.isInteger(orderId) && orderId > 0 ? getKfzOrderInfo(orderId) : null;
+  const info = Number.isInteger(orderId) && orderId > 0 ? await getKfzOrderInfo(orderId) : null;
   // Nur Belege, die per Webhook zu genau diesem Auftrag gemeldet wurden
   if (!info || !info.files.some((f) => f.fileAccessKey === key)) return new NextResponse('Nicht gefunden', { status: 404 });
   const res = await fetchKfzFile(info.transaction, key).catch(() => null);

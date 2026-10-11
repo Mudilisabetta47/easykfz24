@@ -1,16 +1,146 @@
-// SQLite über node:sqlite. Eine Verbindung pro Prozess (auch über Hot-Reloads hinweg).
+// Datenbank: Cloudflare D1 (Produktion) oder SQLite-Datei über node:sqlite (lokal, Tests).
+// Einheitliche, asynchrone Schnittstelle; mehrere Schreibbefehle laufen über batch() atomar.
+//
+// Cloudflare: Bindung „DB“ (D1) in wrangler.jsonc. Die Bindungen stellt der OpenNext-Adapter unter
+// globalThis[Symbol.for("__cloudflare-context__")].env bereit – ohne zusätzliche Abhängigkeit gelesen.
 
-import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+
+export type Param = string | number | null;
+export interface Stmt {
+  sql: string;
+  params: Param[];
+}
+export const q = (sql: string, ...params: Param[]): Stmt => ({ sql, params });
+
+export interface Db {
+  readonly kind: 'd1' | 'sqlite';
+  first<T>(sql: string, ...params: Param[]): Promise<T | null>;
+  all<T>(sql: string, ...params: Param[]): Promise<T[]>;
+  run(sql: string, ...params: Param[]): Promise<{ changes: number; lastRowId: number }>;
+  /** Alle Befehle atomar – entweder alle oder keiner. */
+  batch(stmts: Stmt[]): Promise<void>;
+}
 
 export function dataDir(): string {
   return path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
 }
 
-export function uploadsDir(): string {
-  return path.join(dataDir(), 'uploads');
+/* ---------- Cloudflare-Bindungen ---------- */
+
+interface D1Result<T> {
+  results?: T[];
+  meta?: { changes?: number; last_row_id?: number };
 }
+interface D1Prepared {
+  bind(...values: Param[]): D1Prepared;
+  first<T>(): Promise<T | null>;
+  all<T>(): Promise<D1Result<T>>;
+  run(): Promise<D1Result<unknown>>;
+}
+interface D1Database {
+  prepare(sql: string): D1Prepared;
+  batch(stmts: D1Prepared[]): Promise<unknown[]>;
+}
+export interface R2Object {
+  arrayBuffer(): Promise<ArrayBuffer>;
+  httpMetadata?: { contentType?: string };
+}
+export interface R2Bucket {
+  put(key: string, value: ArrayBuffer | Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
+  get(key: string): Promise<R2Object | null>;
+  delete(key: string | string[]): Promise<void>;
+}
+interface CloudflareEnv {
+  DB?: D1Database;
+  UPLOADS?: R2Bucket;
+}
+
+/** Bindungen, wenn die App auf Cloudflare Workers läuft – sonst null. */
+export function cloudflareEnv(): CloudflareEnv | null {
+  const ctx = (globalThis as Record<symbol, unknown>)[Symbol.for('__cloudflare-context__')] as { env?: CloudflareEnv } | undefined;
+  return ctx?.env ?? null;
+}
+
+/**
+ * Arbeit nach der Antwort zu Ende führen (z. B. E-Mail-Versand): Auf Cloudflare über ctx.waitUntil, damit der
+ * Worker nicht vorher beendet wird; auf Node läuft das Promise einfach weiter.
+ */
+export function runAfter(work: Promise<unknown> | undefined): void {
+  if (!work) return;
+  const ctx = (globalThis as Record<symbol, unknown>)[Symbol.for('__cloudflare-context__')] as { ctx?: { waitUntil(p: Promise<unknown>): void } } | undefined;
+  const guarded = work.catch((e) => console.error('[hintergrund]', (e as Error).message));
+  if (ctx?.ctx?.waitUntil) ctx.ctx.waitUntil(guarded);
+}
+
+export function platform(): 'cloudflare' | 'node' {
+  return cloudflareEnv() ? 'cloudflare' : 'node';
+}
+
+/* ---------- D1 ---------- */
+
+function d1Db(d1: D1Database): Db {
+  const prep = (sql: string, params: Param[]) => (params.length ? d1.prepare(sql).bind(...params) : d1.prepare(sql));
+  return {
+    kind: 'd1',
+    first: <T>(sql: string, ...params: Param[]) => prep(sql, params).first<T>(),
+    all: async <T>(sql: string, ...params: Param[]) => (await prep(sql, params).all<T>()).results ?? [],
+    run: async (sql, ...params) => {
+      const r = await prep(sql, params).run();
+      return { changes: r.meta?.changes ?? 0, lastRowId: r.meta?.last_row_id ?? 0 };
+    },
+    batch: async (stmts) => {
+      if (stmts.length) await d1.batch(stmts.map((s) => prep(s.sql, s.params)));
+    },
+  };
+}
+
+/* ---------- SQLite-Datei (lokal) ---------- */
+
+type SqliteDb = {
+  prepare(sql: string): {
+    get(...p: Param[]): unknown;
+    all(...p: Param[]): unknown[];
+    run(...p: Param[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+  };
+  exec(sql: string): void;
+};
+
+const g = globalThis as unknown as { __ekSqlite?: SqliteDb; __ekReady?: Promise<Db> };
+
+async function sqliteDb(): Promise<Db> {
+  if (!g.__ekSqlite) {
+    const fs = await import('node:fs');
+    // Erst zur Laufzeit laden: Auf Cloudflare Workers gibt es node:sqlite nicht.
+    const { DatabaseSync } = await import('node:sqlite');
+    fs.mkdirSync(path.join(dataDir(), 'uploads'), { recursive: true, mode: 0o700 });
+    const db = new DatabaseSync(path.join(dataDir(), 'easykfz24.sqlite')) as unknown as SqliteDb;
+    db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+    g.__ekSqlite = db;
+  }
+  const db = g.__ekSqlite;
+  return {
+    kind: 'sqlite',
+    first: async <T>(sql: string, ...params: Param[]) => (db.prepare(sql).get(...params) as T | undefined) ?? null,
+    all: async <T>(sql: string, ...params: Param[]) => db.prepare(sql).all(...params) as T[],
+    run: async (sql, ...params) => {
+      const r = db.prepare(sql).run(...params);
+      return { changes: Number(r.changes), lastRowId: Number(r.lastInsertRowid) };
+    },
+    batch: async (stmts) => {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const s of stmts) db.prepare(s.sql).run(...s.params);
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
+    },
+  };
+}
+
+/* ---------- Schema ---------- */
 
 const MIGRATIONS: string[] = [
   `
@@ -127,53 +257,70 @@ const MIGRATIONS: string[] = [
   `,
 ];
 
-function migrate(db: DatabaseSync): void {
-  const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  for (let v = row.user_version; v < MIGRATIONS.length; v++) {
-    db.exec('BEGIN');
+
+/** Zerlegt eine Migration in einzelne Befehle (keine Semikolons in Zeichenketten der Migrationen). */
+function statements(sql: string): string[] {
+  return sql
+    .split(/;\s*(?:\n|$)/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+async function migrate(db: Db): Promise<void> {
+  await db.run('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
+  // Bestehende lokale Datenbanken wurden früher über PRAGMA user_version versioniert – einmalig übernehmen.
+  if (db.kind === 'sqlite') {
+    const legacy = (await db.first<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+    for (let v = 1; v <= legacy; v++) {
+      await db.run('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)', v, new Date().toISOString());
+    }
+  }
+  const done = new Set((await db.all<{ version: number }>('SELECT version FROM schema_migrations')).map((r) => r.version));
+  for (let i = 0; i < MIGRATIONS.length; i++) {
+    const version = i + 1;
+    if (done.has(version)) continue;
     try {
-      db.exec(MIGRATIONS[v]);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-      db.exec('COMMIT');
+      await db.batch([
+        ...statements(MIGRATIONS[i]).map((sql) => q(sql)),
+        q('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)', version, new Date().toISOString()),
+      ]);
     } catch (e) {
-      db.exec('ROLLBACK');
-      throw e;
+      // Eine parallele Instanz kann dieselbe Migration gerade ausgeführt haben.
+      const now = await db.first<{ version: number }>('SELECT version FROM schema_migrations WHERE version = ?', version);
+      if (!now) throw e;
     }
   }
 }
 
-const g = globalThis as unknown as { __ekDb?: DatabaseSync; __ekSchema?: number };
-
-export function getDb(): DatabaseSync {
-  if (!g.__ekDb) {
-    fs.mkdirSync(uploadsDir(), { recursive: true, mode: 0o700 });
-    const db = new DatabaseSync(path.join(dataDir(), 'easykfz24.sqlite'));
-    db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    g.__ekDb = db;
+/** Datenbank mit aktuellem Schema. Auf Cloudflare D1 (Bindung „DB“), sonst die lokale SQLite-Datei. */
+export async function getDb(): Promise<Db> {
+  const env = cloudflareEnv();
+  if (env) {
+    if (!env.DB) throw new Error('Cloudflare-Bindung „DB“ (D1) fehlt – in wrangler.jsonc bzw. im Dashboard anlegen');
+    const db = d1Db(env.DB);
+    g.__ekReady ??= migrate(db).then(() => db);
+    try {
+      return await g.__ekReady;
+    } catch (e) {
+      g.__ekReady = undefined;
+      throw e;
+    }
   }
-  // Auch nach Hot-Reloads mit neuen Migrationen sicherstellen, dass das Schema aktuell ist.
-  if (g.__ekSchema !== MIGRATIONS.length) {
-    migrate(g.__ekDb);
-    g.__ekSchema = MIGRATIONS.length;
-  }
-  return g.__ekDb;
-}
-
-/** Aktuelle Schema-Version (Anzahl ausgeführter Migrationen). */
-export function schemaVersion(): number {
-  return (getDb().prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-}
-
-/** Führt fn in einer Schreibtransaktion aus (BEGIN IMMEDIATE verhindert doppelte Auftragsnummern). */
-export function transaction<T>(fn: (db: DatabaseSync) => T): T {
-  const db = getDb();
-  db.exec('BEGIN IMMEDIATE');
+  const db = await sqliteDb();
+  g.__ekReady ??= migrate(db).then(() => db);
   try {
-    const result = fn(db);
-    db.exec('COMMIT');
-    return result;
+    await g.__ekReady;
   } catch (e) {
-    db.exec('ROLLBACK');
+    g.__ekReady = undefined;
     throw e;
   }
+  return db;
 }
+
+/** Höchste ausgeführte Migration. */
+export async function schemaVersion(): Promise<number> {
+  const db = await getDb();
+  return (await db.first<{ v: number }>('SELECT MAX(version) AS v FROM schema_migrations'))?.v ?? 0;
+}
+
+export const SCHEMA_VERSION = MIGRATIONS.length;

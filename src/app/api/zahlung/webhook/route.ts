@@ -25,8 +25,8 @@ export async function POST(req: Request) {
     (event.type === 'checkout.session.completed' && session.payment_status === 'paid') ||
     event.type === 'checkout.session.async_payment_succeeded';
   if (paid && session.client_reference_id) {
-    const id = getOrderIdByNumber(session.client_reference_id);
-    if (id) setPaymentStatus(id, 'bezahlt', session.id, 'Zahlungsdienstleister');
+    const id = await getOrderIdByNumber(session.client_reference_id);
+    if (id) await setPaymentStatus(id, 'bezahlt', session.id, 'Zahlungsdienstleister');
   }
   return NextResponse.json({ received: true });
 }

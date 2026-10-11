@@ -14,9 +14,9 @@ export const metadata = { title: 'Druckansicht' };
 export default async function PrintPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
   const id = Number((await params).id);
-  const order = Number.isInteger(id) ? getOrder(id) : null;
+  const order = Number.isInteger(id) ? await getOrder(id) : null;
   if (!order) notFound();
-  const docs = listDocuments(id);
+  const docs = await listDocuments(id);
 
   return (
     <main className="print-sheet">

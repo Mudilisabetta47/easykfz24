@@ -33,8 +33,8 @@ function Check({ ok, label, hint }: { ok: boolean; label: string; hint: string }
 export default async function KfzApiPage({ searchParams }: { searchParams: Promise<{ meldung?: string; fehler?: string }> }) {
   await requireAdmin();
   const { meldung, fehler } = await searchParams;
-  const events = listKfzEvents(100);
-  const stats = kfzEventStats();
+  const events = await listKfzEvents(100);
+  const stats = await kfzEventStats();
   const url = kfzWebhookUrl();
   const https = url.startsWith('https://');
 
@@ -76,7 +76,7 @@ export default async function KfzApiPage({ searchParams }: { searchParams: Promi
               <ul className="kfz-checks" role="list">
                 <Check ok={kfzWebhookConfigured()} label="KFZ_API_WEBHOOK_SECRET" hint="Signaturschlüssel des Webhooks aus dem Dashboard" />
                 <Check ok={kfzApiConfigured()} label="KFZ_API_BASE_URL / KFZ_API_LOGIN / KFZ_API_PASSWORD" hint="lesender API-Zugang für Verbindungstest und Belege" />
-                <Check ok={mailConfigured()} label="SMTP_URL / MAIL_FROM" hint="E-Mail-Benachrichtigung der Kunden" />
+                <Check ok={mailConfigured()} label="RESEND_API_KEY / MAIL_FROM" hint="E-Mail-Benachrichtigung der Kunden (auf Cloudflare nur per HTTP-API)" />
                 <Check ok={https} label="PUBLIC_BASE_URL" hint="öffentliche HTTPS-Adresse der Website" />
               </ul>
               <div className="kfz-actions">

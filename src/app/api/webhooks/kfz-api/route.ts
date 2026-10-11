@@ -3,6 +3,7 @@
 // Signatur: X-Signature = HMAC-SHA256 (hex) über den Rohtext, Schlüssel in KFZ_API_WEBHOOK_SECRET.
 
 import { NextResponse } from 'next/server';
+import { runAfter } from '../../../../server/db.ts';
 import { handleKfzWebhook } from '../../../../server/kfz-api.ts';
 
 export const runtime = 'nodejs';
@@ -12,8 +13,8 @@ export async function POST(req: Request) {
   // Rohtext lesen – die Signatur gilt für die exakten Bytes des Rumpfs.
   try {
     const raw = await req.text();
-    const { result, after } = handleKfzWebhook(raw, req.headers);
-    after?.();
+    const { result, after } = await handleKfzWebhook(raw, req.headers);
+    runAfter(after?.());
     return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     // Letzte Absicherung: nachvollziehbar protokollieren, ohne Rumpf oder Kundendaten

@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   limits().orders.hit(ip);
 
   try {
-    const created = createOrder(order, files);
+    const created = await createOrder(order, files);
     // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
     const paymentUrl = paymentsEnabled()
       ? await createCheckout({ number: created.number, email: order.holder.email, totalCents: created.totalCents, token: created.paymentToken }, publicBaseUrl(req))

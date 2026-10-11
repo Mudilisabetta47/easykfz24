@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const nr = normalizeOrderNumber(String(form.get('nr') ?? ''));
   const token = String(form.get('t') ?? '').slice(0, 64);
   const base = publicBaseUrl(req);
-  const order = nr ? getOrderForPayment(nr, token) : null;
+  const order = nr ? await getOrderForPayment(nr, token) : null;
   if (!order) return NextResponse.redirect(`${base}/status`, 303);
   if (order.paymentStatus === 'bezahlt') return NextResponse.redirect(`${base}/zahlung/${order.number}?t=${encodeURIComponent(token)}`, 303);
   const url = await createCheckout({ number: order.number, email: order.email, totalCents: order.totalCents, token: order.token }, base);

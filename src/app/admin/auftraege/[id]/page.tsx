@@ -37,12 +37,12 @@ export default async function OrderPage({
   const { meldung, fehler } = await searchParams;
   const id = Number(idRaw);
   if (!Number.isInteger(id) || id <= 0) notFound();
-  const order = getOrder(id);
+  const order = await getOrder(id);
   if (!order) notFound();
 
-  const docs = listDocuments(id);
-  const events = listEvents(id);
-  const notes = listNotes(id);
+  const docs = await listDocuments(id);
+  const events = await listEvents(id);
+  const notes = await listNotes(id);
   const complete = isChecklistComplete(order.checklistItems, order.checklist);
   const progress = checklistProgress(order.checklistItems, order.checklist);
   const options = transitionOptions(order.status, {
@@ -52,7 +52,7 @@ export default async function OrderPage({
     hasAssignedPlate: order.assigned_plate !== '',
   });
   const forward = options.filter((o) => o.to !== 'storniert');
-  const kfz = getKfzOrderInfo(id);
+  const kfz = await getKfzOrderInfo(id);
   const filesAvailable = kfzApiConfigured();
   const canCancel = options.some((o) => o.to === 'storniert');
 
@@ -237,7 +237,7 @@ export default async function OrderPage({
                       <li key={i}>
                         {formatDateTime(n.at)} · {n.subject} ·{' '}
                         <span className={`badge badge--${n.state === 'versendet' ? 'green' : n.state === 'fehler' ? 'red' : 'amber'}`}>
-                          {n.state === 'versendet' ? 'versendet' : n.state === 'fehler' ? 'Fehler' : 'nicht versendet (SMTP fehlt)'}
+                          {n.state === 'versendet' ? 'versendet' : n.state === 'fehler' ? 'Fehler' : 'nicht versendet (E-Mail-Versand nicht eingerichtet)'}
                         </span>
                         {n.error ? <span className="muted"> {n.error}</span> : null}
                       </li>

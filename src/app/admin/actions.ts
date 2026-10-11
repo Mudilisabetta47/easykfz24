@@ -9,6 +9,7 @@ import { clientIp, limits } from '../../server/limits.ts';
 import { addNote, changeStatus, setAssignedPlate, setChecklistItem, setPaymentStatus, setShipment, type ActionResult } from '../../server/orders.ts';
 import { assignKfzEvent, checkKfzConnection, kfzWebhookUrl, linkKfzOrder } from '../../server/kfz-api.ts';
 import { signKfzBody } from '../../lib/kfz-api.ts';
+import { runAfter } from '../../server/db.ts';
 
 export type LoginState = { error?: string };
 
@@ -58,42 +59,42 @@ export async function statusAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
   const to = String(form.get('to') ?? '');
-  const result = changeStatus(id, to, String(form.get('publicMessage') ?? ''), String(form.get('internalMessage') ?? ''));
+  const result = await changeStatus(id, to, String(form.get('publicMessage') ?? ''), String(form.get('internalMessage') ?? ''));
   back(id, result, 'Status geändert');
 }
 
 export async function checklistAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = setChecklistItem(id, String(form.get('key') ?? ''), form.get('checked') === '1');
+  const result = await setChecklistItem(id, String(form.get('key') ?? ''), form.get('checked') === '1');
   back(id, result, 'Checkliste aktualisiert');
 }
 
 export async function plateAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = setAssignedPlate(id, String(form.get('plate') ?? ''));
+  const result = await setAssignedPlate(id, String(form.get('plate') ?? ''));
   back(id, result, 'Kennzeichen gespeichert');
 }
 
 export async function noteAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = addNote(id, String(form.get('text') ?? ''));
+  const result = await addNote(id, String(form.get('text') ?? ''));
   back(id, result, 'Notiz gespeichert');
 }
 
 export async function shipmentAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = setShipment(id, String(form.get('carrier') ?? ''), String(form.get('tracking') ?? ''));
+  const result = await setShipment(id, String(form.get('carrier') ?? ''), String(form.get('tracking') ?? ''));
   back(id, result, 'Versanddaten gespeichert');
 }
 
 export async function paymentAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = setPaymentStatus(id, String(form.get('payment') ?? ''), String(form.get('ref') ?? '').trim().slice(0, 80));
+  const result = await setPaymentStatus(id, String(form.get('payment') ?? ''), String(form.get('ref') ?? '').trim().slice(0, 80));
   back(id, result, 'Zahlungsstatus gespeichert');
 }
 
@@ -107,13 +108,14 @@ function kfzBack(q: string): never {
 export async function kfzLinkAction(form: FormData): Promise<void> {
   await requireAdmin();
   const id = orderId(form);
-  const result = linkKfzOrder(id, String(form.get('kfzOrderId') ?? '').slice(0, 80));
+  const result = await linkKfzOrder(id, String(form.get('kfzOrderId') ?? '').slice(0, 80));
   back(id, result, 'Verknüpfung mit kfz-api.de gespeichert');
 }
 
 export async function kfzAssignAction(form: FormData): Promise<void> {
   await requireAdmin();
-  const result = assignKfzEvent(String(form.get('eventId') ?? '').slice(0, 200), String(form.get('number') ?? '').slice(0, 30));
+  const result = await assignKfzEvent(String(form.get('eventId') ?? '').slice(0, 200), String(form.get('number') ?? '').slice(0, 30));
+  if (result.ok) runAfter(result.notify);
   kfzBack(result.ok ? `meldung=${encodeURIComponent('Ereignis zugeordnet und verarbeitet')}` : `fehler=${encodeURIComponent(result.error)}`);
 }
 

@@ -21,7 +21,7 @@ export default async function ZahlungPage({
   const { nr } = await params;
   const { t = '', abgebrochen, fehler } = await searchParams;
   const number = normalizeOrderNumber(nr);
-  const order = number ? getOrderForPayment(number, t.slice(0, 64)) : null;
+  const order = number ? await getOrderForPayment(number, t.slice(0, 64)) : null;
 
   return (
     <div className="shell shell--narrow confirm">

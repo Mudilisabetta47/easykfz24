@@ -17,8 +17,8 @@ export const dynamic = 'force-dynamic';
 export default async function AdminHome({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
   await requireAdmin();
   const { q = '', status = 'offen' } = await searchParams;
-  const stats = getStats();
-  const orders = listOrders({ q: q.slice(0, 100), status });
+  const stats = await getStats();
+  const orders = await listOrders({ q: q.slice(0, 100), status });
 
   const kpis = [
     { label: 'Offen gesamt', value: stats.open, href: '/admin?status=offen' },
