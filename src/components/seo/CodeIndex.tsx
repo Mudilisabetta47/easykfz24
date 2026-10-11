@@ -6,6 +6,9 @@ import { useDeferredValue, useMemo, useState } from 'react';
 export interface CodeEntry {
   code: string;
   slug: string;
+  /** Ort, von dem das Kürzel abgeleitet ist */
+  place: string;
+  /** Zulassungsbezirk */
   name: string;
   state: string;
 }
@@ -19,7 +22,9 @@ export function CodeIndex({ entries }: { entries: CodeEntry[] }) {
   const filtered = useMemo(
     () =>
       q
-        ? entries.filter((e) => norm(e.code).startsWith(q) || norm(e.name).includes(q) || norm(e.state).includes(q))
+        ? entries.filter(
+            (e) => norm(e.code).startsWith(q) || norm(e.place).includes(q) || norm(e.name).includes(q) || norm(e.state).includes(q),
+          )
         : entries,
     [entries, q],
   );
@@ -68,7 +73,10 @@ export function CodeIndex({ entries }: { entries: CodeEntry[] }) {
               <li key={e.code}>
                 <Link href={`/kennzeichen/${e.slug}`}>
                   <strong>{e.code}</strong>
-                  <span>{e.name}</span>
+                  <span className="code-index__place">
+                    {e.place}
+                    {e.name !== e.place ? <small>{e.name}</small> : null}
+                  </span>
                 </Link>
               </li>
             ))}

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default function KennzeichenIndexPage() {
   const entries: CodeEntry[] = allCodes().map((code) => {
     const p = districtPage(code)!;
-    return { code, slug: p.slug, name: districtLabel(p.district), state: joinGerman(p.states) };
+    return { code, slug: p.slug, place: p.place, name: districtLabel(p.district), state: joinGerman(p.states) };
   });
   return (
     <>

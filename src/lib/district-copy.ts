@@ -27,6 +27,7 @@ export interface DistrictCopy {
 
 export function districtCopy(p: DistrictPage): DistrictCopy {
   const C = p.code;
+  const place = p.place;
   const where = inDistrict(p.district);
   const label = districtLabel(p.district);
   // Für Titel und Beschreibung kurz halten: bei mehreren Kreisen nur den ersten nennen
@@ -72,10 +73,10 @@ export function districtCopy(p: DistrictPage): DistrictCopy {
   const wishC = `Nicht jede Kombination ist erlaubt: Buchstabenfolgen wie HJ, KZ, NS, SA und SS werden bundesweit nicht zugeteilt, außerdem dürfen die Zahlen nicht mit einer 0 beginnen. Für Elektrofahrzeuge gibt es zusätzlich das E-Kennzeichen, für Oldtimer ab 30 Jahren das H-Kennzeichen.`;
 
   return {
-    title: `Kennzeichen ${C} – ${shortLabel}: Wunschkennzeichen & Zulassung`,
+    title: `Kennzeichen ${C} ${place} – Wunschkennzeichen & Zulassung`,
     metaDescription: `Kennzeichen ${C}${origin ? ` (${origin})` : ''} · ${shortLabel}, ${land}: Wunschkennzeichen eintippen, Zulassung online beauftragen, Schilder per DHL oder UPS.${promo ? ' Neukunden sparen 10 % auf die Servicepauschale.' : ''}`,
     lead: leads[variant(C, 'lead', leads.length)],
-    howTitle: `So bekommst du dein ${C}-Kennzeichen`,
+    howTitle: `So bekommst du dein ${C}-Kennzeichen für ${place}`,
     howIntro: intros[variant(C, 'intro', intros.length)],
     steps: [
       { t: 'Kombination wählen', d: `Wunschkennzeichen oben ins Schild tippen – oder nur ${C} eingeben und Vorschläge ansehen.` },
@@ -85,9 +86,9 @@ export function districtCopy(p: DistrictPage): DistrictCopy {
     ],
     meaningTitle: `Was bedeutet das Kennzeichen ${C}?`,
     meaning: [meaningA[variant(C, 'meaning', meaningA.length)], meaningB, ...(meaningC ? [meaningC] : []), meaningD],
-    wishTitle: `Wunschkennzeichen ${C} reservieren`,
+    wishTitle: `Wunschkennzeichen ${C} für ${place} reservieren`,
     wish: [wishA[variant(C, 'wish', wishA.length)], wishB, wishC],
-    costTitle: `Was kostet ein ${C}-Kennzeichen bei EasyKFZ24?`,
+    costTitle: `Was kostet ein ${C}-Kennzeichen für ${place}?`,
     costIntro: `Du zahlst bei uns eine feste Servicepauschale je Vorgang, Extras wählst du selbst dazu.${promo ? ' Neukunden erhalten mindestens 10 % Rabatt auf die Servicepauschale – die Servicepauschalen unten sind bereits reduziert.' : ''}`,
     costRows: [
       { label: 'Zulassung (Servicepauschale)', value: `ab ${formatEuro(zulassung.promoCents)}` },

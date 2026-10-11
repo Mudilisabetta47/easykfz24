@@ -9,7 +9,7 @@ import { HeroQuickStart } from '../../../../components/home/HeroQuickStart.tsx';
 import { Check } from '../../../../components/icons.tsx';
 import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 import { districtCopy } from '../../../../lib/district-copy.ts';
-import { allCodes, codeFromSlug, districtLabel, districtPage, joinGerman, slugForCode } from '../../../../lib/district-pages.ts';
+import { allCodes, codeFromSlug, districtLabel, districtPage, joinGerman, placeName, slugForCode } from '../../../../lib/district-pages.ts';
 import { publicBaseUrl } from '../../../../server/payments.ts';
 
 type Params = Promise<{ kuerzel: string }>;
@@ -41,7 +41,8 @@ function CodeLinks({ codes, current }: { codes: string[]; current?: string }) {
       {codes.map((c) => (
         <li key={c}>
           <Link href={`/kennzeichen/${slugForCode(c)}`} aria-current={c === current ? 'page' : undefined}>
-            {c}
+            <strong>{c}</strong>
+            <span>{placeName(c)}</span>
           </Link>
         </li>
       ))}
@@ -66,7 +67,7 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'Start', item: `${base}/` },
         { '@type': 'ListItem', position: 2, name: 'Kennzeichen', item: `${base}/kennzeichen` },
-        { '@type': 'ListItem', position: 3, name: `Kennzeichen ${page.code}`, item: `${base}/kennzeichen/${page.slug}` },
+        { '@type': 'ListItem', position: 3, name: `Kennzeichen ${page.code} ${page.place}`, item: `${base}/kennzeichen/${page.slug}` },
       ],
     },
     {
@@ -91,10 +92,15 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
                 <li>
                   <Link href="/kennzeichen">Kennzeichen</Link>
                 </li>
-                <li aria-current="page">Kennzeichen {page.code}</li>
+                <li aria-current="page">
+                  Kennzeichen {page.code} {page.place}
+                </li>
               </ol>
             </nav>
-            <h1>Kennzeichen {page.code}</h1>
+            <h1>
+              Kennzeichen {page.code}{' '}
+              <span className="seo-head__place">{page.place}</span>
+            </h1>
             <p className="seo-head__where">
               {label} · {joinGerman(page.states)}
             </p>
@@ -243,7 +249,7 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
       <section className="info-band">
         <div className="shell section-pad info-faq" aria-labelledby="faq-ort">
           <h2 id="faq-ort" className="info-h2">
-            Häufige Fragen zum Kennzeichen {page.code}
+            Häufige Fragen zum Kennzeichen {page.code} ({page.place})
           </h2>
           <Faq items={copy.faq} />
         </div>

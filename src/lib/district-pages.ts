@@ -16,6 +16,34 @@ export function codeFromSlug(slug: string): string | null {
   return BY_SLUG.get(s.toLowerCase()) ?? BY_SLUG.get(slugForCode(s.toUpperCase().toLowerCase())) ?? null;
 }
 
+/**
+ * Ortsname zum Kürzel für Überschriften und Links: wovon das Kürzel abgeleitet ist (OHZ → Osterholz-Scharmbeck),
+ * sonst der Bezirk ohne „Landkreis“/„Stadt“ (z. B. „Ostalbkreis“).
+ */
+const PLACE_OVERRIDES: Readonly<Record<string, string>> = {
+  AZE: 'Anhalt-Zerbst',
+  DÜW: 'Bad Dürkheim',
+  IGB: 'St. Ingbert',
+  NOL: 'Niederschlesische Oberlausitz',
+  PM: 'Potsdam-Mittelmark',
+  SHK: 'Saale-Holzland-Kreis',
+};
+
+export function placeName(code: string): string {
+  if (PLACE_OVERRIDES[code]) return PLACE_OVERRIDES[code];
+  const origin = DISTRICT_INFO[code]?.o;
+  if (origin) {
+    return origin
+      .split(' / ')[0]
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/^(Freie und )?Hansestadt |^Landkreis /, '')
+      .replace(/, /g, '-')
+      .trim();
+  }
+  const first = (DISTRICTS[code] ?? '').split(/;\s*/)[0];
+  return first.replace(/^(Stadt und Landkreis|Landkreis|Kreis|Stadt|Städteregion|Regionalverband) /, '').trim();
+}
+
 export function allCodes(): string[] {
   return Object.keys(DISTRICTS).sort((a, b) => a.localeCompare(b, 'de'));
 }
@@ -27,6 +55,8 @@ export interface DistrictPage {
   district: string;
   /** Wovon das Kürzel abgeleitet ist, z. B. „Osterholz-Scharmbeck“ */
   origin: string | null;
+  /** Ortsname für Überschriften, z. B. „Osterholz-Scharmbeck“ */
+  place: string;
   states: readonly string[];
   /** Weitere Kürzel desselben Zulassungsbezirks (Kennzeichenliberalisierung) */
   sameDistrict: string[];
@@ -73,6 +103,7 @@ export function districtPage(code: string): DistrictPage | null {
     slug: slugForCode(code),
     district,
     origin: info?.o ?? null,
+    place: placeName(code),
     states,
     sameDistrict,
     sameLetter,
