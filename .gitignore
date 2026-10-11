@@ -14,5 +14,3 @@ assets-src/fonts/*
 !assets-src/fonts/fe-schrift.enc
 .DS_Store
 
-# Aus der Kennzeichenschrift erzeugt (scripts/plate-font.mjs, beim Build automatisch)
-src/lib/plate-font.generated.ts
