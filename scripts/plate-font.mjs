@@ -53,7 +53,13 @@ if (process.argv.includes('--encrypt')) {
 
 const key = readKey();
 let file = plainFile ?? (existsSync(ENC) && key ? ENC : null);
-if (!file && existsSync(ENC) && !key) console.warn('Hinweis: fe-schrift.enc vorhanden, aber PLATE_FONT_KEY fehlt – eingebaute Zeichen werden verwendet.');
+if (!file && existsSync(ENC) && !key) {
+  console.log(
+    existsSync(OUT) && readFileSync(OUT, 'utf8').includes('glyphs')
+      ? 'Kennzeichenschrift: eingecheckte Zeichenumrisse werden verwendet (PLATE_FONT_KEY nur zum Neuerzeugen nötig).'
+      : 'Hinweis: fe-schrift.enc vorhanden, aber PLATE_FONT_KEY fehlt – eingebaute Zeichen werden verwendet.',
+  );
+}
 
 let buf = file ? readFileSync(file) : null;
 let format = file?.split('.').pop();

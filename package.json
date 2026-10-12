@@ -12,13 +12,14 @@
     "dev": "next dev",
     "prebuild": "node scripts/plate-font.mjs --ensure",
     "build": "next build",
+    "postbuild": "node scripts/cf-postbuild.mjs",
     "start": "next start",
     "pretypecheck": "node scripts/plate-font.mjs --ensure",
     "typecheck": "tsc --noEmit",
     "pretest": "node scripts/plate-font.mjs --ensure",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types \"tests/**/*.test.ts\"",
-    "cf:build": "opennextjs-cloudflare build",
-    "cf:preview": "opennextjs-cloudflare build && wrangler dev --local"
+    "cf:build": "EK_SKIP_CF_POSTBUILD=1 opennextjs-cloudflare build",
+    "cf:preview": "npm run build && wrangler dev --local"
   },
   "dependencies": {
     "next": "15.5.27",

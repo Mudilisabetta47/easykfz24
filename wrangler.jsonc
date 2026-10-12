@@ -1,14 +1,11 @@
-// Cloudflare Worker „easykfz24“ – ausgeliefert über den OpenNext-Adapter (npx opennextjs-cloudflare build).
+// Cloudflare Worker „easykfz24“ – ausgeliefert über den OpenNext-Adapter.
+// Build: „npm run build“ (next build + postbuild → .open-next), Deploy: „npx wrangler deploy“ (→ opennextjs-cloudflare deploy).
 // Datenbank: D1 „easykfz24“ (Bindung DB), Uploads: R2 „easykfz24-uploads“ im EU-Hoheitsgebiet (Bindung UPLOADS).
 // Geheimnisse (KFZ_API_WEBHOOK_SECRET, ADMIN_PASSWORD, SESSION_SECRET …) liegen im Cloudflare-Dashboard, nicht hier.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "easykfz24",
   "main": ".open-next/worker.js",
-  // Baut die App vor jedem „wrangler deploy“ – unabhängig vom Build-Befehl im Dashboard
-  "build": {
-    "command": "npx opennextjs-cloudflare build"
-  },
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {

@@ -9,6 +9,8 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Für den Cloudflare-Worker (OpenNext baut darauf auf, siehe scripts/cf-postbuild.mjs)
+  output: 'standalone',
   // Uploads laufen über die eigene Route (multipart); Grenze hier großzügig, die Route prüft selbst.
   experimental: { serverActions: { bodySizeLimit: '2mb' } },
   async headers() {
