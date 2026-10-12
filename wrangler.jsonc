@@ -1,0 +1,46 @@
+// Cloudflare Worker „easykfz24“ – ausgeliefert über den OpenNext-Adapter (npx opennextjs-cloudflare build).
+// Datenbank: D1 „easykfz24“ (Bindung DB), Uploads: R2 „easykfz24-uploads“ im EU-Hoheitsgebiet (Bindung UPLOADS).
+// Geheimnisse (KFZ_API_WEBHOOK_SECRET, ADMIN_PASSWORD, SESSION_SECRET …) liegen im Cloudflare-Dashboard, nicht hier.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "easykfz24",
+  "main": ".open-next/worker.js",
+  // Baut die App vor jedem „wrangler deploy“ – unabhängig vom Build-Befehl im Dashboard
+  "build": {
+    "command": "npx opennextjs-cloudflare build"
+  },
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "images": {
+    "binding": "IMAGES"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "easykfz24"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "easykfz24",
+      "database_id": "b660cf81-edc7-4800-9fc6-860eb0152ebd"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "easykfz24-uploads",
+      "jurisdiction": "eu"
+    }
+  ],
+  // Im Dashboard gesetzte Variablen (z. B. PUBLIC_BASE_URL) beim Deployment nicht überschreiben
+  "keep_vars": true,
+  "observability": {
+    "enabled": true
+  }
+}
