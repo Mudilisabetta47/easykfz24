@@ -14,7 +14,7 @@ export default async function LoginPage() {
       <div className="card admin-login__card">
         <LogoMark className="admin-login__mark" />
         <h1>Verwaltung</h1>
-        <p className="muted">Bitte melden Sie sich mit dem Admin-Passwort an.</p>
+        <p className="muted">EasyKFZ24 OS – bitte anmelden.</p>
         {cfg.ok ? (
           <LoginForm />
         ) : (

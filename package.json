@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "pretest": "node scripts/plate-font.mjs --ensure",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types \"tests/**/*.test.ts\"",
+    "test:e2e": "node scripts/e2e.mjs node && node scripts/e2e.mjs worker",
     "cf:build": "EK_SKIP_CF_POSTBUILD=1 opennextjs-cloudflare build",
     "cf:preview": "npm run build && wrangler dev --local"
   },

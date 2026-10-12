@@ -1,0 +1,183 @@
+// Erweiterte Auftragsabfrage für Auftragscenter, Kanban, Zulassungsmanager, Kontrollzentrum und Export.
+// Liefert je Auftrag Arbeitsphase und erkannte Probleme – ohne vertrauliche Inhalte (keine IBAN, kein Geburtsdatum).
+
+import { buildChecklist, isChecklistComplete, type ChecklistState } from '../../lib/checklist.ts';
+import type { ValidatedOrder } from '../../lib/order.ts';
+import type { DocumentKind, ServiceId } from '../../lib/services.ts';
+import { isStatusId, type StatusId } from '../../lib/status.ts';
+import { orderIssues, stageOf, type Issue, type Stage } from '../../lib/workflow.ts';
+import { getDb } from '../db.ts';
+
+export interface OrderFilter {
+  q?: string;
+  status?: string;
+  stage?: string;
+  service?: string;
+  payment?: string;
+  assignee?: string;
+  priority?: string;
+  from?: string;
+  to?: string;
+  customerId?: number;
+  vehicleFin?: string;
+  overdue?: boolean;
+  issues?: boolean;
+  limit?: number;
+}
+
+export interface OrderListRow {
+  id: number;
+  number: string;
+  created_at: string;
+  updated_at: string;
+  status: StatusId;
+  service: ServiceId;
+  email: string;
+  holder_name: string;
+  fin: string;
+  vehicle: string;
+  previous_plate: string;
+  assigned_plate: string;
+  wish_plate: string;
+  delivery: string;
+  total_cents: number;
+  payment_status: string;
+  kfz_display: string;
+  kfz_status: string;
+  kfz_order_id: string;
+  assignee_id: number | null;
+  priority: string;
+  due_at: string;
+  follow_up_at: string;
+  released_at: string;
+  customer_id: number | null;
+  source: string;
+  checklist: { done: number; total: number; complete: boolean };
+  stage: Stage;
+  issues: Issue[];
+}
+
+const ACTIVE = ['neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle'];
+
+export async function queryOrders(f: OrderFilter, userId: number): Promise<OrderListRow[]> {
+  const db = await getDb();
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (f.status === 'offen') where.push("o.status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle', 'zugelassen', 'versendet', 'abgeholt')");
+  else if (f.status === 'laufend') where.push("o.status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')");
+  else if (f.status && isStatusId(f.status)) {
+    where.push('o.status = ?');
+    params.push(f.status);
+  }
+  if (f.service) {
+    where.push('o.service = ?');
+    params.push(f.service);
+  }
+  if (f.payment) {
+    where.push('o.payment_status = ?');
+    params.push(f.payment);
+  }
+  if (f.assignee === 'ich') {
+    where.push('o.assignee_id = ?');
+    params.push(userId);
+  } else if (f.assignee === 'niemand') where.push('o.assignee_id IS NULL');
+  else if (f.assignee && /^\d+$/.test(f.assignee)) {
+    where.push('o.assignee_id = ?');
+    params.push(Number(f.assignee));
+  }
+  if (f.priority) {
+    where.push('o.priority = ?');
+    params.push(f.priority);
+  }
+  if (f.from) {
+    where.push('o.created_at >= ?');
+    params.push(new Date(f.from).toISOString());
+  }
+  if (f.to) {
+    where.push('o.created_at < ?');
+    params.push(new Date(new Date(f.to).getTime() + 86_400_000).toISOString());
+  }
+  if (f.customerId) {
+    where.push('o.customer_id = ?');
+    params.push(f.customerId);
+  }
+  if (f.vehicleFin) {
+    where.push('o.fin = ?');
+    params.push(f.vehicleFin.toUpperCase());
+  }
+  if (f.overdue) {
+    where.push("o.due_at != '' AND o.due_at < ? AND o.status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')");
+    params.push(new Date().toISOString());
+  }
+  const needle = f.q?.trim();
+  if (needle) {
+    const like = `%${needle.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    where.push(
+      "(lower(o.number) LIKE ? ESCAPE '\\' OR lower(o.holder_name) LIKE ? ESCAPE '\\' OR lower(o.email) LIKE ? ESCAPE '\\' OR lower(o.fin) LIKE ? ESCAPE '\\' OR lower(o.previous_plate) LIKE ? ESCAPE '\\' OR lower(o.assigned_plate) LIKE ? ESCAPE '\\' OR lower(o.kfz_order_id) LIKE ? ESCAPE '\\')",
+    );
+    params.push(like, like, like, like, like, like, like);
+  }
+  params.push(Math.min(f.limit ?? 500, 2000));
+  const rows = await db.all<
+    Omit<OrderListRow, 'checklist' | 'stage' | 'issues' | 'vehicle' | 'wish_plate'> & { data_json: string; checklist_json: string; reg_checks_json: string }
+  >(
+    `SELECT o.id, o.number, o.created_at, o.updated_at, o.status, o.service, o.email, o.holder_name, o.fin, o.previous_plate, o.assigned_plate, o.delivery, o.total_cents,
+       o.payment_status, o.kfz_display, o.kfz_status, o.kfz_order_id, o.assignee_id, o.priority, o.due_at, o.follow_up_at, o.released_at, o.customer_id, o.source,
+       o.data_json, o.checklist_json, o.reg_checks_json
+     FROM orders o ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY CASE o.priority WHEN 'dringend' THEN 0 WHEN 'hoch' THEN 1 ELSE 2 END, o.created_at DESC, o.id DESC LIMIT ?`,
+    ...params,
+  );
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.id);
+  const docs = await db.all<{ order_id: number; kinds: string }>(
+    `SELECT order_id, GROUP_CONCAT(DISTINCT kind) AS kinds FROM documents WHERE deleted_at = '' AND order_id IN (${ids.map(() => '?').join(',')}) GROUP BY order_id`,
+    ...ids,
+  );
+  const docMap = new Map(docs.map((d) => [d.order_id, (d.kinds || '').split(',') as DocumentKind[]]));
+  const fins = await db.all<{ fin: string; id: number; number: string }>(
+    "SELECT fin, id, number FROM orders WHERE fin != '' AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
+  );
+  const out: OrderListRow[] = [];
+  for (const r of rows) {
+    const data = JSON.parse(r.data_json) as ValidatedOrder;
+    const state = JSON.parse(r.checklist_json || '{}') as ChecklistState;
+    const items = buildChecklist(r.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen });
+    const complete = isChecklistComplete(items, state);
+    let regChecks: Record<string, boolean> = {};
+    try {
+      regChecks = JSON.parse(r.reg_checks_json || '{}') as Record<string, boolean>;
+    } catch {
+      regChecks = {};
+    }
+    const issues = orderIssues({
+      status: r.status,
+      service: r.service,
+      payment_status: r.payment_status,
+      kfz_display: r.kfz_display,
+      kfz_status: r.kfz_status,
+      assigned_plate: r.assigned_plate,
+      due_at: r.due_at,
+      released_at: r.released_at,
+      data,
+      checklistItems: items,
+      checklist: state,
+      uploadedKinds: docMap.get(r.id) ?? [],
+      regChecks,
+      sameFinOpen: ACTIVE.includes(r.status) ? fins.filter((x) => x.fin === r.fin && x.id !== r.id) : [],
+    });
+    const stage = stageOf({ status: r.status, payment_status: r.payment_status, kfz_display: r.kfz_display, released_at: r.released_at, checklistComplete: complete });
+    if (f.stage && f.stage !== stage) continue;
+    if (f.issues && !issues.some((i) => i.level !== 'hinweis')) continue;
+    const { data_json: _d, checklist_json: _c, reg_checks_json: _r, ...rest } = r;
+    out.push({
+      ...rest,
+      vehicle: `${data.vehicle.hersteller} ${data.vehicle.modell}`.trim(),
+      wish_plate: data.plate.wunschkennzeichen,
+      checklist: { done: items.filter((i) => state[i.key]?.checked).length, total: items.length, complete },
+      stage,
+      issues,
+    });
+  }
+  return out;
+}

@@ -5,14 +5,14 @@ import { PrintButton } from '../../../../../components/PrintButton.tsx';
 import { formatDateTime } from '../../../../../lib/format.ts';
 import { DOCUMENTS, SERVICES } from '../../../../../lib/services.ts';
 import { statusLabel } from '../../../../../lib/status.ts';
-import { requireAdmin } from '../../../../../server/auth.ts';
+import { requirePermission } from '../../../../../server/auth.ts';
 import { getOrder, listDocuments } from '../../../../../server/orders.ts';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Druckansicht' };
 
 export default async function PrintPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requirePermission('orders.read');
   const id = Number((await params).id);
   const order = Number.isInteger(id) ? await getOrder(id) : null;
   if (!order) notFound();

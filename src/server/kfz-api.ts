@@ -10,6 +10,7 @@
 // Antrag geht produktiv an das KBA. Anträge werden erst nach ausdrücklicher Freigabe angebunden.
 
 import { eventStmt, touchStmt } from './orders.ts';
+import { emitSafe } from './os/events.ts';
 import { getDb, q, type Stmt } from './db.ts';
 import { sendMail } from './mailer.ts';
 import { publicBaseUrl } from './payments.ts';
@@ -154,6 +155,8 @@ const WORKFLOW_TARGET: Partial<Record<DisplayStatus, StatusId>> = {
 interface Applied {
   display: DisplayStatus | null;
   previousDisplay: string;
+  /** Automatisch gesetzte Status-Schritte des Auftrags (für Automatisierungen und Benachrichtigungen) */
+  transitions: { from: StatusId; to: StatusId }[];
 }
 
 /** Liest den Auftrag und liefert alle Änderungen für ein Ereignis als Befehle (werden atomar geschrieben). */
@@ -170,6 +173,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
   }>('SELECT status, service, assigned_plate, previous_plate, kfz_display, kfz_files_json, kfz_order_id FROM orders WHERE id = ?', orderId);
   if (!order) return null;
   const stmts: Stmt[] = [];
+  const transitions: Applied['transitions'] = [];
   let display = displayFor(ev.status, ev.derivedStatus, ev.retryable);
   // Verspätete Meldungen dürfen einen abgeschlossenen Vorgang nicht zurückstufen.
   const stale = order.kfz_display === 'abgeschlossen' && display === 'in_bearbeitung';
@@ -229,6 +233,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
       for (const to of path) {
         stmts.push(q('UPDATE orders SET status = ? WHERE id = ?', to, orderId));
         stmts.push(eventStmt(orderId, { type: 'status', from, to, publicMessage: STATUSES[to].publicText, message: 'Automatisch nach Meldung von kfz-api.de', actor: 'kfz-api.de' }));
+        transitions.push({ from, to });
         from = to;
       }
     } else if (path === null && order.status !== target) {
@@ -242,7 +247,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
     }
   }
   stmts.push(touchStmt(orderId));
-  return { stmts, applied: { display, previousDisplay: order.kfz_display } };
+  return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions } };
 }
 
 /** Kunden-E-Mail bei einem Wechsel in eine benachrichtigungswürdige Anzeige (einmal je Wechsel). */
@@ -265,6 +270,39 @@ export async function notifyCustomer(orderId: number, display: DisplayStatus): P
     res.state,
     res.state === 'fehler' ? res.error : '',
   );
+}
+
+/**
+ * Nach dem Speichern: erst die Status-E-Mail an den Kunden (falls eingerichtet), dann die OS-Ereignisse – die
+ * Automatisierung „Zulassung abgeschlossen“ sieht so, ob der Kunde bereits automatisch informiert wurde.
+ * Automatisch gesetzte Status-Schritte laufen als order.status durch dieselben Regeln wie manuelle.
+ */
+async function afterKfz(eventId: string, orderId: number, ev: KfzEvent, applied: Applied): Promise<void> {
+  await scheduleNotify(orderId, applied);
+  await emitKfz(eventId, orderId, ev, applied);
+  for (const t of applied.transitions) {
+    await emitSafe({ type: 'order.status', orderId, actor: 'kfz-api.de', payload: { from: t.from, to: t.to, publicMessage: true, source: 'kfz-api' }, dedupeKey: `kfz:${eventId}:${t.from}->${t.to}` });
+  }
+}
+
+/** Ereignis für EasyKFZ24 OS (Benachrichtigung, Automatisierung) – je Webhook-Ereignis genau einmal. */
+function emitKfz(eventId: string, orderId: number, ev: KfzEvent, applied: Applied): Promise<void> {
+  return emitSafe({
+    type: 'kfz.status',
+    orderId,
+    actor: 'kfz-api.de',
+    payload: { display: applied.display ?? '', previousDisplay: applied.previousDisplay, status: ev.status ?? ev.rawStatus ?? '', derived: ev.derivedStatus ?? '', eventId },
+    dedupeKey: `kfz:${eventId}`,
+  });
+}
+
+function emitKfzProblem(eventId: string, outcome: 'nicht_zugeordnet' | 'fehler', ev: KfzEvent | null, error: string): Promise<void> {
+  return emitSafe({
+    type: 'kfz.problem',
+    actor: 'kfz-api.de',
+    payload: { outcome, error, externalId: ev?.externalId ?? '', kfzOrderId: ev?.orderId ?? '', eventId },
+    dedupeKey: `kfz:${eventId}:${outcome}`,
+  });
 }
 
 /** Startet die Kunden-E-Mail (falls nötig) und liefert das Promise – für waitUntil bzw. „nach der Antwort“. */
@@ -328,17 +366,20 @@ export async function handleKfzWebhook(raw: string, headers: Headers): Promise<{
     const orderId = await findOrder(ev);
     if (!orderId) {
       await db.batch([recordStmt(eventId, 'nicht_zugeordnet', bodyHash, ev, null, 'Kein Auftrag zu externalId/order.id gefunden')]);
-      return { result: { status: 200, body: { received: true, matched: false } } };
+      return { result: { status: 200, body: { received: true, matched: false } }, after: () => emitKfzProblem(eventId, 'nicht_zugeordnet', ev, 'Kein Auftrag zu externalId/order.id gefunden') };
     }
     const plan = await planEvent(orderId, ev);
     if (!plan) throw new Error('Auftrag nicht mehr vorhanden');
     await db.batch([...plan.stmts, recordStmt(eventId, 'verarbeitet', bodyHash, ev, orderId)]);
-    return { result: { status: 200, body: { received: true } }, after: () => scheduleNotify(orderId, plan.applied) };
+    return {
+      result: { status: 200, body: { received: true } },
+      after: () => afterKfz(eventId, orderId, ev, plan.applied),
+    };
   } catch (e) {
     const msg = (e as Error).message;
     console.error('[kfz-api] Verarbeitung fehlgeschlagen:', msg);
     await tryRecord(eventId, 'fehler', bodyHash, ev, msg);
-    return { result: { status: 500, body: { error: 'Verarbeitung fehlgeschlagen' } } };
+    return { result: { status: 500, body: { error: 'Verarbeitung fehlgeschlagen' } }, after: () => emitKfzProblem(eventId, 'fehler', ev, msg) };
   }
 }
 
@@ -395,7 +436,33 @@ export async function assignKfzEvent(
   const plan = await planEvent(order.id, ev);
   if (!plan) return { ok: false, error: 'Auftrag nicht gefunden' };
   await db.batch([...plan.stmts, recordStmt(eventId, 'verarbeitet', row.body_sha256, ev, order.id, '', false)]);
-  return { ok: true, notify: scheduleNotify(order.id, plan.applied) };
+  return { ok: true, notify: afterKfz(eventId, order.id, ev, plan.applied) };
+}
+
+/**
+ * Fehlgeschlagenes Ereignis kontrolliert erneut verarbeiten (gleiche Zuordnung wie beim Empfang).
+ * Bereits verarbeitete Ereignisse werden nie ein zweites Mal angewendet.
+ */
+export async function retryKfzEvent(eventId: string): Promise<{ ok: true; matched: boolean; notify?: Promise<void> } | { ok: false; error: string }> {
+  const db = await getDb();
+  const row = await db.first<{ event_json: string; outcome: WebhookOutcome; body_sha256: string }>(
+    'SELECT event_json, outcome, body_sha256 FROM kfz_webhook_events WHERE event_id = ?',
+    eventId,
+  );
+  if (!row) return { ok: false, error: 'Ereignis nicht gefunden' };
+  if (row.outcome === 'verarbeitet' || row.outcome === 'ping') return { ok: false, error: 'Ereignis ist bereits verarbeitet' };
+  if (!row.event_json) return { ok: false, error: 'Ereignis ohne gespeicherten Inhalt (ungültiges JSON beim Empfang)' };
+  const ev = parseKfzEvent(JSON.parse(row.event_json));
+  if (!ev.hasOrder) return { ok: false, error: 'Ereignis enthält keinen Vorgang' };
+  const orderId = await findOrder(ev);
+  if (!orderId) {
+    await db.run("UPDATE kfz_webhook_events SET outcome = 'nicht_zugeordnet', error = ?, last_seen_at = ? WHERE event_id = ?", 'Erneut versucht: kein Auftrag gefunden', now(), eventId);
+    return { ok: true, matched: false };
+  }
+  const plan = await planEvent(orderId, ev);
+  if (!plan) return { ok: false, error: 'Auftrag nicht gefunden' };
+  await db.batch([...plan.stmts, recordStmt(eventId, 'verarbeitet', row.body_sha256, ev, orderId, '', false)]);
+  return { ok: true, matched: true, notify: afterKfz(eventId, orderId, ev, plan.applied) };
 }
 
 /** Vorgangsnummer von kfz-api.de von Hand mit einem Auftrag verknüpfen (z. B. bei Erfassung im Dashboard). */

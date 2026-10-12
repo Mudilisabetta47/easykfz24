@@ -1,154 +1,63 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { formatRetryAfter } from '../../lib/rate-limit.ts';
-import { passwordMatches } from '../../lib/session.ts';
-import { adminConfig, endSession, requireAdmin, startSession } from '../../server/auth.ts';
+import { audit, LOGIN_FAILURE_LIMITS, recentLoginFailures } from '../../server/audit.ts';
+import { adminConfig, currentSession, endSession, startSession } from '../../server/auth.ts';
 import { clientIp, limits } from '../../server/limits.ts';
-import { addNote, changeStatus, setAssignedPlate, setChecklistItem, setPaymentStatus, setShipment, type ActionResult } from '../../server/orders.ts';
-import { assignKfzEvent, checkKfzConnection, kfzWebhookUrl, linkKfzOrder } from '../../server/kfz-api.ts';
-import { signKfzBody } from '../../lib/kfz-api.ts';
-import { runAfter } from '../../server/db.ts';
+import { authenticate } from '../../server/users.ts';
+import { checkCode, twoFactorRequired } from '../../server/os/twofactor.ts';
 
-export type LoginState = { error?: string };
+export type LoginState = { error?: string; username?: string; needCode?: boolean };
 
 export async function loginAction(_prev: LoginState, form: FormData): Promise<LoginState> {
   const cfg = adminConfig();
   if (!cfg.ok) return { error: `Anmeldung nicht konfiguriert: ${cfg.problem}` };
+  const username = String(form.get('username') ?? '').slice(0, 40);
   const ip = await clientIp();
   const l = limits();
   const perIp = l.loginPerIp.check(ip);
   const global = l.loginGlobal.check('alle');
   if (!perIp.allowed || !global.allowed) {
     const wait = Math.max(perIp.retryAfterMs, global.retryAfterMs);
-    return { error: `Zu viele Fehlversuche. Bitte in ${formatRetryAfter(wait)} erneut versuchen.` };
+    return { username, error: `Zu viele Fehlversuche. Bitte in ${formatRetryAfter(wait)} erneut versuchen.` };
+  }
+  // Dauerhafte Sperre über das Protokoll (gilt instanzübergreifend, auch auf Cloudflare)
+  const persisted = await recentLoginFailures(ip);
+  if (persisted.ip >= LOGIN_FAILURE_LIMITS.perIp || persisted.all >= LOGIN_FAILURE_LIMITS.global) {
+    return { username, error: 'Zu viele Fehlversuche. Bitte in 15 Minuten erneut versuchen.' };
   }
   const password = String(form.get('password') ?? '').slice(0, 200);
-  if (!passwordMatches(password, cfg.password)) {
+  const result = await authenticate(username, password);
+  if (!result) {
     l.loginPerIp.hit(ip);
     l.loginGlobal.hit('alle');
+    await audit({ id: null, username: username.trim().toLowerCase() || 'inhaber' }, 'anmeldung.fehlgeschlagen');
     // Kleine Verzögerung bremst automatisiertes Raten zusätzlich.
     await new Promise((r) => setTimeout(r, 400));
-    return { error: 'Passwort ist nicht korrekt.' };
+    return { username, error: 'Benutzername oder Passwort ist nicht korrekt.' };
+  }
+  // Zweiter Faktor: Code aus der Authenticator-App (nur wenn für diesen Benutzer aktiviert)
+  if (await twoFactorRequired(result.user.id)) {
+    const code = String(form.get('code') ?? '').replace(/\s/g, '').slice(0, 8);
+    if (!code) return { username, needCode: true };
+    if (!(await checkCode(result.user.id, code))) {
+      l.loginPerIp.hit(ip);
+      l.loginGlobal.hit('alle');
+      await audit({ id: result.user.id, username: result.user.username }, 'anmeldung.2fa_fehlgeschlagen');
+      await new Promise((r) => setTimeout(r, 400));
+      return { username, needCode: true, error: 'Der Code ist nicht korrekt.' };
+    }
   }
   l.loginPerIp.reset(ip);
-  await startSession();
+  await startSession(result.user, result.pwv);
+  await audit({ id: result.user.id, username: result.user.username }, 'anmeldung');
   redirect('/admin');
 }
 
 export async function logoutAction(): Promise<void> {
+  const s = await currentSession();
+  if (s) await audit({ id: s.user.id, username: s.user.username }, 'abmeldung');
   await endSession();
   redirect('/admin/login');
-}
-
-function orderId(form: FormData): number {
-  const id = Number(form.get('id'));
-  if (!Number.isInteger(id) || id <= 0) throw new Error('Ungültige Auftrags-ID');
-  return id;
-}
-
-function back(id: number, result: ActionResult, ok: string): never {
-  revalidatePath(`/admin/auftraege/${id}`);
-  revalidatePath('/admin');
-  const q = result.ok ? `meldung=${encodeURIComponent(ok)}` : `fehler=${encodeURIComponent(result.error)}`;
-  redirect(`/admin/auftraege/${id}?${q}`);
-}
-
-export async function statusAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const to = String(form.get('to') ?? '');
-  const result = await changeStatus(id, to, String(form.get('publicMessage') ?? ''), String(form.get('internalMessage') ?? ''));
-  back(id, result, 'Status geändert');
-}
-
-export async function checklistAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await setChecklistItem(id, String(form.get('key') ?? ''), form.get('checked') === '1');
-  back(id, result, 'Checkliste aktualisiert');
-}
-
-export async function plateAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await setAssignedPlate(id, String(form.get('plate') ?? ''));
-  back(id, result, 'Kennzeichen gespeichert');
-}
-
-export async function noteAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await addNote(id, String(form.get('text') ?? ''));
-  back(id, result, 'Notiz gespeichert');
-}
-
-export async function shipmentAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await setShipment(id, String(form.get('carrier') ?? ''), String(form.get('tracking') ?? ''));
-  back(id, result, 'Versanddaten gespeichert');
-}
-
-export async function paymentAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await setPaymentStatus(id, String(form.get('payment') ?? ''), String(form.get('ref') ?? '').trim().slice(0, 80));
-  back(id, result, 'Zahlungsstatus gespeichert');
-}
-
-/* ---------- kfz-api.de ---------- */
-
-function kfzBack(q: string): never {
-  revalidatePath('/admin/kfz-api');
-  redirect(`/admin/kfz-api?${q}`);
-}
-
-export async function kfzLinkAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const id = orderId(form);
-  const result = await linkKfzOrder(id, String(form.get('kfzOrderId') ?? '').slice(0, 80));
-  back(id, result, 'Verknüpfung mit kfz-api.de gespeichert');
-}
-
-export async function kfzAssignAction(form: FormData): Promise<void> {
-  await requireAdmin();
-  const result = await assignKfzEvent(String(form.get('eventId') ?? '').slice(0, 200), String(form.get('number') ?? '').slice(0, 30));
-  if (result.ok) runAfter(result.notify);
-  kfzBack(result.ok ? `meldung=${encodeURIComponent('Ereignis zugeordnet und verarbeitet')}` : `fehler=${encodeURIComponent(result.error)}`);
-}
-
-export async function kfzCheckAction(): Promise<void> {
-  await requireAdmin();
-  const r = await checkKfzConnection();
-  const text = `${r.message}${r.status ? ` (HTTP ${r.status})` : ''}${r.traceId ? ` · Trace-Id ${r.traceId}` : ''}`;
-  kfzBack(`${r.ok ? 'meldung' : 'fehler'}=${encodeURIComponent(`Verbindungstest: ${text}`)}`);
-}
-
-/**
- * Selbsttest: signierter PING an die eigene öffentliche Webhook-Adresse – prüft DNS, HTTPS, Routing und Schlüssel.
- * Ersetzt nicht den PING aus dem kfz-api.de-Dashboard, zeigt aber, ob der Endpunkt von außen erreichbar antwortet.
- */
-export async function kfzSelfTestAction(): Promise<void> {
-  await requireAdmin();
-  const secret = process.env.KFZ_API_WEBHOOK_SECRET;
-  if (!secret) kfzBack(`fehler=${encodeURIComponent('KFZ_API_WEBHOOK_SECRET fehlt')}`);
-  const raw = JSON.stringify({ test: 'easykfz24-selbsttest', at: new Date().toISOString() });
-  let text: string;
-  let ok = false;
-  try {
-    const res = await fetch(kfzWebhookUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Signature': signKfzBody(raw, secret as string), 'X-Event-Id': `selbsttest-${Date.now()}` },
-      body: raw,
-      signal: AbortSignal.timeout(10_000),
-      cache: 'no-store',
-    });
-    ok = res.status === 200;
-    text = `HTTP ${res.status} von ${kfzWebhookUrl()}`;
-  } catch (e) {
-    text = `nicht erreichbar (${(e as Error).message})`;
-  }
-  kfzBack(`${ok ? 'meldung' : 'fehler'}=${encodeURIComponent(`Selbsttest: ${text}`)}`);
 }

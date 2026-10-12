@@ -12,8 +12,14 @@ export interface Mail {
   to: string;
   subject: string;
   text: string;
-  html: string;
+  /** ohne Angabe: der Text, sicher maskiert, mit Zeilenumbrüchen */
+  html?: string;
+  replyTo?: string;
 }
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+export const textToHtml = (t: string) =>
+  `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">${escapeHtml(t).replace(/\n/g, '<br>')}</div>`;
 
 export type SendResult = { state: 'versendet' } | { state: 'nicht_konfiguriert' } | { state: 'fehler'; error: string };
 
@@ -42,7 +48,14 @@ export async function sendMail(mail: Mail): Promise<SendResult> {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.MAIL_FROM, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
+        body: JSON.stringify({
+          from: process.env.MAIL_FROM,
+          to: [mail.to],
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html ?? textToHtml(mail.text),
+          ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
+        }),
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) return { state: 'fehler', error: clean(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`) };
@@ -53,7 +66,14 @@ export async function sendMail(mail: Mail): Promise<SendResult> {
       const nodemailer = (await import('nodemailer')).default;
       g.__ekMailer = nodemailer.createTransport(process.env.SMTP_URL as string, { disableFileAccess: true, disableUrlAccess: true });
     }
-    await g.__ekMailer.sendMail({ from: process.env.MAIL_FROM, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html });
+    await g.__ekMailer.sendMail({
+      from: process.env.MAIL_FROM,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html ?? textToHtml(mail.text),
+      ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
+    });
     return { state: 'versendet' };
   } catch (e) {
     return { state: 'fehler', error: clean((e as Error).message) };

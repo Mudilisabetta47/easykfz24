@@ -7,6 +7,8 @@ import { isDocumentKind, validateDocuments, validateOrder, type FieldErrors } fr
 import { DOCUMENT_KINDS } from '../../../lib/services.ts';
 import { formatRetryAfter } from '../../../lib/rate-limit.ts';
 import { createOrder, type UploadFile } from '../../../server/orders.ts';
+import { runAfter } from '../../../server/db.ts';
+import { afterOrderCreated } from '../../../server/os/order-actions.ts';
 import { ipFrom, limits } from '../../../server/limits.ts';
 import { createCheckout, paymentsEnabled, publicBaseUrl } from '../../../server/payments.ts';
 
@@ -80,6 +82,8 @@ export async function POST(req: Request) {
 
   try {
     const created = await createOrder(order, files);
+    // Kundenstamm, Ereignis, Benachrichtigung und Automatisierungen – nach der Antwort, darf die Bestellung nie gefährden
+    runAfter(afterOrderCreated(created.id, 'website'));
     // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
     const paymentUrl = paymentsEnabled()
       ? await createCheckout({ number: created.number, email: order.holder.email, totalCents: created.totalCents, token: created.paymentToken }, publicBaseUrl(req))

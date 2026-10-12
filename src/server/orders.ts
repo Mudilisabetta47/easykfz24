@@ -72,6 +72,7 @@ export interface NoteRow {
   id: number;
   at: string;
   text: string;
+  author: string;
 }
 
 export interface UploadFile {
@@ -286,14 +287,68 @@ export async function listEvents(orderId: number): Promise<EventRow[]> {
 }
 
 export async function listNotes(orderId: number): Promise<NoteRow[]> {
-  return (await getDb()).all<NoteRow>('SELECT id, at, text FROM notes WHERE order_id = ? ORDER BY at DESC, id DESC', orderId);
+  return (await getDb()).all<NoteRow>("SELECT id, at, text, author FROM notes WHERE order_id = ? AND deleted_at = '' ORDER BY at DESC, id DESC", orderId);
+}
+
+/* ---------- Papierkorb (interne Notizen) ---------- */
+
+export interface TrashRow {
+  id: number;
+  order_id: number;
+  number: string;
+  holder_name: string;
+  at: string;
+  text: string;
+  author: string;
+  deleted_at: string;
+  deleted_by: string;
+}
+
+/** Notiz in den Papierkorb legen (wiederherstellbar). */
+export async function trashNote(orderId: number, noteId: number, actor: string): Promise<ActionResult> {
+  const db = await getDb();
+  const note = await db.first<{ id: number }>("SELECT id FROM notes WHERE id = ? AND order_id = ? AND deleted_at = ''", noteId, orderId);
+  if (!note) return { ok: false, error: 'Notiz nicht gefunden' };
+  await db.batch([
+    q('UPDATE notes SET deleted_at = ?, deleted_by = ? WHERE id = ?', now(), actor, noteId),
+    eventStmt(orderId, { type: 'note', message: 'Interne Notiz in den Papierkorb verschoben', actor }),
+  ]);
+  return { ok: true };
+}
+
+export async function listTrash(): Promise<TrashRow[]> {
+  return (await getDb()).all<TrashRow>(
+    "SELECT n.id, n.order_id, o.number, o.holder_name, n.at, n.text, n.author, n.deleted_at, n.deleted_by FROM notes n JOIN orders o ON o.id = n.order_id WHERE n.deleted_at != '' ORDER BY n.deleted_at DESC LIMIT 500",
+  );
+}
+
+export async function restoreNote(noteId: number, actor: string): Promise<ActionResult & { orderNumber?: string }> {
+  const db = await getDb();
+  const note = await db.first<{ order_id: number; number: string }>(
+    "SELECT n.order_id, o.number FROM notes n JOIN orders o ON o.id = n.order_id WHERE n.id = ? AND n.deleted_at != ''",
+    noteId,
+  );
+  if (!note) return { ok: false, error: 'Eintrag nicht im Papierkorb' };
+  await db.batch([
+    q("UPDATE notes SET deleted_at = '', deleted_by = '' WHERE id = ?", noteId),
+    eventStmt(note.order_id, { type: 'note', message: 'Interne Notiz wiederhergestellt', actor }),
+  ]);
+  return { ok: true, orderNumber: note.number };
+}
+
+/** Endgültig löschen – nur Einträge, die bereits im Papierkorb liegen. */
+export async function purgeTrash(noteId: number | 'alle'): Promise<{ ok: true; count: number }> {
+  const db = await getDb();
+  const r =
+    noteId === 'alle' ? await db.run("DELETE FROM notes WHERE deleted_at != ''") : await db.run("DELETE FROM notes WHERE id = ? AND deleted_at != ''", noteId);
+  return { ok: true, count: r.changes };
 }
 
 /* ---------- Ändern (Admin) ---------- */
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-export async function changeStatus(orderId: number, to: string, publicMessage: string, internalMessage = ''): Promise<ActionResult> {
+export async function changeStatus(orderId: number, to: string, publicMessage: string, internalMessage = '', actor = 'Admin'): Promise<ActionResult> {
   if (!isStatusId(to)) return { ok: false, error: 'Unbekannter Status' };
   const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
@@ -312,13 +367,13 @@ export async function changeStatus(orderId: number, to: string, publicMessage: s
       to,
       message: internalMessage.trim().slice(0, 1000),
       publicMessage: publicMessage.trim().slice(0, 1000),
-      actor: 'Admin',
+      actor,
     }),
   ]);
   return { ok: true };
 }
 
-export async function setChecklistItem(orderId: number, key: string, checked: boolean): Promise<ActionResult> {
+export async function setChecklistItem(orderId: number, key: string, checked: boolean, actor = 'Admin'): Promise<ActionResult> {
   const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   const item = order.checklistItems.find((i) => i.key === key);
@@ -326,12 +381,12 @@ export async function setChecklistItem(orderId: number, key: string, checked: bo
   const state: ChecklistState = { ...order.checklist, [key]: { checked, at: now() } };
   await (await getDb()).batch([
     q('UPDATE orders SET checklist_json = ?, updated_at = ? WHERE id = ?', JSON.stringify(state), now(), orderId),
-    eventStmt(orderId, { type: 'checklist', message: `${item.label}: ${checked ? 'abgehakt' : 'zurückgesetzt'}`, actor: 'Admin' }),
+    eventStmt(orderId, { type: 'checklist', message: `${item.label}: ${checked ? 'abgehakt' : 'zurückgesetzt'}`, actor }),
   ]);
   return { ok: true };
 }
 
-export async function setAssignedPlate(orderId: number, input: string): Promise<ActionResult> {
+export async function setAssignedPlate(orderId: number, input: string, actor = 'Admin'): Promise<ActionResult> {
   const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   let plate = '';
@@ -342,25 +397,25 @@ export async function setAssignedPlate(orderId: number, input: string): Promise<
   }
   await (await getDb()).batch([
     q('UPDATE orders SET assigned_plate = ?, updated_at = ? WHERE id = ?', plate, now(), orderId),
-    eventStmt(orderId, { type: 'plate', message: plate ? `Zugeteiltes Kennzeichen: ${plate}` : 'Zugeteiltes Kennzeichen entfernt', actor: 'Admin' }),
+    eventStmt(orderId, { type: 'plate', message: plate ? `Zugeteiltes Kennzeichen: ${plate}` : 'Zugeteiltes Kennzeichen entfernt', actor }),
   ]);
   return { ok: true };
 }
 
-export async function addNote(orderId: number, text: string): Promise<ActionResult> {
+export async function addNote(orderId: number, text: string, actor = 'Admin'): Promise<ActionResult> {
   const t = text.trim();
   if (!t) return { ok: false, error: 'Notiz ist leer' };
   if (t.length > 4000) return { ok: false, error: 'Notiz ist zu lang (max. 4000 Zeichen)' };
   if (!(await getOrder(orderId))) return { ok: false, error: 'Auftrag nicht gefunden' };
   await (await getDb()).batch([
-    q('INSERT INTO notes (order_id, at, text) VALUES (?, ?, ?)', orderId, now(), t),
-    eventStmt(orderId, { type: 'note', message: 'Interne Notiz hinzugefügt', actor: 'Admin' }),
+    q('INSERT INTO notes (order_id, at, text, author) VALUES (?, ?, ?, ?)', orderId, now(), t, actor),
+    eventStmt(orderId, { type: 'note', message: 'Interne Notiz hinzugefügt', actor }),
     touchStmt(orderId),
   ]);
   return { ok: true };
 }
 
-export async function setShipment(orderId: number, carrier: string, trackingInput: string): Promise<ActionResult> {
+export async function setShipment(orderId: number, carrier: string, trackingInput: string, actor = 'Admin'): Promise<ActionResult> {
   const order = await getOrder(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   if (order.delivery !== 'versand') return { ok: false, error: 'Der Kunde hat Abholung gewählt' };
@@ -376,7 +431,7 @@ export async function setShipment(orderId: number, carrier: string, trackingInpu
     eventStmt(orderId, {
       type: 'shipment',
       message: tracking ? `Sendung ${CARRIERS[carrier].name} ${tracking}` : `Versandpartner ${CARRIERS[carrier].name}`,
-      actor: 'Admin',
+      actor,
     }),
   ]);
   return { ok: true };

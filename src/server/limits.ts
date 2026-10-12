@@ -30,8 +30,14 @@ export function limits(): Limits {
   return current;
 }
 
-/** Client-IP aus dem Proxy-Header (erster Eintrag). Ohne Proxy davor ist der Header fälschbar – siehe README. */
+/**
+ * Client-IP. Auf Cloudflare zählt nur CF-Connecting-IP (setzt Cloudflare selbst, nicht fälschbar) – ein vom
+ * Angreifer mitgeschickter X-Forwarded-For würde sonst als erster Eintrag gelesen und jede Sperre umgehen.
+ * Ohne Cloudflare (lokal/Node hinter eigenem Proxy) der erste X-Forwarded-For-Eintrag.
+ */
 export function ipFrom(h: Headers): string {
+  const cf = h.get('cf-connecting-ip');
+  if (cf) return cf.trim().slice(0, 64);
   const fwd = h.get('x-forwarded-for');
   if (fwd) return fwd.split(',')[0].trim().slice(0, 64);
   return (h.get('x-real-ip') ?? 'unbekannt').slice(0, 64);

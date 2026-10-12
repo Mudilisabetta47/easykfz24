@@ -142,7 +142,7 @@ async function sqliteDb(): Promise<Db> {
 
 /* ---------- Schema ---------- */
 
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,11 +255,346 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX notifications_order ON notifications(order_id, at);
   `,
+  // v4: EasyKFZ24 OS – Benutzer mit Rollen, Protokoll kritischer Aktionen, Einstellungen
+  `
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    pw_hash TEXT NOT NULL,
+    pw_version TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    user_id INTEGER,
+    username TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX audit_at ON audit_log(at);
+
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT ''
+  );
+  `,
+  // v5: Notizen mit Autor und Papierkorb (gelöscht = deleted_at gesetzt, endgültig erst beim Leeren)
+  `
+  ALTER TABLE notes ADD COLUMN author TEXT NOT NULL DEFAULT '';
+  ALTER TABLE notes ADD COLUMN deleted_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE notes ADD COLUMN deleted_by TEXT NOT NULL DEFAULT '';
+  CREATE INDEX notes_deleted ON notes(deleted_at);
+  `,
+  // v6: EasyKFZ24 OS Enterprise – gemeinsame Datenbasis (nur Ergänzungen, bestehende Daten bleiben unverändert)
+  `
+  CREATE TABLE customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL DEFAULT 'privat',
+    name TEXT NOT NULL,
+    first_name TEXT NOT NULL DEFAULT '',
+    last_name TEXT NOT NULL DEFAULT '',
+    company TEXT NOT NULL DEFAULT '',
+    register_no TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    email_norm TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    street TEXT NOT NULL DEFAULT '',
+    house_no TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    owner_id INTEGER,
+    price_group TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    anonymized_at TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX customers_email ON customers(email_norm);
+  CREATE INDEX customers_name ON customers(name);
+
+  CREATE TABLE customer_locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    street TEXT NOT NULL DEFAULT '',
+    house_no TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX customer_locations_c ON customer_locations(customer_id);
+
+  CREATE TABLE customer_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    location_id INTEGER,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX customer_contacts_c ON customer_contacts(customer_id);
+
+  CREATE TABLE vehicles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    fin TEXT NOT NULL,
+    make TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    vehicle_type TEXT NOT NULL DEFAULT '',
+    plate TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (customer_id, fin)
+  );
+  CREATE INDEX vehicles_fin ON vehicles(fin);
+
+  ALTER TABLE orders ADD COLUMN customer_id INTEGER;
+  ALTER TABLE orders ADD COLUMN vehicle_id INTEGER;
+  ALTER TABLE orders ADD COLUMN assignee_id INTEGER;
+  ALTER TABLE orders ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal';
+  ALTER TABLE orders ADD COLUMN due_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN follow_up_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN released_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN released_by TEXT NOT NULL DEFAULT '';
+  ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'website';
+  ALTER TABLE orders ADD COLUMN reg_checks_json TEXT NOT NULL DEFAULT '{}';
+  CREATE INDEX orders_customer ON orders(customer_id);
+  CREATE INDEX orders_assignee ON orders(assignee_id);
+  CREATE INDEX orders_status_created ON orders(status, created_at);
+  CREATE INDEX orders_fin ON orders(fin);
+
+  ALTER TABLE documents ADD COLUMN display_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN category TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN folder TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE documents ADD COLUMN previous_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN superseded_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN expires_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN archived_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN deleted_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN deleted_by TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN uploaded_by TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN review_state TEXT NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN review_note TEXT NOT NULL DEFAULT '';
+
+  CREATE TABLE doc_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (order_id, path)
+  );
+
+  ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN totp_enabled_at TEXT NOT NULL DEFAULT '';
+
+  CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    revoked_at TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX sessions_user ON sessions(user_id, last_seen_at);
+
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'offen',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    due_at TEXT NOT NULL DEFAULT '',
+    remind_at TEXT NOT NULL DEFAULT '',
+    assignee_id INTEGER,
+    order_id INTEGER,
+    customer_id INTEGER,
+    source TEXT NOT NULL DEFAULT 'manuell',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    done_at TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX tasks_assignee ON tasks(assignee_id, status);
+  CREATE INDEX tasks_order ON tasks(order_id);
+
+  CREATE TABLE task_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    at TEXT NOT NULL,
+    author TEXT NOT NULL,
+    text TEXT NOT NULL
+  );
+
+  CREATE TABLE payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_ref TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'zahlung',
+    status TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    fee_cents INTEGER,
+    method TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX payments_order ON payments(order_id);
+  CREATE UNIQUE INDEX payments_ref ON payments(provider, provider_ref, kind, status) WHERE provider_ref != '';
+
+  CREATE TABLE invoice_counters (
+    series TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    last INTEGER NOT NULL,
+    PRIMARY KEY (series, year)
+  );
+  CREATE TABLE invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'rechnung',
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    customer_id INTEGER,
+    refers_to INTEGER,
+    issued_at TEXT NOT NULL,
+    service_date TEXT NOT NULL DEFAULT '',
+    net_cents INTEGER NOT NULL,
+    vat_cents INTEGER NOT NULL,
+    gross_cents INTEGER NOT NULL,
+    passthrough_cents INTEGER NOT NULL DEFAULT 0,
+    lines_json TEXT NOT NULL,
+    seller_json TEXT NOT NULL,
+    buyer_json TEXT NOT NULL,
+    tax_mode TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX invoices_order ON invoices(order_id);
+
+  CREATE TABLE vouchers (
+    code TEXT PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'betrag',
+    value INTEGER NOT NULL,
+    valid_from TEXT NOT NULL DEFAULT '',
+    valid_until TEXT NOT NULL DEFAULT '',
+    max_uses INTEGER,
+    used INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE mail_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    order_id INTEGER,
+    customer_id INTEGER,
+    direction TEXT NOT NULL DEFAULT 'aus',
+    kind TEXT NOT NULL DEFAULT 'email',
+    to_addr TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    template_id TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'entwurf',
+    error TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    sent_at TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manuell'
+  );
+  CREATE INDEX messages_order ON messages(order_id, at);
+  CREATE INDEX messages_customer ON messages(customer_id, at);
+
+  CREATE TABLE os_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    order_id INTEGER,
+    customer_id INTEGER,
+    task_id INTEGER,
+    actor TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    dedupe_key TEXT NOT NULL UNIQUE
+  );
+  CREATE INDEX os_events_at ON os_events(at);
+  CREATE INDEX os_events_order ON os_events(order_id, at);
+
+  CREATE TABLE automation_rules (
+    id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE TABLE automation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id TEXT NOT NULL,
+    run_key TEXT NOT NULL,
+    at TEXT NOT NULL,
+    event_id INTEGER,
+    order_id INTEGER,
+    result TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    UNIQUE (rule_id, run_key)
+  );
+  CREATE INDEX automation_runs_at ON automation_runs(at);
+
+  CREATE TABLE os_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'normal',
+    title TEXT NOT NULL,
+    text TEXT NOT NULL DEFAULT '',
+    order_id INTEGER,
+    customer_id INTEGER,
+    task_id INTEGER,
+    user_id INTEGER,
+    permission TEXT NOT NULL DEFAULT 'orders.read',
+    dedupe_key TEXT NOT NULL UNIQUE
+  );
+  CREATE INDEX os_notifications_at ON os_notifications(at);
+  CREATE TABLE notification_reads (
+    user_id INTEGER NOT NULL,
+    notification_id INTEGER NOT NULL,
+    at TEXT NOT NULL,
+    PRIMARY KEY (user_id, notification_id)
+  );
+  CREATE TABLE user_prefs (
+    user_id INTEGER PRIMARY KEY,
+    prefs_json TEXT NOT NULL DEFAULT '{}',
+    read_until TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];
 
 
 /** Zerlegt eine Migration in einzelne Befehle (keine Semikolons in Zeichenketten der Migrationen). */
-function statements(sql: string): string[] {
+export function statements(sql: string): string[] {
   return sql
     .split(/;\s*(?:\n|$)/)
     .map((x) => x.trim())

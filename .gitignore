@@ -19,3 +19,6 @@ assets-src/fonts/*
 .open-next/
 .wrangler/
 .dev.vars
+
+# Testberichte
+test-results/

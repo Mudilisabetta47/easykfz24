@@ -1,0 +1,194 @@
+// Fachliche Abläufe von EasyKFZ24 OS (Server und Oberfläche gemeinsam):
+// Arbeitsphasen (Kanban), automatische Fehlererkennung, Vollständigkeits- und Pflichtfeldprüfung je Vorgang.
+// Die Phasen sind aus echten Feldern abgeleitet (Status, Zahlung, Checkliste, Freigabe, kfz-api.de-Stand) –
+// so gibt es keinen zweiten, widersprüchlich gepflegten Status.
+
+import { isChecklistComplete, type ChecklistItem, type ChecklistState } from './checklist.ts';
+import type { DisplayStatus } from './kfz-status.ts';
+import type { ValidatedOrder } from './order.ts';
+import { DOCUMENTS, isEvbRequired, isPreviousPlateRequired, requiredDocuments, SERVICES, type DocumentKind, type ServiceId } from './services.ts';
+import type { StatusId } from './status.ts';
+
+export const STAGES = ['neu', 'dokumente', 'zahlung_bestaetigt', 'bereit', 'beim_partner', 'in_bearbeitung', 'abgeschlossen'] as const;
+export const SIDE_STAGES = ['rueckfrage', 'fehler', 'storniert'] as const;
+export type Stage = (typeof STAGES)[number] | (typeof SIDE_STAGES)[number];
+
+export const STAGE_META: Record<Stage, { label: string; hint: string; tone: string }> = {
+  neu: { label: 'Neu', hint: 'Eingang, noch nicht geprüft', tone: 'blue' },
+  dokumente: { label: 'Dokumente prüfen', hint: 'Unterlagen und Angaben prüfen, Zahlung abwarten', tone: 'blue' },
+  zahlung_bestaetigt: { label: 'Zahlung bestätigt', hint: 'Vollständig und bezahlt – Freigabe erforderlich', tone: 'violet' },
+  bereit: { label: 'Bereit zur Übermittlung', hint: 'Manuell freigegeben', tone: 'violet' },
+  beim_partner: { label: 'Beim Zulassungspartner', hint: 'Übergeben, Rückmeldung ausstehend', tone: 'violet' },
+  in_bearbeitung: { label: 'In Bearbeitung', hint: 'Behörde bearbeitet (kfz-api.de)', tone: 'violet' },
+  abgeschlossen: { label: 'Abgeschlossen', hint: 'Zugelassen/abgemeldet, Versand oder Abholung', tone: 'green' },
+  rueckfrage: { label: 'Rückfrage', hint: 'Unterlagen fehlen oder Behörde fragt nach', tone: 'amber' },
+  fehler: { label: 'Fehler / Abgelehnt', hint: 'kfz-api.de meldet Ablehnung oder Fehler', tone: 'red' },
+  storniert: { label: 'Storniert', hint: 'Abgebrochen', tone: 'slate' },
+};
+
+export interface StageInput {
+  status: StatusId;
+  payment_status: string;
+  kfz_display: string;
+  released_at?: string;
+  checklistComplete: boolean;
+}
+
+export function stageOf(o: StageInput): Stage {
+  if (o.status === 'storniert') return 'storniert';
+  if (o.kfz_display === 'fehlgeschlagen') return 'fehler';
+  if (o.status === 'unterlagen_fehlen' || o.kfz_display === 'angaben_erforderlich') return 'rueckfrage';
+  if (o.status === 'zugelassen' || o.status === 'versendet' || o.status === 'abgeholt' || o.status === 'abgeschlossen') return 'abgeschlossen';
+  if (o.status === 'bei_zulassungsstelle') return o.kfz_display === 'in_bearbeitung' || o.kfz_display === 'abgeschlossen' ? 'in_bearbeitung' : 'beim_partner';
+  if (o.status === 'neu') return 'neu';
+  // in_pruefung
+  if (!o.checklistComplete || o.payment_status !== 'bezahlt') return 'dokumente';
+  return o.released_at ? 'bereit' : 'zahlung_bestaetigt';
+}
+
+/* ---------- FIN ---------- */
+
+const VIN_MAP: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, J: 1, K: 2, L: 3, M: 4, N: 5, P: 7, R: 9, S: 2, T: 3, U: 4, V: 5, W: 6, X: 7, Y: 8, Z: 9 };
+const VIN_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+
+export interface FinCheck {
+  ok: boolean;
+  error?: string;
+  /** Prüfziffer an Stelle 9 – nur in Nordamerika vorgeschrieben, in Europa meist nicht vorhanden */
+  checkDigit: 'stimmt' | 'abweichend' | 'nicht_pruefbar';
+  wmi?: string;
+}
+
+export function checkFin(raw: string): FinCheck {
+  const fin = raw.trim().toUpperCase();
+  if (fin.length !== 17) return { ok: false, error: `FIN muss 17 Zeichen haben (hat ${fin.length})`, checkDigit: 'nicht_pruefbar' };
+  if (/[IOQ]/.test(fin)) return { ok: false, error: 'FIN darf die Buchstaben I, O und Q nicht enthalten', checkDigit: 'nicht_pruefbar' };
+  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(fin)) return { ok: false, error: 'FIN enthält ungültige Zeichen', checkDigit: 'nicht_pruefbar' };
+  let sum = 0;
+  for (let i = 0; i < 17; i++) {
+    const c = fin[i];
+    sum += (/\d/.test(c) ? Number(c) : VIN_MAP[c]) * VIN_WEIGHTS[i];
+  }
+  const expected = sum % 11 === 10 ? 'X' : String(sum % 11);
+  return { ok: true, checkDigit: fin[8] === expected ? 'stimmt' : 'abweichend', wmi: fin.slice(0, 3) };
+}
+
+/* ---------- Sicherheitscodes (i-Kfz) ---------- */
+
+export const SECURITY_CODES = {
+  zb1: { label: 'Sicherheitscode ZB I (freigelegt, 7-stellig)' },
+  zb2: { label: 'Sicherheitscode ZB II (freigelegt, 12-stellig)' },
+  plaketten: { label: 'Plakettencodes vorne/hinten (Stempelplaketten, je 3-stellig)' },
+} as const;
+export type SecurityCode = keyof typeof SECURITY_CODES;
+
+/**
+ * Welche Sicherheitscodes beim internetbasierten Verfahren (i-Kfz) üblicherweise gebraucht werden.
+ * Die verbindliche Liste ergibt sich aus der API-Dokumentation des Zulassungspartners – deshalb nur als
+ * Prüfpunkt zum Abhaken, die Codes selbst werden hier bewusst NICHT gespeichert.
+ */
+export function securityCodesFor(service: ServiceId, keepPlate: boolean): SecurityCode[] {
+  switch (service) {
+    case 'abmeldung':
+      return ['zb1', 'plaketten'];
+    case 'halterwechsel':
+      return keepPlate ? ['zb1', 'zb2', 'plaketten'] : ['zb1', 'zb2'];
+    case 'umzug':
+      return keepPlate ? ['zb1'] : ['zb1', 'plaketten'];
+    case 'wiederzulassung':
+      return ['zb1', 'zb2'];
+    case 'neuzulassung':
+      return ['zb2'];
+  }
+}
+
+/* ---------- Vollständigkeit und Fehlererkennung ---------- */
+
+export type IssueLevel = 'fehler' | 'warnung' | 'hinweis';
+export interface Issue {
+  level: IssueLevel;
+  code: string;
+  text: string;
+  /** Wo man es behebt – das OS öffnet den passenden Bereich */
+  fix?: 'checkliste' | 'dokumente' | 'angaben' | 'zahlung' | 'kennzeichen' | 'kfz' | 'freigabe' | 'frist';
+}
+
+export interface IssueInput {
+  status: StatusId;
+  service: ServiceId;
+  payment_status: string;
+  kfz_display: string;
+  kfz_status?: string;
+  assigned_plate: string;
+  due_at?: string;
+  released_at?: string;
+  data: ValidatedOrder;
+  checklistItems: ChecklistItem[];
+  checklist: ChecklistState;
+  uploadedKinds: DocumentKind[];
+  regChecks?: Record<string, boolean>;
+  /** andere laufende Aufträge mit derselben FIN */
+  sameFinOpen?: { id: number; number: string }[];
+  /** Auftragsbetrag und Summe der gebuchten Zahlungen (null = keine Buchung vorhanden) */
+  totalCents?: number;
+  paidCents?: number | null;
+}
+
+const ACTIVE: StatusId[] = ['neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle'];
+
+/** Automatische Fehlererkennung für einen Auftrag – Grundlage für Warnhinweise, Kanban-Markierungen und Dashboard. */
+export function orderIssues(o: IssueInput): Issue[] {
+  const out: Issue[] = [];
+  const d = o.data;
+  const svc = SERVICES[o.service];
+  const active = ACTIVE.includes(o.status);
+  const fin = checkFin(d.vehicle.fin);
+  if (!fin.ok) out.push({ level: 'fehler', code: 'fin', text: fin.error ?? 'FIN ungültig', fix: 'angaben' });
+  if (o.sameFinOpen?.length && active) {
+    out.push({
+      level: 'fehler',
+      code: 'doppelt',
+      text: `Weiterer laufender Auftrag mit derselben FIN: ${o.sameFinOpen.map((x) => x.number).join(', ')} – Mehrfachzulassung vermeiden`,
+    });
+  }
+  if (active) {
+    const missingDocs = requiredDocuments(o.service, { hKennzeichen: d.vehicle.hKennzeichen }).filter((k) => !o.uploadedKinds.includes(k));
+    if (missingDocs.length) out.push({ level: 'warnung', code: 'unterlagen', text: `Nicht hochgeladen: ${missingDocs.map((k) => DOCUMENTS[k].label).join(', ')}`, fix: 'dokumente' });
+    if (isEvbRequired(o.service, d.plate.wahl) && !d.finish.evb) out.push({ level: 'fehler', code: 'evb', text: 'eVB-Nummer fehlt', fix: 'angaben' });
+    if (isPreviousPlateRequired(o.service, d.plate.wahl) && !d.vehicle.bisherigesKennzeichen) out.push({ level: 'fehler', code: 'kennzeichen_alt', text: 'Bisheriges Kennzeichen fehlt', fix: 'angaben' });
+    if (svc.sepa && (!d.finish.iban || !d.finish.sepaMandat)) out.push({ level: 'fehler', code: 'sepa', text: 'SEPA-Mandat bzw. IBAN für die Kfz-Steuer fehlt', fix: 'angaben' });
+    if (!d.finish.vollmacht) out.push({ level: 'fehler', code: 'vollmacht', text: 'Vollmacht nicht bestätigt', fix: 'angaben' });
+    if (d.holder.typ === 'privat' && !d.holder.geburtsdatum) out.push({ level: 'warnung', code: 'geburtsdatum', text: 'Geburtsdatum des Halters fehlt', fix: 'angaben' });
+    if (o.payment_status !== 'bezahlt' && (o.status === 'bei_zulassungsstelle' || o.released_at)) out.push({ level: 'warnung', code: 'zahlung', text: 'Zahlung noch offen, Vorgang aber schon freigegeben/übergeben', fix: 'zahlung' });
+    const complete = isChecklistComplete(o.checklistItems, o.checklist);
+    if (o.status === 'bei_zulassungsstelle' && !complete) out.push({ level: 'fehler', code: 'checkliste', text: 'Beim Partner, aber Pflichtpunkte der Checkliste offen', fix: 'checkliste' });
+    const codes = securityCodesFor(o.service, d.plate.wahl === 'behalten');
+    const missingCodes = codes.filter((c) => !o.regChecks?.[`code_${c}`]);
+    if (missingCodes.length && (o.released_at || o.status === 'bei_zulassungsstelle'))
+      out.push({ level: 'warnung', code: 'codes', text: `Sicherheitscodes nicht bestätigt: ${missingCodes.map((c) => SECURITY_CODES[c].label).join(', ')}`, fix: 'freigabe' });
+    if (o.due_at && o.due_at < new Date().toISOString()) out.push({ level: 'warnung', code: 'frist', text: 'Bearbeitungsfrist überschritten', fix: 'frist' });
+  }
+  if (o.kfz_display === 'fehlgeschlagen') out.push({ level: 'fehler', code: 'kfz_fehler', text: `kfz-api.de meldet ${o.kfz_status || 'Fehler/Ablehnung'}`, fix: 'kfz' });
+  if (o.kfz_display === 'angaben_erforderlich') out.push({ level: 'warnung', code: 'kfz_rueckfrage', text: 'Behörde benötigt weitere Angaben', fix: 'kfz' });
+  if (o.status === 'zugelassen' && o.service !== 'abmeldung' && !o.assigned_plate) out.push({ level: 'fehler', code: 'kennzeichen', text: 'Zugelassen, aber kein Kennzeichen eingetragen', fix: 'kennzeichen' });
+  if (d.plate.wahl === 'wunsch' && !d.plate.wunschkennzeichen && active) out.push({ level: 'warnung', code: 'wunsch', text: 'Wunschkennzeichen gewählt, aber nicht angegeben', fix: 'angaben' });
+  return out;
+}
+
+/**
+ * Freigabe vor der Übermittlung („Bereit zur Übermittlung“): nur wenn vollständig, bezahlt, keine Fehler und
+ * alle Sicherheitscodes bestätigt. Die Freigabe selbst übermittelt nichts – sie ist die bewusste Entscheidung.
+ */
+export function releaseBlockers(o: IssueInput): string[] {
+  const blockers: string[] = [];
+  if (o.status !== 'in_pruefung') blockers.push('Auftrag muss „In Prüfung“ sein');
+  if (!isChecklistComplete(o.checklistItems, o.checklist)) blockers.push('Checkliste unvollständig');
+  if (o.payment_status !== 'bezahlt') blockers.push('Zahlung nicht bestätigt');
+  else if (o.paidCents != null && o.totalCents != null && o.paidCents < o.totalCents) blockers.push('Gezahlter Betrag liegt unter dem Auftragsbetrag – im Finanzcenter (Zahlungsabgleich) klären');
+  for (const i of orderIssues(o)) if (i.level === 'fehler') blockers.push(i.text);
+  const codes = securityCodesFor(o.service, o.data.plate.wahl === 'behalten');
+  for (const c of codes) if (!o.regChecks?.[`code_${c}`]) blockers.push(`${SECURITY_CODES[c].label} nicht bestätigt`);
+  return [...new Set(blockers)];
+}
+
+export type { DisplayStatus };
