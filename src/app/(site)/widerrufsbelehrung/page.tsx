@@ -2,13 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { siteUrl } from '../../../lib/site-url.ts';
-import { REVIEW_ITEMS, WITHDRAW_LABEL, WITHDRAW_PATH, WITHDRAWAL_FORM, withdrawalNotice } from '../../../lib/withdrawal.ts';
+import { REVIEW_ITEMS, WITHDRAW_LABEL, WITHDRAW_PATH, WITHDRAWAL_FORM, WITHDRAWAL_META, withdrawalNotice } from '../../../lib/withdrawal.ts';
 import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Widerrufsbelehrung', robots: { index: false, follow: true } };
 
-/** Widerrufsbelehrung und Muster-Widerrufsformular (amtliche Muster) – ENTWURF, nur mit WIDERRUF_AKTIV=1 öffentlich */
+/** Widerrufsbelehrung und Muster-Widerrufsformular (Wortlaut vom Inhaber) – nur mit WIDERRUF_AKTIV=1 öffentlich */
 export default function WiderrufsbelehrungPage() {
   const mode = withdrawalMode();
   if (mode === 'aus') notFound();
@@ -19,6 +19,11 @@ export default function WiderrufsbelehrungPage() {
         <div className="shell">
           <p className="label">Rechtliches</p>
           <h1>Widerrufsbelehrung</h1>
+          <p className="lead">
+            {WITHDRAWAL_META.subtitle}
+            <br />
+            <span className="muted">{WITHDRAWAL_META.stand}</span>
+          </p>
           {mode === 'vorschau' ? (
             <p className="lead">
               <mark className="placeholder">Entwurf – nicht veröffentlicht. Vor der Freischaltung durch eine spezialisierte Kanzlei bzw. eRecht24 prüfen lassen.</mark>
@@ -52,7 +57,7 @@ export default function WiderrufsbelehrungPage() {
           {WITHDRAWAL_FORM.lines.map((l) => (
             <p key={l}>– {l}</p>
           ))}
-          <p className="muted">{WITHDRAWAL_FORM.footnote}</p>
+          {WITHDRAWAL_FORM.footnote ? <p className="muted">{WITHDRAWAL_FORM.footnote}</p> : null}
         </section>
 
         {mode === 'vorschau' ? (

@@ -62,7 +62,7 @@ function order(service, email, fin) {
     vehicle: { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin, bisherigesKennzeichen: 'HB-EK 12', antrieb: 'benzin', eKennzeichen: false, hKennzeichen: false },
     holder: { typ: 'privat', vorname: 'Mia', nachname: 'Migration', geburtsdatum: '1990-01-01', firmenname: '', registernummer: '', ansprechpartner: '', strasse: 'Altweg', hausnummer: '3', plz: '28195', ort: 'Bremen', email, telefon: '0421 123456' },
     plate: { wahl: '', wunschkennzeichen: '', schilder: false, zustellung: 'abholung', versanddienst: '' },
-    finish: { evb: '', kontoinhaber: '', iban: '', sepaMandat: false, vollmacht: true, datenschutz: true, hinweise: '' },
+    finish: { evb: '', kontoinhaber: '', iban: '', sepaMandat: false, vollmacht: true, datenschutz: true, vorzeitigerBeginn: true, widerrufErlischt: true, hinweise: '' },
     website: '',
   };
 }

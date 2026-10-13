@@ -16,7 +16,6 @@ import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
 import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
-import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,7 +56,13 @@ export async function POST(req: Request) {
     return fail(400, 'Die Anfrage konnte nicht verarbeitet werden.');
   }
 
-  const result = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs, requireBirthPlace: poaCreationEnabled() });
+  const result = validateOrder(raw, {
+    plateOffer: await getPlateOffer(),
+    expressOffer: await getExpressOffer(),
+    wishPlace: placeByAgs,
+    requireBirthPlace: poaCreationEnabled(),
+    requireEarlyStart: true,
+  });
   if (!result.ok) return fail(422, 'Bitte prüfen Sie die markierten Angaben.', result.errors);
   const order = result.order;
 
@@ -86,9 +91,9 @@ export async function POST(req: Request) {
   // Erst zählen, wenn die Anfrage gültig ist – Tippfehler sollen niemanden aussperren.
   limits().orders.hit(ip);
 
-  // Erklärung zum vorzeitigen Leistungsbeginn nur speichern, wenn sie dem Kunden angezeigt wurde (aktive Widerrufsstrecke)
-  const input = (raw as { finish?: { vorzeitigerBeginn?: unknown } } | null)?.finish;
-  if (withdrawalMode() === 'aktiv' && input?.vorzeitigerBeginn === true) order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+  // Ausdrückliche Zustimmung zum vorzeitigen Leistungsbeginn (Pflichtfeld, oben geprüft) mit Zeitpunkt festhalten
+  const input = (raw as { finish?: { vorzeitigerBeginn?: unknown; widerrufErlischt?: unknown } } | null)?.finish;
+  if (input?.vorzeitigerBeginn === true && input?.widerrufErlischt === true) order.finish.vorzeitigerBeginnAt = new Date().toISOString();
 
   try {
     const created = await createOrder(order, files);

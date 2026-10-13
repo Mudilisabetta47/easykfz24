@@ -1,4 +1,4 @@
-// Widerrufsstrecke (Entwurf): amtliche Muster, § 356a BGB, keine ungeprüften Sonderregeln, Schalter, Speicherung.
+// Widerrufsstrecke: Belehrung (Wortlaut vom Inhaber), § 356a BGB, Schalter, Speicherung.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,36 +28,44 @@ const noticeText = () =>
     .flatMap((s) => [s.heading, ...s.paragraphs])
     .join('\n');
 
-describe('Widerrufsbelehrung nach amtlichem Muster (Anlage 1 zu Art. 246a EGBGB)', () => {
-  it('Dienstleistung: 14 Tage ab Vertragsabschluss; Anbieter mit Anschrift, Telefon und E-Mail', () => {
+describe('Widerrufsbelehrung (Wortlaut vom Inhaber, Stand 13.10.2026)', () => {
+  it('Dienstleistung: 14 Tage ab Vertragsabschluss; Anbieter mit Anschrift, Telefon, E-Mail und Website', () => {
     const t = noticeText();
-    assert.match(t, /binnen vierzehn Tagen ohne Angabe von Gründen diesen Vertrag zu widerrufen/);
+    assert.match(t, /binnen vierzehn Tagen ohne Angabe von Gründen einen mit uns geschlossenen Dienstleistungsvertrag zu widerrufen/);
     assert.match(t, /vierzehn Tage ab dem Tag des Vertragsabschlusses\./);
-    for (const v of [PROVIDER_NAME, PROVIDER.street, `${PROVIDER.zip} ${PROVIDER.city}`, PROVIDER.phone!, PROVIDER.email]) assert.ok(t.includes(v), v);
+    for (const v of [PROVIDER_NAME, PROVIDER.street, `${PROVIDER.zip} ${PROVIDER.city}`, PROVIDER.phone!, PROVIDER.email, 'https://easykfz24.de'])
+      assert.ok(t.includes(v), v);
     assert.match(t, /Folgen des Widerrufs/);
     assert.match(t, /spätestens binnen vierzehn Tagen ab dem Tag zurückzuzahlen/);
+    assert.ok(!/\[[^\]]*(Anschrift|Postleitzahl|Telefonnummer|Link)[^\]]*\]/.test(t), 'keine offenen Platzhalter');
+    assert.equal(withdrawalNotice('https://easykfz24.de').length, 10);
   });
 
   it('Baustein zur Online-Widerrufsfunktion mit Adresse und Eingangsbestätigung (Datum und Uhrzeit)', () => {
     const t = noticeText();
-    assert.match(t, /online unter https:\/\/easykfz24\.de\/widerruf/);
-    assert.match(t, /Eingangsbestätigung mit Informationen zum Inhalt der Widerrufserklärung sowie dem Datum und der Uhrzeit ihres Eingangs/);
+    assert.match(t, /elektronische Widerrufsfunktion unter https:\/\/easykfz24\.de\/widerruf/);
+    assert.match(t, /Datum und Uhrzeit ihres Eingangs/);
   });
 
-  it('keine ungeprüften Sonderregeln zu vorzeitigem Beginn, Wertersatz oder Erlöschen in der Belehrung', () => {
+  it('Sonderregeln: vorzeitiger Beginn, Erlöschen (§ 356 Abs. 4 BGB), Wertersatz (§ 357a Abs. 2 BGB); Prüfhinweise bleiben', () => {
     const t = noticeText();
-    assert.ok(!/angemessenen Betrag|Wertersatz|erlischt|Erlöschen|vorzeitig|während der Widerrufsfrist beginnen/i.test(t));
-    // nur als Prüfhinweis geführt
-    assert.ok(REVIEW_ITEMS.some((r) => /Wertersatz/.test(r.topic)));
-    assert.ok(REVIEW_ITEMS.some((r) => /Erlöschen/.test(r.topic)));
+    assert.match(t, /§ 356 Abs\. 4 BGB/);
+    assert.ok(!/§ 356 Abs\. 5/.test(t));
+    assert.match(t, /§ 357a Abs\. 2 BGB/);
+    assert.match(t, /Der bloße Beginn der Bearbeitung führt nicht automatisch zum Erlöschen/);
+    assert.ok(REVIEW_ITEMS.some((r) => /Abschnitt 4/.test(r.topic)));
     assert.ok(REVIEW_ITEMS.some((r) => /Kennzeichenschilder/.test(r.topic)));
   });
 
-  it('Muster-Widerrufsformular (Anlage 2) vollständig mit Anbieter', () => {
-    assert.match(WITHDRAWAL_FORM.addressee, /^An MONVEX UG \(haftungsbeschränkt\) i\. G\., Kirchbachstraße 200, 28211 Bremen, E-Mail: kundenservice@easykfz24\.de:$/);
-    assert.equal(WITHDRAWAL_FORM.lines.length, 6);
-    assert.match(WITHDRAWAL_FORM.lines[0], /Hiermit widerrufe\(n\) ich\/wir \(\*\)/);
-    assert.equal(WITHDRAWAL_FORM.footnote, '(*) Unzutreffendes streichen.');
+  it('Muster-Widerrufsformular vollständig mit Anbieter', () => {
+    assert.equal(
+      WITHDRAWAL_FORM.addressee,
+      'An: MONVEX UG (haftungsbeschränkt) i. G., EasyKFZ24, Kirchbachstraße 200, 28211 Bremen, E-Mail: kundenservice@easykfz24.de',
+    );
+    assert.equal(WITHDRAWAL_FORM.lines.length, 8);
+    assert.match(WITHDRAWAL_FORM.lines[0], /^Hiermit widerrufe\(n\) ich\/wir/);
+    assert.ok(WITHDRAWAL_FORM.lines.some((l) => l.startsWith('Auftragsnummer:')));
+    assert.ok(WITHDRAWAL_FORM.lines.some((l) => l.startsWith('Unterschrift (nur bei Mitteilung auf Papier)')));
   });
 });
 

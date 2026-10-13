@@ -216,7 +216,7 @@ export async function queueOrderConfirmation(orderId: number): Promise<QueueResu
         payUrl: paymentsEnabled() && o.payment_token ? `${ctx.baseUrl}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : null,
         withdrawal: withdrawalOn ? withdrawalNotice(ctx.baseUrl) : null,
         formUrl: withdrawalOn ? `${ctx.baseUrl}${WITHDRAW_PATH}` : null,
-        earlyStartAt: withdrawalOn ? (data.finish?.vorzeitigerBeginnAt ?? null) : null,
+        earlyStartAt: data.finish?.vorzeitigerBeginnAt ?? null,
       }),
   });
 }

@@ -40,7 +40,7 @@ import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
 import { PlateInput, placeText, type PlacePick } from '../plate/PlateInput.tsx';
 import { BRAND, BRAND_NOTE, PROVIDER_ADDRESS, PROVIDER_CONTACT, PROVIDER_NAME } from '../../lib/site.ts';
-import { NOTICE_PATH } from '../../lib/withdrawal.ts';
+import { EARLY_START_TEXT, LOSS_ACK_TEXT, NOTICE_PATH, VALUE_HINT_TEXT } from '../../lib/withdrawal.ts';
 import { normalizeWish, parseWishText, type WishInput } from '../../lib/wish-plate.ts';
 import { ArrowRight, Check, Close, Doc } from '../icons.tsx';
 import { CarrierMark, PaymentMarks } from '../Brands.tsx';
@@ -202,7 +202,7 @@ export function OrderWizard({
     const st = STEPS[i];
     if (st.key === 'review') return {};
     if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
-    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace });
+    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, requireEarlyStart: true });
     const errs: FieldErrors = {};
     if (!res.ok) {
       if (i > 0 && res.errors.service) return {};
@@ -1088,22 +1088,32 @@ export function OrderWizard({
                   </span>
                 </label>
                 {e['finish.datenschutz'] ? <p className="field__error form-grid__full">{e['finish.datenschutz']}</p> : null}
-                {withdrawalInfo ? (
-                  // RECHTLICH ZU PRÜFEN: Wortlaut zum vorzeitigen Leistungsbeginn (§ 356 Abs. 4, § 357a Abs. 2 BGB) – nur mit WIDERRUF_AKTIV sichtbar
-                  <label className="check form-grid__full">
-                    <input
-                      id={fieldId('finish.vorzeitigerBeginn')}
-                      type="checkbox"
-                      checked={!!draft.finish.vorzeitigerBeginn}
-                      onChange={(ev) => update('finish', 'vorzeitigerBeginn', ev.target.checked)}
-                    />
-                    <span>
-                      Ich verlange ausdrücklich, dass {BRAND} vor Ablauf der Widerrufsfrist mit der Ausführung beginnt. Mir ist bekannt, dass ich bei
-                      vollständiger Vertragserfüllung mein Widerrufsrecht verliere und bei einem Widerruf nach Beginn Wertersatz für die bis dahin
-                      erbrachte Leistung schulde. <span className="muted">Ohne diese Erklärung beginnen wir erst nach Ablauf der Widerrufsfrist (14 Tage).</span>
-                    </span>
-                  </label>
-                ) : null}
+                {/* Ausdrückliche Zustimmung zum vorzeitigen Leistungsbeginn (§ 356 Abs. 4 BGB) – Wortlaut vom Inhaber vorgegeben */}
+                <label className={`check form-grid__full${e['finish.vorzeitigerBeginn'] ? ' check--error' : ''}`}>
+                  <input
+                    id={fieldId('finish.vorzeitigerBeginn')}
+                    type="checkbox"
+                    checked={!!draft.finish.vorzeitigerBeginn}
+                    onChange={(ev) => update('finish', 'vorzeitigerBeginn', ev.target.checked)}
+                    aria-invalid={!!e['finish.vorzeitigerBeginn']}
+                  />
+                  <span>{EARLY_START_TEXT}</span>
+                </label>
+                {e['finish.vorzeitigerBeginn'] ? <p className="field__error form-grid__full">{e['finish.vorzeitigerBeginn']}</p> : null}
+                <label className={`check form-grid__full${e['finish.widerrufErlischt'] ? ' check--error' : ''}`}>
+                  <input
+                    id={fieldId('finish.widerrufErlischt')}
+                    type="checkbox"
+                    checked={!!draft.finish.widerrufErlischt}
+                    onChange={(ev) => update('finish', 'widerrufErlischt', ev.target.checked)}
+                    aria-invalid={!!e['finish.widerrufErlischt']}
+                  />
+                  <span>{LOSS_ACK_TEXT}</span>
+                </label>
+                {e['finish.widerrufErlischt'] ? <p className="field__error form-grid__full">{e['finish.widerrufErlischt']}</p> : null}
+                <p className="muted form-grid__full">
+                  <strong>Hinweis zum Wertersatz:</strong> {VALUE_HINT_TEXT}
+                </p>
                 <div className="form-grid__full">
                   <Field path="finish.hinweise" label="Hinweise an uns" optional>
                     <textarea id={fieldId('finish.hinweise')} rows={3} maxLength={1000} value={draft.finish.hinweise} onChange={(ev) => update('finish', 'hinweise', ev.target.value)} />

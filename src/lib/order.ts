@@ -93,8 +93,10 @@ export const orderInputSchema = z.object({
       sepaMandat: flag(),
       vollmacht: flag(),
       datenschutz: flag(),
-      /** Ausdrückliches Verlangen des vorzeitigen Leistungsbeginns (nur angezeigt bei aktiver Widerrufsstrecke) */
+      /** Ausdrückliches Verlangen des vorzeitigen Leistungsbeginns (§ 356 Abs. 4 BGB) */
       vorzeitigerBeginn: z.boolean().optional(),
+      /** Bestätigung der Kenntnis vom Erlöschen des Widerrufsrechts bei vollständiger Leistungserbringung */
+      widerrufErlischt: z.boolean().optional(),
       hinweise: str(1000),
     })
     .default({}),
@@ -200,6 +202,8 @@ export function validateOrder(
     wishPlace?: (ags: string) => WishPlace | null;
     /** Digitale Vollmacht aktiv: Geburtsort ist dann für Privatpersonen Pflicht (außer Abmeldung) */
     requireBirthPlace?: boolean;
+    /** Bestellung über die Website: ausdrückliche Zustimmung zum vorzeitigen Leistungsbeginn ist Pflicht */
+    requireEarlyStart?: boolean;
   } = {},
 ): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
   const parsed = orderInputSchema.safeParse(raw);
@@ -351,6 +355,10 @@ export function validateOrder(
   }
   if (!f.vollmacht) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
   if (!f.datenschutz) errors['finish.datenschutz'] = 'Bitte die Datenschutzhinweise bestätigen';
+  if (opts.requireEarlyStart && f.vorzeitigerBeginn !== true)
+    errors['finish.vorzeitigerBeginn'] = 'Bitte stimmen Sie dem Beginn der Dienstleistung vor Ablauf der Widerrufsfrist zu';
+  if (opts.requireEarlyStart && f.widerrufErlischt !== true)
+    errors['finish.widerrufErlischt'] = 'Bitte bestätigen Sie den Hinweis zum Erlöschen des Widerrufsrechts';
 
   if (Object.keys(errors).length > 0 || !art || !antrieb || !typ || !zustellung) return { ok: false, errors };
 

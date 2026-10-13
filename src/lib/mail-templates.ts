@@ -8,6 +8,7 @@
 
 import { formatEuro } from './format.ts';
 import { BRAND_NOTE, PROVIDER, PROVIDER_ADDRESS, PROVIDER_CONTACT, PROVIDER_NAME } from './site.ts';
+import { EARLY_START_TEXT, LOSS_ACK_TEXT, VALUE_HINT_TEXT } from './withdrawal.ts';
 
 export const MAIL_KINDS = [
   'bestellung',
@@ -194,11 +195,13 @@ export function orderConfirmationMail(ctx: MailContext, d: OrderMailData): Mail 
       for (const p of s.paragraphs) blocks.push({ kind: 'small', text: p });
     }
     if (d.formUrl) blocks.push({ kind: 'small', text: `Muster-Widerrufsformular und Online-Widerruf: ${d.formUrl}` });
-    if (d.earlyStartAt)
-      blocks.push({
-        kind: 'small',
-        text: `Sie haben am ${dateDe(d.earlyStartAt)} ausdrücklich verlangt, dass wir vor Ablauf der Widerrufsfrist mit der Ausführung beginnen, und bestätigt, dass Sie bei vollständiger Vertragserfüllung Ihr Widerrufsrecht verlieren.`,
-      });
+  }
+  if (d.earlyStartAt) {
+    blocks.push({ kind: 'h', text: 'Beginn vor Ablauf der Widerrufsfrist' });
+    blocks.push({ kind: 'small', text: `Ihre Erklärungen vom ${dateDe(d.earlyStartAt)}:` });
+    blocks.push({ kind: 'small', text: `„${EARLY_START_TEXT}“` });
+    blocks.push({ kind: 'small', text: `„${LOSS_ACK_TEXT}“` });
+    blocks.push({ kind: 'small', text: `Hinweis zum Wertersatz: ${VALUE_HINT_TEXT}` });
   }
   blocks.push({
     kind: 'small',

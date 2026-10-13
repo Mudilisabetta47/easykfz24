@@ -180,7 +180,9 @@ describe('Bestell- und Vertragsbestätigung', () => {
       const m = sent.at(-1)!;
       assert.ok(m.text.includes('WIDERRUFSBELEHRUNG') && m.text.includes('vierzehn Tagen'));
       assert.ok(m.text.includes('https://easykfz24.de/widerruf'));
-      assert.ok(m.text.includes('ausdrücklich verlangt, dass wir vor Ablauf der Widerrufsfrist'));
+      assert.ok(m.text.includes('Ich verlange ausdrücklich und stimme zu, dass EasyKFZ24 bereits vor Ablauf der gesetzlichen Widerrufsfrist'));
+      assert.ok(m.text.includes('Widerrufsrecht bei vollständiger Erbringung der vertraglich vereinbarten Dienstleistung durch EasyKFZ24 erlischt'));
+      assert.ok(m.text.includes('Kirchbachstraße 200'));
     } finally {
       delete process.env.WIDERRUF_AKTIV;
     }

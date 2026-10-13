@@ -175,7 +175,7 @@ function orderData(over: { service?: string; email?: string; fin?: string; deliv
     vehicle: { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin: over.fin ?? 'WVWZZZ1KZAW000101', bisherigesKennzeichen: 'HB-EK 12', antrieb: 'benzin', eKennzeichen: false, hKennzeichen: false },
     holder: { typ: 'privat', vorname: 'Erika', nachname: 'Test', geburtsdatum: '1984-03-07', firmenname: '', registernummer: '', ansprechpartner: '', strasse: 'Testweg', hausnummer: '1', plz: '28195', ort: 'Bremen', email: over.email ?? 'erika.test@example.de', telefon: '0421 123456' },
     plate: service === 'abmeldung' ? { wahl: '', wunschkennzeichen: '', schilder: false, zustellung: over.delivery ?? 'abholung', versanddienst: over.delivery === 'versand' ? 'dhl' : '' } : { wahl: 'behalten', wunschkennzeichen: '', schilder: false, zustellung: over.delivery ?? 'abholung', versanddienst: over.delivery === 'versand' ? 'dhl' : '' },
-    finish: service === 'abmeldung' ? { evb: '', kontoinhaber: '', iban: '', sepaMandat: false, vollmacht: true, datenschutz: true, hinweise: '' } : { evb: 'A1B2C3D', kontoinhaber: 'Erika Test', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, hinweise: '<script>alert(1)</script>' },
+    finish: service === 'abmeldung' ? { evb: '', kontoinhaber: '', iban: '', sepaMandat: false, vollmacht: true, datenschutz: true, vorzeitigerBeginn: true, widerrufErlischt: true, hinweise: '' } : { evb: 'A1B2C3D', kontoinhaber: 'Erika Test', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, vorzeitigerBeginn: true, widerrufErlischt: true, hinweise: '<script>alert(1)</script>' },
     website: '',
   };
 }
@@ -1523,6 +1523,19 @@ describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
 });
 
 describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe', () => {
+  it('Bestellung ohne Zustimmung zum vorzeitigen Leistungsbeginn wird abgelehnt (Pflichtfeld)', async () => {
+    const data = orderData({ service: 'abmeldung', email: `ohne.zustimmung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` });
+    const form = new FormData();
+    form.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: false, widerrufErlischt: false } }));
+    form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+    form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+    const ip = `10.6.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+    const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    assert.equal(r.status, 422);
+    assert.ok(String(JSON.stringify(r.json)).includes('finish.vorzeitigerBeginn'));
+    assert.ok(String(JSON.stringify(r.json)).includes('finish.widerrufErlischt'));
+  });
+
   it('Website-Bestellung legt die Bestellbestätigung an, sendet aber ohne KUNDENMAILS nichts; Freigabe/Testmail mit Rechteprüfung', async () => {
     const form = new FormData();
     form.set('data', JSON.stringify(orderData({ service: 'abmeldung', email: `bestaetigung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` })));
