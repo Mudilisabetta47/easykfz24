@@ -684,6 +684,17 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX payment_attempts_order ON payment_attempts(order_id);
   CREATE INDEX payment_attempts_status ON payment_attempts(status, checked_at);
   `,
+  // v10: Transaktionsmails über das bestehende Nachrichtenprotokoll – Idempotenz-Schlüssel, HTML, Wiederholung, Nachweis
+  `
+  ALTER TABLE messages ADD COLUMN dedupe_key TEXT NOT NULL DEFAULT '';
+  ALTER TABLE messages ADD COLUMN mail_kind TEXT NOT NULL DEFAULT '';
+  ALTER TABLE messages ADD COLUMN html TEXT NOT NULL DEFAULT '';
+  ALTER TABLE messages ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN next_attempt_at TEXT NOT NULL DEFAULT '';
+  ALTER TABLE messages ADD COLUMN provider_id TEXT NOT NULL DEFAULT '';
+  CREATE UNIQUE INDEX messages_dedupe ON messages(dedupe_key) WHERE dedupe_key != '';
+  CREATE INDEX messages_retry ON messages(state, next_attempt_at);
+  `,
 ];
 
 

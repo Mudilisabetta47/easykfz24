@@ -90,7 +90,7 @@ export interface OrderBundle {
     notifications: { at: string; subject: string; state: string; error: string }[];
   } | null;
   tasks: { id: number; title: string; status: string; priority: string; due_at: string; assignee_id: number | null }[];
-  messages: { messages: { id: number; at: string; subject: string; state: string; error: string; author: string; to_addr: string; body: string; source: string }[]; statusMails: { id: number; at: string; subject: string; state: string; error: string }[]; mailReady: boolean } | null;
+  messages: { messages: { id: number; at: string; subject: string; state: string; error: string; author: string; to_addr: string; body: string; source: string; mail_kind: string; attempts: number; provider_id: string; next_attempt_at: string; automatic: number }[]; statusMails: { id: number; at: string; subject: string; state: string; error: string }[]; mailReady: boolean } | null;
   invoices: { id: number; number: string; kind: string; issued_at: string; gross_cents: number; corrected: number }[];
   payments: { id: number; at: string; provider: string; provider_ref: string; kind: string; status: string; amount_cents: number; fee_cents: number | null; method: string; note: string; created_by: string }[];
   osEvents: { id: number; at: string; type: string; actor: string; payload: Record<string, unknown> }[];
@@ -1441,11 +1441,38 @@ function KfzTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act: Ac
 
 /* ---------- Kommunikation ---------- */
 
+const MAIL_STATE: Record<string, { label: string; tone: string }> = {
+  versendet: { label: 'versendet', tone: 'green' },
+  entwurf: { label: 'Entwurf', tone: 'blue' },
+  wartet: { label: 'wartet', tone: 'blue' },
+  wird_versendet: { label: 'wird versendet', tone: 'blue' },
+  zurueckgehalten: { label: 'zurückgehalten', tone: 'amber' },
+  fehler: { label: 'Fehler – Wiederholung geplant', tone: 'red' },
+  aufgegeben: { label: 'fehlgeschlagen', tone: 'red' },
+  nicht_versendet: { label: 'nicht versendet', tone: 'amber' },
+};
+
 function CommTab({ data, reload }: { data: OrderBundle; reload: () => void }) {
   const { openApp } = useOs();
   const m = data.messages;
+  const flash = useFlash();
+  const [busy, setBusy] = useState(0);
+  const release = async (id: number, label: string) => {
+    if (!window.confirm(`${label}: Diese E-Mail jetzt an den Kunden senden?`)) return;
+    setBusy(id);
+    try {
+      const r = await osFetch<{ state: string; providerId: string }>(`messages/${id}/senden`, { method: 'POST', body: {} });
+      flash.show(true, `Versendet${r.providerId ? ` (Nachweis ${r.providerId})` : ''}`);
+      reload();
+    } catch (e) {
+      flash.show(false, (e as Error).message);
+    } finally {
+      setBusy(0);
+    }
+  };
   return (
     <div className="os-stack">
+      {flash.node}
       <div className="os-row">
         {data.canMessages ? (
           <button type="button" className="os-btn os-btn--sm" onClick={() => openApp('messages', { compose: data.order.id })}>
@@ -1463,13 +1490,21 @@ function CommTab({ data, reload }: { data: OrderBundle; reload: () => void }) {
             {m.messages.map((x) => (
               <li key={x.id}>
                 <button type="button" onClick={() => openApp('messages', { messageId: x.id })}>
-                  <Badge tone={x.state === 'versendet' ? 'green' : x.state === 'entwurf' ? 'blue' : 'red'}>{x.state}</Badge>
+                  <Badge tone={MAIL_STATE[x.state]?.tone ?? 'red'}>{MAIL_STATE[x.state]?.label ?? x.state}</Badge>
                   <strong>{x.subject}</strong>
                   <span className="os-muted os-small">
                     {dateTime(x.at)} · {x.author}
                     {x.source === 'automatisierung' ? ' · automatisch vorbereitet' : ''}
+                    {x.automatic ? ` · automatisch${x.attempts ? ` · ${x.attempts} Versuch${x.attempts === 1 ? '' : 'e'}` : ''}` : ''}
+                    {x.provider_id ? ` · Nachweis ${x.provider_id}` : ''}
+                    {x.error ? ` · ${x.error}` : ''}
                   </span>
                 </button>
+                {x.automatic && data.canMessages && ['zurueckgehalten', 'fehler', 'aufgegeben', 'nicht_versendet'].includes(x.state) ? (
+                  <button type="button" className="os-btn os-btn--ghost os-btn--sm" disabled={busy === x.id} onClick={() => void release(x.id, x.state === 'zurueckgehalten' ? 'Freigeben' : 'Erneut senden')}>
+                    {x.state === 'zurueckgehalten' ? 'Freigeben und senden' : 'Erneut senden'}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1477,7 +1512,7 @@ function CommTab({ data, reload }: { data: OrderBundle; reload: () => void }) {
           <p className="os-muted">Keine eigenen Nachrichten.</p>
         )}
       </Panel>
-      <Panel title="Automatische Statusmails">
+      <Panel title="Statusmails (Kurzprotokoll kfz-api.de)">
         {m?.statusMails.length ? (
           <ul className="os-plain" role="list">
             {m.statusMails.map((x) => (

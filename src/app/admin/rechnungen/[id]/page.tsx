@@ -69,7 +69,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         </div>
       </header>
       <h1>
-        {credit ? 'Gutschrift / Rechnungskorrektur' : 'Rechnung'} {inv.number}
+        {/* Begriff „Gutschrift“ ist umsatzsteuerlich der Abrechnung durch den Leistungsempfänger vorbehalten – steuerlich prüfen lassen */}
+        {credit ? 'Stornorechnung (Rechnungskorrektur)' : 'Rechnung'} {inv.number}
       </h1>
       <dl className="invoice__meta">
         <div>
@@ -144,7 +145,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             </>
           ) : null}
           <tr className="invoice__total">
-            <th scope="row">{credit ? 'Gutschriftsbetrag' : 'Rechnungsbetrag'}</th>
+            <th scope="row">{credit ? 'Korrekturbetrag' : 'Rechnungsbetrag'}</th>
             {!small ? (
               <>
                 <td />

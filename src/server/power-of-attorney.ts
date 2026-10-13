@@ -644,6 +644,12 @@ export async function verifyPoa(recordId: number, opts: { force?: boolean; actor
     );
   }
   await db.batch(stmts);
+  if (changed && f.status === 'signiert' && f.ready) {
+    // Kundenmail „Vollmacht bestätigt“ – nur nach über die Partner-API bestätigter, vollständiger Unterschrift
+    await import('./transactional-mail.ts')
+      .then((m) => m.queueStatusMail(rec.order_id, 'vollmacht_bestaetigt', `vollmacht:${rec.process_id}`))
+      .catch((e: unknown) => console.error('[vollmacht] Kundenmail fehlgeschlagen:', (e as Error).message));
+  }
   if (changed) {
     await emitSafe({
       type: 'order.poa',

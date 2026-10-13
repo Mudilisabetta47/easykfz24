@@ -75,8 +75,16 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
 
 export async function orderInsights(o: OrderDetail): Promise<{ issues: Issue[]; stage: ReturnType<typeof stageOf>; releaseBlockers: string[]; codes: string[]; fin: ReturnType<typeof checkFin>; regChecks: Record<string, boolean> }> {
   const input = await issueInput(o);
+  const issues = orderIssues(input);
+  // Widerrufsfrist: ohne ausdrücklich verlangten vorzeitigen Beginn erst nach 14 Tagen bearbeiten (nur bei aktiver Widerrufsstrecke)
+  const { withdrawalMode } = await import('../withdrawal.ts');
+  if (withdrawalMode() === 'aktiv' && !o.data.finish.vorzeitigerBeginnAt && !['abgeschlossen', 'storniert'].includes(o.status)) {
+    const from = new Date(Date.parse(o.created_at) + 14 * 86_400_000);
+    if (from.getTime() > Date.now())
+      issues.push({ level: 'warnung', code: 'widerrufsfrist', text: `Kein vorzeitiger Beginn verlangt – Bearbeitung erst nach Ablauf der Widerrufsfrist (ab ${from.toLocaleDateString('de-DE')}).` });
+  }
   return {
-    issues: orderIssues(input),
+    issues,
     stage: stageOf({ ...input, checklistComplete: isChecklistComplete(o.checklistItems, o.checklist) }),
     releaseBlockers: releaseBlockers(input),
     codes: securityCodesFor(o.service, o.data.plate.wahl === 'behalten'),

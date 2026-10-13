@@ -93,6 +93,8 @@ export const orderInputSchema = z.object({
       sepaMandat: flag(),
       vollmacht: flag(),
       datenschutz: flag(),
+      /** Ausdrückliches Verlangen des vorzeitigen Leistungsbeginns (nur angezeigt bei aktiver Widerrufsstrecke) */
+      vorzeitigerBeginn: z.boolean().optional(),
       hinweise: str(1000),
     })
     .default({}),
@@ -155,6 +157,8 @@ export interface ValidatedOrder {
     vollmacht: boolean;
     datenschutz: boolean;
     hinweise: string;
+    /** Zeitpunkt der Erklärung zum vorzeitigen Beginn (vom Server gesetzt, nur bei aktiver Widerrufsstrecke) */
+    vorzeitigerBeginnAt?: string;
   };
 }
 

@@ -217,6 +217,30 @@ export const RULES: RuleDef[] = [
     },
   },
   {
+    id: 'kundenmail_status',
+    title: 'Statuswechsel → automatische Kunden-E-Mail',
+    description:
+      'Bei „Unterlagen fehlen“, „Bei Zulassungsstelle“ und „Zugelassen“ erhält der Kunde eine E-Mail (Vorlagen im Transaktionsmail-System). Jede Meldung genau einmal; Behördenmeldung und OS-Status teilen sich den Schlüssel.',
+    trigger: ['order.status'],
+    safety: 'Nur bestätigte Statuswechsel. Ohne Freigabe KUNDENMAILS=1 wird nichts versendet, nur protokolliert.',
+    params: [],
+    defaultEnabled: true,
+    async run({ event }) {
+      if (!event.order_id) return { result: 'übersprungen', detail: 'kein Auftrag' };
+      const to = String(event.payload.to ?? '');
+      const map: Record<string, ['unterlagen_erforderlich' | 'antrag_eingereicht' | 'zulassung_abgeschlossen', string]> = {
+        unterlagen_fehlen: ['unterlagen_erforderlich', `unterlagen:${event.order_id}:${event.id}`],
+        bei_zulassungsstelle: ['antrag_eingereicht', `antrag:${event.order_id}`],
+        zugelassen: ['zulassung_abgeschlossen', `zulassung:${event.order_id}`],
+      };
+      const m = map[to];
+      if (!m) return { result: 'übersprungen', detail: `kein Mailanlass (${to || 'unbekannt'})` };
+      const { queueStatusMail } = await import('../transactional-mail.ts');
+      const r = await queueStatusMail(event.order_id, m[0], m[1]);
+      return r.queued ? { result: 'ausgeführt', detail: `${m[0]}: ${r.state}` } : { result: 'übersprungen', detail: r.reason };
+    },
+  },
+  {
     id: 'zulassung_nachricht',
     title: 'Zulassung abgeschlossen → Kundenbenachrichtigung vorbereiten',
     description: 'Beim Status „Zugelassen“ wird eine E-Mail an den Kunden als Entwurf in der Kommunikationszentrale angelegt.',
@@ -227,7 +251,7 @@ export const RULES: RuleDef[] = [
     async run({ event }) {
       if (event.payload.to !== 'zugelassen' || !event.order_id) return { result: 'übersprungen', detail: 'anderer Status' };
       // Kam der Bescheid von kfz-api.de und ging die automatische Status-E-Mail raus, nicht doppelt anschreiben
-      if (event.actor === 'kfz-api.de' && (await (await getDb()).first("SELECT 1 AS x FROM notifications WHERE order_id = ? AND topic = 'kfz:abgeschlossen' AND state = 'versendet'", event.order_id))) {
+      if (await (await getDb()).first("SELECT 1 AS x FROM messages WHERE dedupe_key = ? AND state = 'versendet'", `zulassung:${event.order_id}`)) {
         return { result: 'übersprungen', detail: 'Kunde wurde bereits automatisch per Status-E-Mail informiert' };
       }
       const { prepareMessage } = await import('./messages.ts');
@@ -360,6 +384,27 @@ export const RULES: RuleDef[] = [
           const res = await reconcileAttempt(r.id, { force: true, actor: 'Automatisierung (Zahlungsabgleich)' });
           if (!res.ok) return { result: 'übersprungen', detail: `Zahlung ${r.provider_id}: Abfrage nicht möglich (${res.error}) – nächster Versuch beim nächsten Lauf` };
           return { result: res.changed ? 'ausgeführt' : 'übersprungen', detail: `Zahlung ${r.provider_id}: ${res.attempt.status || 'unbekannt'}` };
+        },
+      }));
+    },
+  },
+  {
+    id: 'mail_wiederholung',
+    title: 'E-Mail-Versand: fehlgeschlagene Kundenmails erneut senden',
+    description: 'Versucht fehlgeschlagene automatische Kundenmails mit wachsenden Abständen erneut (5 Min., 30 Min., 2 Std., 12 Std.); nach 5 Versuchen Hinweis im OS.',
+    trigger: 'zeitgesteuert',
+    safety: 'Sendet nur bereits freigegebene, fehlgeschlagene Nachrichten erneut – nie zurückgehaltene.',
+    params: [],
+    defaultEnabled: true,
+    async scan() {
+      const { deliver, mailsDue } = await import('../transactional-mail.ts');
+      const rows = await mailsDue(20);
+      return rows.map((r) => ({
+        key: `${r.id}:${Math.floor(Date.now() / 300_000)}`,
+        orderId: r.order_id,
+        exec: async () => {
+          const res = await deliver(r.id);
+          return { result: res.ok ? 'ausgeführt' : 'übersprungen', detail: `Nachricht #${r.id}: ${res.state}${res.error ? ` (${res.error.slice(0, 80)})` : ''}` };
         },
       }));
     },

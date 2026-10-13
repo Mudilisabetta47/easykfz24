@@ -12,7 +12,6 @@
 import { eventStmt, touchStmt } from './orders.ts';
 import { emitSafe } from './os/events.ts';
 import { getDb, q, type Stmt } from './db.ts';
-import { sendMail } from './mailer.ts';
 import { publicBaseUrl } from './payments.ts';
 import {
   BUSINESS_TRANSACTIONS,
@@ -29,7 +28,6 @@ import {
   type KfzFile,
   type KfzMessage,
 } from '../lib/kfz-api.ts';
-import { buildStatusMail } from '../lib/notification-mail.ts';
 import { nextStatuses, STATUSES, type StatusId } from '../lib/status.ts';
 import type { ServiceId } from '../lib/services.ts';
 
@@ -250,25 +248,33 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
   return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions } };
 }
 
-/** Kunden-E-Mail bei einem Wechsel in eine benachrichtigungswürdige Anzeige (einmal je Wechsel). */
-export async function notifyCustomer(orderId: number, display: DisplayStatus): Promise<void> {
+/**
+ * Kunden-E-Mail bei einem Wechsel in eine benachrichtigungswürdige Anzeige – über das Transaktionsmail-System (Idempotenz,
+ * Freigabe KUNDENMAILS, Wiederholung). Schlüssel teilen sich Behördenmeldung und OS-Status, damit nie doppelt geschrieben wird.
+ * Der Eintrag in notifications bleibt als Kurzprotokoll für Kundenakte und Automatisierung erhalten.
+ */
+export async function notifyCustomer(orderId: number, display: DisplayStatus, eventId = ''): Promise<void> {
+  const { queueStatusMail } = await import('./transactional-mail.ts');
+  const map = {
+    in_bearbeitung: ['antrag_eingereicht', `antrag:${orderId}`],
+    angaben_erforderlich: ['unterlagen_erforderlich', `unterlagen:${orderId}:kfz:${eventId || Date.now()}`],
+    abgeschlossen: ['zulassung_abgeschlossen', `zulassung:${orderId}`],
+    fehlgeschlagen: ['auftrag_abgelehnt', `abgelehnt:${orderId}:kfz:${eventId || Date.now()}`],
+  } as const;
+  const target = map[display as keyof typeof map];
+  if (!target) return;
+  const r = await queueStatusMail(orderId, target[0], target[1]);
+  if (!r.queued) return;
   const db = await getDb();
-  const row = await db.first<{ number: string; email: string }>('SELECT number, email FROM orders WHERE id = ?', orderId);
-  if (!row) return;
-  const mail = buildStatusMail({
-    number: row.number,
-    display,
-    statusUrl: `${publicBaseUrl()}/status?nr=${encodeURIComponent(row.number)}`,
-  });
-  const res = await sendMail({ to: row.email, ...mail });
+  const m = await db.first<{ subject: string; state: string; error: string }>('SELECT subject, state, error FROM messages WHERE id = ?', r.id);
   await db.run(
     'INSERT INTO notifications (order_id, at, topic, subject, state, error) VALUES (?, ?, ?, ?, ?, ?)',
     orderId,
     now(),
     `kfz:${display}`,
-    mail.subject,
-    res.state,
-    res.state === 'fehler' ? res.error : '',
+    m?.subject ?? '',
+    m?.state === 'versendet' ? 'versendet' : m?.state === 'fehler' || m?.state === 'aufgegeben' ? 'fehler' : 'nicht_konfiguriert',
+    m?.error ?? '',
   );
 }
 
@@ -278,7 +284,7 @@ export async function notifyCustomer(orderId: number, display: DisplayStatus): P
  * Automatisch gesetzte Status-Schritte laufen als order.status durch dieselben Regeln wie manuelle.
  */
 async function afterKfz(eventId: string, orderId: number, ev: KfzEvent, applied: Applied): Promise<void> {
-  await scheduleNotify(orderId, applied);
+  await scheduleNotify(orderId, applied, eventId);
   await emitKfz(eventId, orderId, ev, applied);
   for (const t of applied.transitions) {
     await emitSafe({ type: 'order.status', orderId, actor: 'kfz-api.de', payload: { from: t.from, to: t.to, publicMessage: true, source: 'kfz-api' }, dedupeKey: `kfz:${eventId}:${t.from}->${t.to}` });
@@ -306,10 +312,10 @@ function emitKfzProblem(eventId: string, outcome: 'nicht_zugeordnet' | 'fehler',
 }
 
 /** Startet die Kunden-E-Mail (falls nötig) und liefert das Promise – für waitUntil bzw. „nach der Antwort“. */
-function scheduleNotify(orderId: number, applied: Applied): Promise<void> | undefined {
+function scheduleNotify(orderId: number, applied: Applied, eventId: string): Promise<void> | undefined {
   const d = applied.display;
   if (!d || d === applied.previousDisplay || !NOTIFY_ON.includes(d)) return undefined;
-  return notifyCustomer(orderId, d).catch((e) => console.error('[kfz-api] Benachrichtigung fehlgeschlagen:', (e as Error).message));
+  return notifyCustomer(orderId, d, eventId).catch((e) => console.error('[kfz-api] Benachrichtigung fehlgeschlagen:', (e as Error).message));
 }
 
 /**

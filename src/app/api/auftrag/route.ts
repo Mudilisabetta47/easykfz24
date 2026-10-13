@@ -16,6 +16,7 @@ import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
 import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
+import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,10 +86,16 @@ export async function POST(req: Request) {
   // Erst zählen, wenn die Anfrage gültig ist – Tippfehler sollen niemanden aussperren.
   limits().orders.hit(ip);
 
+  // Erklärung zum vorzeitigen Leistungsbeginn nur speichern, wenn sie dem Kunden angezeigt wurde (aktive Widerrufsstrecke)
+  const input = (raw as { finish?: { vorzeitigerBeginn?: unknown } } | null)?.finish;
+  if (withdrawalMode() === 'aktiv' && input?.vorzeitigerBeginn === true) order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+
   try {
     const created = await createOrder(order, files);
     // Kundenstamm, Ereignis, Benachrichtigung und Automatisierungen – nach der Antwort, darf die Bestellung nie gefährden
     runAfter(afterOrderCreated(created.id, 'website'));
+    // Bestell- und Vertragsbestätigung (dauerhafter Datenträger) – ohne KUNDENMAILS=1 nur protokolliert, nie versendet
+    runAfter(import('../../../server/transactional-mail.ts').then((m) => m.queueOrderConfirmation(created.id)));
     // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
     const provider = paymentProvider();
     const paymentUrl =

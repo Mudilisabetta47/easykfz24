@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 111;
+const EXPECTED_ROUTES = 113;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -52,6 +52,8 @@ const NEEDS_EXTERNAL: Record<string, string> = {
   'POST messages/send': 'E-Mail-Dienst (Resend/SMTP)',
   'POST orders/:id/vollmacht': 'kfz-api.de Vollmachtsvorgang (kostenpflichtig, nur mit VOLLMACHT_DIGITAL) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/abgleich': 'kfz-api.de GET /powerOfAttorneys (nur mit vorhandenem Vorgang) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST messages/:id/senden': 'E-Mail-Dienst (Resend) – Ablauf im Resend-Nachbau: tests/transactional-mail.test.ts',
+  'POST messages/testmail': 'E-Mail-Dienst (Resend) – Ablauf im Resend-Nachbau: tests/transactional-mail.test.ts',
   'POST orders/:id/vollmacht/vorschau': 'kfz-api.de-Zugang und vollständige Vollmachtsangaben – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/testfreigabe': 'Testmodus nur mit kfz-api.de-Zugang – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
 };
@@ -348,7 +350,7 @@ describe('System-Endpunkte', () => {
 
   it('Automatisierungen: lesen, ändern, Zeitregeln, Rechteprüfung', async () => {
     const a = await expect(le, 'GET', 'automation', 200);
-    assert.equal((a.json.rules as unknown[]).length, 13);
+    assert.equal((a.json.rules as unknown[]).length, 15);
     await expect(le, 'GET', 'automation/runs', 200);
     await expect(sb, 'POST', 'automation/scan', 403);
     await expect(vw, 'POST', 'automation/scan', 200);
@@ -1517,6 +1519,35 @@ describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
     assert.deepEqual(d.json.mollieTest, { available: true, canStart: true });
     const paidAlready = await expect(owner, 'POST', `orders/${paid.id}/zahlung/test`, 422);
     assert.match(String(paidAlready.json.error), /bereits bezahlt/);
+  });
+});
+
+describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe', () => {
+  it('Website-Bestellung legt die Bestellbestätigung an, sendet aber ohne KUNDENMAILS nichts; Freigabe/Testmail mit Rechteprüfung', async () => {
+    const form = new FormData();
+    form.set('data', JSON.stringify(orderData({ service: 'abmeldung', email: `bestaetigung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` })));
+    form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+    form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+    const ip = `10.7.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+    const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    assert.equal(r.status, 200);
+    const number = String(r.json.number);
+    const id = ((await vw.get(`orders?status=alle&q=${number}`)).json as unknown as { id: number }[])[0].id;
+    let msgs: { id: number; state: string; automatic: number; mail_kind: string; subject: string }[] = [];
+    for (let i = 0; i < 20 && !msgs.length; i++) {
+      const d = await expect(vw, 'GET', `orders/${id}`, 200);
+      msgs = ((d.json.messages as { messages: typeof msgs }).messages ?? []).filter((m) => m.automatic);
+      if (!msgs.length) await new Promise((res) => setTimeout(res, 150));
+    }
+    assert.equal(msgs.length, 1);
+    assert.deepEqual([msgs[0].mail_kind, msgs[0].state], ['bestellung', 'zurueckgehalten']);
+    assert.equal(msgs[0].subject, `Auftragsbestätigung ${number} – EasyKFZ24`);
+    for (const c of [bh, le]) await expect(c, 'POST', `messages/${msgs[0].id}/senden`, 403);
+    const rel = await expect(vw, 'POST', `messages/${msgs[0].id}/senden`, 422);
+    assert.match(String(rel.json.error), /nicht eingerichtet/);
+    for (const c of [vw, le]) await expect(c, 'POST', 'messages/testmail', 403, { to: 'test@example.de', kind: 'bestellung' });
+    const t = await expect(owner, 'POST', 'messages/testmail', 422, { to: 'test@example.de', kind: 'bestellung' });
+    assert.match(String(t.json.error), /nicht eingerichtet/);
   });
 });
 

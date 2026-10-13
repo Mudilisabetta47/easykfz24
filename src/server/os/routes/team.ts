@@ -156,6 +156,34 @@ export const teamRoutes: Route[] = [
     },
   },
   {
+    // Automatische Kundenmail freigeben bzw. erneut senden (zurückgehalten, fehlgeschlagen, aufgegeben) – bewusste Einzelentscheidung
+    method: 'POST',
+    path: 'messages/:id/senden',
+    perm: 'messages.send',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Nachrichten-ID');
+      const { deliver } = await import('../../transactional-mail.ts');
+      const r = await deliver(id, { force: true, actor: c.actor.name });
+      await audit(c.audit, r.ok ? 'nachricht.freigegeben' : 'nachricht.fehler', String(id), r.state);
+      if (!r.ok) throw new HttpError(422, r.error ?? 'Versand fehlgeschlagen');
+      return { ok: true, state: r.state, providerId: r.providerId ?? '' };
+    },
+  },
+  {
+    // Kontrollierter Testversand (nur Inhaber): synthetische Beispielinhalte an die eingegebene, freigegebene Adresse
+    method: 'POST',
+    path: 'messages/testmail',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann Testmails versenden.');
+      const { sendTestMail } = await import('../../transactional-mail.ts');
+      const r = await sendTestMail(str(c.body.kind, 40) as never, str(c.body.to, 200), c.actor.name);
+      await audit(c.audit, r.ok ? 'nachricht.testmail' : 'nachricht.testmail_fehler', '', `${str(c.body.kind, 40)}${r.ok ? ` · ${r.providerId}` : ''}`);
+      if (!r.ok) throw new HttpError(422, r.error);
+      return r;
+    },
+  },
+  {
     method: 'POST',
     path: 'messages/:id/discard',
     perm: 'messages.send',

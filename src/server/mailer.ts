@@ -21,7 +21,8 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 export const textToHtml = (t: string) =>
   `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">${escapeHtml(t).replace(/\n/g, '<br>')}</div>`;
 
-export type SendResult = { state: 'versendet' } | { state: 'nicht_konfiguriert' } | { state: 'fehler'; error: string };
+/** id: Nachweis des Anbieters (Resend-E-Mail-ID bzw. SMTP-Message-ID) – im Resend-Dashboard nachschlagbar */
+export type SendResult = { state: 'versendet'; id?: string } | { state: 'nicht_konfiguriert' } | { state: 'fehler'; error: string };
 
 type Transport = { sendMail(m: Record<string, unknown>): Promise<unknown> };
 const g = globalThis as unknown as { __ekMailer?: Transport };
@@ -45,7 +46,8 @@ export async function sendMail(mail: Mail): Promise<SendResult> {
   if (!m) return { state: 'nicht_konfiguriert' };
   try {
     if (m === 'resend') {
-      const res = await fetch('https://api.resend.com/emails', {
+      // RESEND_API_BASE nur für Tests (lokaler Nachbau); Vorgabe https://api.resend.com
+      const res = await fetch(`${(process.env.RESEND_API_BASE || 'https://api.resend.com').replace(/\/$/, '')}/emails`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -59,22 +61,23 @@ export async function sendMail(mail: Mail): Promise<SendResult> {
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) return { state: 'fehler', error: clean(`Resend HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`) };
-      return { state: 'versendet' };
+      const j = (await res.json().catch(() => ({}))) as { id?: unknown };
+      return { state: 'versendet', ...(typeof j.id === 'string' ? { id: j.id.slice(0, 100) } : {}) };
     }
     if (!g.__ekMailer) {
       // Erst bei Bedarf laden – nodemailer braucht TCP-Verbindungen (nur Node-Server).
       const nodemailer = (await import('nodemailer')).default;
       g.__ekMailer = nodemailer.createTransport(process.env.SMTP_URL as string, { disableFileAccess: true, disableUrlAccess: true });
     }
-    await g.__ekMailer.sendMail({
+    const info = (await g.__ekMailer.sendMail({
       from: process.env.MAIL_FROM,
       to: mail.to,
       subject: mail.subject,
       text: mail.text,
       html: mail.html ?? textToHtml(mail.text),
       ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
-    });
-    return { state: 'versendet' };
+    })) as { messageId?: string } | undefined;
+    return { state: 'versendet', ...(info?.messageId ? { id: String(info.messageId).slice(0, 100) } : {}) };
   } catch (e) {
     return { state: 'fehler', error: clean((e as Error).message) };
   }

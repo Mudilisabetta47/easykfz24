@@ -508,6 +508,9 @@ export async function reconcileAttempt(attemptId: number, opts: { force?: boolea
           }),
         );
       }
+      // Zahlungsbestätigung an den Kunden – nur für die erste echte Zahlung (nicht bei Doppelzahlung), genau einmal je Zahlung
+      if (!double && order.payment_status === 'offen')
+        after.push(() => import('./transactional-mail.ts').then((m) => m.queuePaymentConfirmed(rec.order_id, rec.provider_id!, cents ?? rec.amount_cents, method, paidAt)).then(() => undefined));
       after.push(() =>
         emitSafe({
           type: 'payment.paid',
@@ -540,7 +543,8 @@ export async function reconcileAttempt(attemptId: number, opts: { force?: boolea
         after.push(() =>
           emitSafe({ type: 'payment.test', orderId: rec.order_id, actor, payload: { payment: rec.provider_id, status }, dedupeKey: `payment.test:mollie:${rec.provider_id}:${status}` }),
         );
-      else if (status === 'failed')
+      else if (status === 'failed') {
+        after.push(() => import('./transactional-mail.ts').then((m) => m.queuePaymentFailed(rec.order_id, rec.provider_id!)).then(() => undefined));
         after.push(() =>
           emitSafe({
             type: 'payment.failed',
@@ -550,6 +554,7 @@ export async function reconcileAttempt(attemptId: number, opts: { force?: boolea
             dedupeKey: `payment.failed:mollie:${rec.provider_id}`,
           }),
         );
+      }
     }
   }
   // Erstattungen und Rückbuchungen (nur bei echter Zahlung); Beträge je Stand eindeutig gebucht
@@ -574,6 +579,7 @@ export async function reconcileAttempt(attemptId: number, opts: { force?: boolea
       eventStmt(rec.order_id, { type: 'payment', message: `Erstattung über Mollie: ${centsToValue(delta)} €${full ? ' (vollständig)' : ''}`, actor }),
     );
     if (full) stmts.push(q("UPDATE orders SET payment_status = 'erstattet', updated_at = ? WHERE id = ? AND payment_status = 'bezahlt'", at, rec.order_id));
+    after.push(() => import('./transactional-mail.ts').then((m) => m.queueRefund(rec.order_id, rec.provider_id!, refunded, delta, full)).then(() => undefined));
     after.push(() =>
       emitSafe({
         type: 'payment.refunded',
@@ -617,7 +623,8 @@ export async function reconcileAttempt(attemptId: number, opts: { force?: boolea
     stmts.push(touchStmt(rec.order_id));
     await db.batch(stmts);
   }
-  for (const f of after) await f();
+  // Folgen (OS-Ereignisse, Kundenmails) dürfen den Abgleich nie scheitern lassen – der Stand ist bereits gespeichert
+  for (const f of after) await f().catch((e: unknown) => console.error('[zahlung] Folgeaktion fehlgeschlagen:', (e as Error).message));
   return { ok: true, attempt: attemptView((await getAttempt(rec.id))!), changed: statusChanged };
 }
 

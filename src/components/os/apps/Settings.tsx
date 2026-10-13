@@ -1068,8 +1068,64 @@ function Integrations() {
 
 /* ---------- System ---------- */
 
+const TESTMAIL_KINDS: [string, string][] = [
+  ['bestellung', 'Bestell- und Vertragsbestätigung'],
+  ['zahlung_bestaetigt', 'Zahlungsbestätigung'],
+  ['zahlung_fehlgeschlagen', 'Zahlung fehlgeschlagen'],
+  ['erstattung', 'Erstattung'],
+  ['unterlagen_erforderlich', 'Unterlagen erforderlich'],
+  ['vollmacht_bestaetigt', 'Vollmacht bestätigt'],
+  ['antrag_eingereicht', 'Antrag eingereicht'],
+  ['zulassung_abgeschlossen', 'Zulassung abgeschlossen'],
+  ['auftrag_abgelehnt', 'Auftrag nicht abgeschlossen'],
+];
+
+/** Kontrollierter Testversand (nur Inhaber): Beispielinhalte ohne Kundendaten an eine selbst eingegebene Adresse */
+function MailTest() {
+  const [to, setTo] = useState('');
+  const [kind, setKind] = useState('bestellung');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  return (
+    <Panel title="E-Mail-Testversand (Resend)">
+      <p className="os-muted os-small">
+        Sendet eine Vorlage mit Beispieldaten (keine Kundendaten) an genau diese Adresse. Den Zustellstatus zeigt das Resend-Dashboard unter der angegebenen Nachweis-ID.
+      </p>
+      <form
+        className="os-inline"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!window.confirm(`Testmail „${TESTMAIL_KINDS.find((k) => k[0] === kind)?.[1]}“ an ${to} senden?`)) return;
+          setBusy(true);
+          try {
+            const r = await osFetch<{ providerId: string; state: string }>('messages/testmail', { method: 'POST', body: { to, kind } });
+            setResult({ ok: true, text: `Versendet – Nachweis-ID bei Resend: ${r.providerId || 'nicht übermittelt'}` });
+          } catch (err) {
+            setResult({ ok: false, text: (err as Error).message });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <select aria-label="Vorlage" value={kind} onChange={(e) => setKind(e.target.value)}>
+          {TESTMAIL_KINDS.map(([k, l]) => (
+            <option key={k} value={k}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <input type="email" required placeholder="Freigegebene Empfängeradresse" aria-label="Empfängeradresse" value={to} onChange={(e) => setTo(e.target.value)} />
+        <button type="submit" className="os-btn" disabled={busy || !to.trim()}>
+          Testmail senden
+        </button>
+      </form>
+      {result ? <p className={`os-flash ${result.ok ? 'is-ok' : 'is-error'}`}>{result.text}</p> : null}
+    </Panel>
+  );
+}
+
 function SystemStatus() {
-  const { can } = useOs();
+  const { can, session } = useOs();
   const { data, error, loading, reload } = useOsData<SettingsData>('settings');
   const diag = useOsData<{
     database: { ok: boolean; ms: number; schema: number; expected: number; counts: Record<string, number> };
@@ -1131,6 +1187,7 @@ function SystemStatus() {
           )}
         </Panel>
       ) : null}
+      {session.user.role === 'inhaber' ? <MailTest /> : null}
     </>
   );
 }

@@ -214,6 +214,8 @@ export async function sendMessage(input: unknown, author: string): Promise<{ ok:
     );
     id = row?.id ?? null;
   }
+  // Versandnachweis des Anbieters (Resend-ID) für Zustellprüfung im Resend-Dashboard
+  if (res.state === 'versendet' && res.id && id) await db.run('UPDATE messages SET provider_id = ? WHERE id = ?', res.id, id);
   await emitSafe({
     type: state === 'versendet' ? 'message.sent' : 'message.failed',
     orderId: m.orderId,
@@ -248,8 +250,9 @@ export async function listMessages(filter: { orderId?: number; customerId?: numb
     params.push(filter.state);
   }
   const limit = Math.min(filter.limit ?? 300, 1000);
-  const own = await db.all<{ id: number; at: string; order_id: number | null; number: string | null; customer_id: number | null; to_addr: string; subject: string; body: string; state: string; error: string; author: string; sent_at: string; template_id: string; source: string }>(
-    `SELECT m.id, m.at, m.order_id, o.number, m.customer_id, m.to_addr, m.subject, m.body, m.state, m.error, m.author, m.sent_at, m.template_id, m.source
+  const own = await db.all<{ id: number; at: string; order_id: number | null; number: string | null; customer_id: number | null; to_addr: string; subject: string; body: string; state: string; error: string; author: string; sent_at: string; template_id: string; source: string; mail_kind: string; attempts: number; provider_id: string; next_attempt_at: string; automatic: number }>(
+    `SELECT m.id, m.at, m.order_id, o.number, m.customer_id, m.to_addr, m.subject, m.body, m.state, m.error, m.author, m.sent_at, m.template_id, m.source,
+       m.mail_kind, m.attempts, m.provider_id, m.next_attempt_at, m.dedupe_key != '' AS automatic
      FROM messages m LEFT JOIN orders o ON o.id = m.order_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY m.at DESC LIMIT ?`,
     ...params,
     limit,

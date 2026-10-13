@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const TOKEN = Symbol.for('easykfz24.zeitplan');
-const ZEITPLAN_REGELN = ['vollmacht_abgleich', 'zahlung_abgleich'] as const;
+const ZEITPLAN_REGELN = ['vollmacht_abgleich', 'zahlung_abgleich', 'mail_wiederholung'] as const;
 
 function sameToken(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
