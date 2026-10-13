@@ -33,6 +33,7 @@ export default function DatenschutzPage() {
           <li>Hochgeladene Unterlagen (z. B. Ausweis, Zulassungsbescheinigungen, COC, HU-Bericht)</li>
           <li>eVB-Nummer sowie Kontoinhaber und IBAN für das SEPA-Mandat zur Kfz-Steuer</li>
           <li>Zeitpunkt Ihrer Zustimmungen sowie der Bearbeitungsverlauf Ihres Auftrags</li>
+          <li>Bei Online-Zahlung: Zahlungsstatus, gewählte Zahlart und die Zahlungsreferenz unseres Zahlungsdienstleisters</li>
         </ul>
 
         <h2>3. Zwecke und Rechtsgrundlagen</h2>
@@ -46,6 +47,13 @@ export default function DatenschutzPage() {
         <p>
           Die für den Vorgang zuständige Zulassungsbehörde; für die Kfz-Steuer die Bundeszollverwaltung; ggf. Versanddienstleister für die
           Zustellung. Hosting: <Ph>{SITE.hosting}</Ph>.
+        </p>
+        <p>
+          Zahlungsabwicklung: Bezahlen Sie online, wickelt die Mollie B.V., Keizersgracht 126, 1015 CW Amsterdam, Niederlande, die Zahlung ab.
+          Wir übermitteln dafür nur Auftragsnummer und Betrag. Ihre Zahlungsdaten (z. B. Karten- oder Kontodaten) geben Sie direkt bei Mollie
+          ein – wir erhalten sie nicht. Von Mollie erhalten wir den Zahlungsstatus und die gewählte Zahlart. Rechtsgrundlage ist Art. 6 Abs. 1
+          lit. b DSGVO. Mollie verarbeitet die Zahlungsdaten in eigener Verantwortung; Einzelheiten:{' '}
+          <a href="https://www.mollie.com/de/privacy" rel="noopener noreferrer">www.mollie.com/de/privacy</a>.
         </p>
 
         <h2>5. Speicherung und Sicherheit</h2>
