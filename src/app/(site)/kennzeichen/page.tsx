@@ -5,6 +5,9 @@ import { HeroQuickStart } from '../../../components/home/HeroQuickStart.tsx';
 import { CodeIndex, type CodeEntry } from '../../../components/seo/CodeIndex.tsx';
 import { allCodes, districtLabel, districtPage, joinGerman } from '../../../lib/district-pages.ts';
 
+// Footer (Widerrufslink) hängt von Laufzeit-Schaltern ab – nicht beim Build festschreiben
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: { absolute: 'Kfz-Kennzeichen von A bis Z – alle Ortskennzeichen in Deutschland | EasyKFZ24' },
   description:

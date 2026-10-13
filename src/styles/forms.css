@@ -129,6 +129,13 @@
 .fieldset .form-grid {
   margin-block-start: 4px;
 }
+.early-start {
+  display: grid;
+  gap: 12px;
+}
+.early-start > p {
+  margin: 0;
+}
 
 .check {
   display: flex;

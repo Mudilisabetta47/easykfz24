@@ -4,6 +4,13 @@ Stand: 13.10.2026, 20:40 UTC (Code-Stand lokal, noch nicht veröffentlicht) · L
 
 Ampel: 🟢 erledigt · 🟡 vor Freigabe empfohlen · 🔴 **Blocker** vor echten Kundenzahlungen
 
+> **Nachtrag 14.10.2026 – Checkout-Sicherheitsschalter `BESTELLUNG_AKTIV`:** Die Website nimmt im Produktivbetrieb nur Aufträge an,
+> wenn `BESTELLUNG_AKTIV=1` **und** `WIDERRUF_AKTIV=1` gesetzt sind (`src/server/checkout.ts`). Ohne Schalter zeigt
+> `/kfz-anmelden/auftrag` einen Kontakthinweis und `/api/auftrag` antwortet 503 – nichts wird gespeichert oder bezahlt.
+> Setzen erst, wenn Datenschutzerklärung (Platzhalter Speicherdauer, Resend, kfz-api), Widerrufsbelehrung mit Sonderregeln
+> und Verbraucherinformationen anwaltlich geprüft sind. Die Zustimmung zum vorzeitigen Leistungsbeginn ist seitdem
+> **freiwillig** (ohne sie Bearbeitung erst nach Ablauf der Widerrufsfrist; mit ihr ist die Bestätigung des Erlöschens Pflicht).
+
 ## 1. Rechtlich (Verbraucherverträge im Internet)
 
 | | Punkt | Befund |
@@ -79,6 +86,6 @@ Probelauf auf der wiederhergestellten Sicherung: genau diese Datensätze entfern
 
 ## Empfehlung
 
-Kundenzahlungen erst freischalten, wenn die 🔴-Punkte erledigt sind: Widerrufsbelehrung/-funktion inkl. vorzeitigem Leistungsbeginn
+Kundenaufträge (`BESTELLUNG_AKTIV=1`) und Kundenzahlungen erst freischalten, wenn die 🔴-Punkte erledigt sind: Widerrufsbelehrung/-funktion inkl. vorzeitigem Leistungsbeginn
 (anwaltlich geprüft, dann `WIDERRUF_AKTIV=1`), Steuernummer/USt-IdNr. für Rechnungen. Danach `KUNDENMAILS=1`, dann `ZAHLUNG_ONLINE=1`.
 Prüfliste der Rechtstexte: `docs/RECHTSTEXTE-PRUEFUNG.md`.

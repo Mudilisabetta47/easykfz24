@@ -12,8 +12,8 @@ const PROMO_BADGE = PRICES_FINAL && isPromoActive() ? `−${NEW_CUSTOMER_PROMO.p
 
 export const NAV_ITEMS = [
   { href: '/kfz-anmelden#neuzulassung', label: 'Zulassung' },
-  { href: '/kfz-anmelden#ummeldung', label: 'Ummeldung' },
-  { href: '/kfz-anmelden#abmeldung', label: 'Abmeldung' },
+  { href: '/auto-ummelden', label: 'Ummeldung' },
+  { href: '/auto-abmelden', label: 'Abmeldung' },
   { href: '/kennzeichen', label: 'Kennzeichen' },
   { href: '/#ablauf', label: "So funktioniert's" },
   { href: '/#haendler', label: 'Für Händler' },

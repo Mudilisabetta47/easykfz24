@@ -279,9 +279,22 @@
 @media (max-width: 960px) {
   .seo-head__grid,
   .seo-split {
-    grid-template-columns: 1fr;
+    /* minmax(0, …): die waagerecht scrollbare Fahrzeugauswahl darf die Spalte nicht über die Bildschirmbreite drücken */
+    grid-template-columns: minmax(0, 1fr);
   }
   .seo-head__quick {
     max-inline-size: 520px;
   }
+}
+
+/* Städte und Gemeinden eines Kürzels (Ortsseiten) */
+.place-list {
+  columns: 4 9.5rem;
+  column-gap: 24px;
+  margin-block-start: 16px;
+  font-size: 0.95rem;
+  line-height: 1.75;
+}
+.place-list li {
+  break-inside: avoid;
 }

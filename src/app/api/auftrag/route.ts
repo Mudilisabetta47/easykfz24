@@ -16,6 +16,8 @@ import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
 import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
+import { CHECKOUT_CLOSED_MESSAGE, checkoutState } from '../../../server/checkout.ts';
+import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +29,8 @@ function fail(status: number, message: string, errors?: FieldErrors) {
 }
 
 export async function POST(req: Request) {
+  // Checkout gesperrt (Sicherheitsschalter): keine Annahme, keine Zahlung, nichts gespeichert
+  if (!checkoutState().open) return fail(503, CHECKOUT_CLOSED_MESSAGE);
   const ip = ipFrom(req.headers);
   const length = Number(req.headers.get('content-length') || 0);
   if (length > MAX_TOTAL_BYTES) return fail(413, 'Die Dateien sind insgesamt zu groß.');
@@ -61,7 +65,6 @@ export async function POST(req: Request) {
     expressOffer: await getExpressOffer(),
     wishPlace: placeByAgs,
     requireBirthPlace: poaCreationEnabled(),
-    requireEarlyStart: true,
   });
   if (!result.ok) return fail(422, 'Bitte prüfen Sie die markierten Angaben.', result.errors);
   const order = result.order;
@@ -91,9 +94,12 @@ export async function POST(req: Request) {
   // Erst zählen, wenn die Anfrage gültig ist – Tippfehler sollen niemanden aussperren.
   limits().orders.hit(ip);
 
-  // Ausdrückliche Zustimmung zum vorzeitigen Leistungsbeginn (Pflichtfeld, oben geprüft) mit Zeitpunkt festhalten
+  // Freiwillige Zustimmung zum vorzeitigen Leistungsbeginn mit Zeitpunkt festhalten – nur wirksam, wenn die
+  // Widerrufsbelehrung vor der Bestellung erreichbar war
   const input = (raw as { finish?: { vorzeitigerBeginn?: unknown; widerrufErlischt?: unknown } } | null)?.finish;
-  if (input?.vorzeitigerBeginn === true && input?.widerrufErlischt === true) order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+  if (withdrawalMode() === 'aktiv' && input?.vorzeitigerBeginn === true && input?.widerrufErlischt === true) {
+    order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+  }
 
   try {
     const created = await createOrder(order, files);

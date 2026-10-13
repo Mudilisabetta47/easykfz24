@@ -9,13 +9,24 @@ import { getExpressOffer } from '../../../../server/express.ts';
 import { placeByAgs } from '../../../../server/regions.ts';
 import { withdrawalMode } from '../../../../server/withdrawal.ts';
 import { poaCreationEnabled } from '../../../../server/power-of-attorney.ts';
+import { CHECKOUT_CLOSED_MESSAGE, checkoutState } from '../../../../server/checkout.ts';
+import { PROVIDER, telHref } from '../../../../lib/site.ts';
 
+export const dynamic = 'force-dynamic';
+
+// Bestellstrecke mit personenbezogenen Eingaben: nicht indexieren, Links aber verfolgen
 export const metadata: Metadata = {
   title: 'Vorgang starten',
   description: 'Kfz-Zulassung, Ummeldung, Wiederzulassung oder Abmeldung online beauftragen.',
+  alternates: { canonical: '/kfz-anmelden/auftrag' },
+  robots: { index: false, follow: true },
 };
 
-export default async function AuftragPage({ searchParams }: { searchParams: Promise<{ leistung?: string; wunsch?: string; paket?: string; kennzeichen?: string; fahrzeug?: string; art?: string; ort?: string }> }) {
+export default async function AuftragPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ leistung?: string; wunsch?: string; paket?: string; kennzeichen?: string; fahrzeug?: string; art?: string; ort?: string }>;
+}) {
   const { leistung = '', wunsch = '', paket = '', kennzeichen = '', fahrzeug = '', art = '', ort = '' } = await searchParams;
   const wish = checkPlate(wunsch.slice(0, 20));
   // Begonnenes Wunschkennzeichen (z. B. nur „OHZ“ oder „OHZ-AB“) bleibt beim Neuladen erhalten
@@ -24,7 +35,10 @@ export default async function AuftragPage({ searchParams }: { searchParams: Prom
   // Gewählter Ort (Amtlicher Gemeindeschlüssel) – nur übernehmen, wenn das Wunsch-Kürzel amtlich zu ihm gehört
   const found = /^\d{8}$/.test(ort) ? placeByAgs(ort) : null;
   const wishCode = wishDraft.split('-')[0];
-  const place = found && found.codes.length && (!wishCode || found.codes.includes(wishCode)) ? { ags: found.ags, name: found.name, ...(found.zusatz ? { zusatz: found.zusatz } : {}), kreis: found.kreisName, codes: found.codes } : null;
+  const place =
+    found && found.codes.length && (!wishCode || found.codes.includes(wishCode))
+      ? { ags: found.ags, name: found.name, ...(found.zusatz ? { zusatz: found.zusatz } : {}), kreis: found.kreisName, codes: found.codes }
+      : null;
   return (
     <>
       <header className="page-head page-head--compact">
@@ -39,9 +53,39 @@ export default async function AuftragPage({ searchParams }: { searchParams: Prom
           ) : null}
         </div>
       </header>
-      <div className="shell wizard-shell">
-        <OrderWizard initial={leistung.slice(0, 30)} wish={wishDraft} currentPlate={current.ok ? current.value : ''} vehicleType={fahrzeug.slice(0, 20)} plateKind={art === 'e' || art === 'h' ? art : null} payOnline={paymentsEnabled()} bundle={paket === '1'} wishPlace={place} withdrawalInfo={withdrawalMode() !== 'aus'} birthPlace={poaCreationEnabled()} plateOffer={await getPlateOffer()} expressOffer={await getExpressOffer()} />
-      </div>
+      {!checkoutState().open ? (
+        <div className="shell section-pad">
+          <div className="alert alert--info" role="status">
+            <p>{CHECKOUT_CLOSED_MESSAGE}</p>
+            <p>
+              E-Mail: <a href={`mailto:${PROVIDER.email}`}>{PROVIDER.email}</a>
+              {PROVIDER.phone ? (
+                <>
+                  {' '}
+                  · Telefon: <a href={telHref(PROVIDER.phone)}>{PROVIDER.phone}</a>
+                </>
+              ) : null}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="shell wizard-shell">
+          <OrderWizard
+            initial={leistung.slice(0, 30)}
+            wish={wishDraft}
+            currentPlate={current.ok ? current.value : ''}
+            vehicleType={fahrzeug.slice(0, 20)}
+            plateKind={art === 'e' || art === 'h' ? art : null}
+            payOnline={paymentsEnabled()}
+            bundle={paket === '1'}
+            wishPlace={place}
+            withdrawalInfo={withdrawalMode() !== 'aus'}
+            birthPlace={poaCreationEnabled()}
+            plateOffer={await getPlateOffer()}
+            expressOffer={await getExpressOffer()}
+          />
+        </div>
+      )}
     </>
   );
 }

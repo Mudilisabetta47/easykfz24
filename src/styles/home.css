@@ -133,7 +133,18 @@
   background-clip: text;
   color: transparent;
 }
+.hero__h1 {
+  font-weight: inherit;
+  letter-spacing: normal;
+  line-height: inherit;
+}
+.hero__h1 > .hero__title,
+.hero__h1 > .hero__sub {
+  display: block;
+}
 .hero__sub {
+  font-weight: 400;
+  letter-spacing: normal;
   margin-block: 24px 30px;
   max-inline-size: 36ch;
   font-size: var(--step-1);

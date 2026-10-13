@@ -17,9 +17,9 @@ import { getPlateOffer } from '../../../server/plates.ts';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Kfz anmelden – Leistungen, Unterlagen, Ablauf',
-  description:
-    'Neuzulassung, Ummeldung bei Halterwechsel oder Umzug, Wiederzulassung und Abmeldung: welche Unterlagen Sie brauchen, wie der Ablauf ist und was es kostet.',
+  title: 'Auto online anmelden – Kfz-Zulassung, Unterlagen, Ablauf',
+  description: 'Auto online anmelden, ummelden, wieder zulassen oder abmelden: welche Unterlagen Sie brauchen, wie der Ablauf ist und was es kostet.',
+  alternates: { canonical: '/kfz-anmelden' },
 };
 
 const ANCHOR: Record<ServiceId, string> = {

@@ -2,7 +2,15 @@ import type { Metadata } from 'next';
 import { Ph } from '../../../components/Ph.tsx';
 import { BRAND_NOTE, PROVIDER, SITE } from '../../../lib/site.ts';
 
-export const metadata: Metadata = { title: 'Datenschutz', robots: { index: false, follow: true } };
+// Footer (Widerrufslink) hängt von Laufzeit-Schaltern ab – nicht beim Build festschreiben
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Datenschutz',
+  description: 'Datenschutzhinweise von EasyKFZ24: welche Daten wir zu welchem Zweck verarbeiten, Empfänger, Speicherdauer und Ihre Rechte.',
+  alternates: { canonical: '/datenschutz' },
+  robots: { index: false, follow: true },
+};
 
 export default function DatenschutzPage() {
   return (

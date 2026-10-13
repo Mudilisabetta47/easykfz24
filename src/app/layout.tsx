@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { siteUrl } from '../lib/site-url.ts';
+import { OG_IMAGE } from '../lib/seo.ts';
 import type { ReactNode } from 'react';
 import '../styles/tokens.css';
 import '../styles/base.css';
@@ -13,6 +14,8 @@ export const metadata: Metadata = {
   },
   description:
     'Zulassen, ummelden, wiederzulassen oder abmelden: Vorgang online starten, Unterlagen hochladen, Status jederzeit abrufen. EasyKFZ24 ist ein privater Zulassungsservice.',
+  openGraph: { type: 'website', locale: 'de_DE', siteName: 'EasyKFZ24', images: [OG_IMAGE] },
+  twitter: { card: 'summary_large_image' },
   icons: {
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },

@@ -1523,17 +1523,17 @@ describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
 });
 
 describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe', () => {
-  it('Bestellung ohne Zustimmung zum vorzeitigen Leistungsbeginn wird abgelehnt (Pflichtfeld)', async () => {
+  it('vorzeitiger Leistungsbeginn ohne Bestätigung des Erlöschens wird abgelehnt (Zustimmung selbst ist freiwillig)', async () => {
     const data = orderData({ service: 'abmeldung', email: `ohne.zustimmung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` });
     const form = new FormData();
-    form.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: false, widerrufErlischt: false } }));
+    form.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: true, widerrufErlischt: false } }));
     form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
     form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
     const ip = `10.6.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
     const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
     assert.equal(r.status, 422);
-    assert.ok(String(JSON.stringify(r.json)).includes('finish.vorzeitigerBeginn'));
     assert.ok(String(JSON.stringify(r.json)).includes('finish.widerrufErlischt'));
+    assert.ok(!String(JSON.stringify(r.json)).includes('finish.vorzeitigerBeginn'));
   });
 
   it('Website-Bestellung legt die Bestellbestätigung an, sendet aber ohne KUNDENMAILS nichts; Freigabe/Testmail mit Rechteprüfung', async () => {
@@ -1564,14 +1564,20 @@ describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe
   });
 });
 
-describe('Widerrufsstrecke (Entwurf) ist ohne Freischaltung nicht öffentlich', () => {
-  it('Seiten, Schnittstelle und Footer-Link sind im Produktivbetrieb ohne WIDERRUF_AKTIV nicht erreichbar', async () => {
-    assert.equal((await anon.req('GET', '/widerruf')).status, 404);
-    assert.equal((await anon.req('GET', '/widerrufsbelehrung')).status, 404);
-    const api = await anon.req('POST', '/api/widerruf', { body: { name: 'Erika Muster', contract: 'EK-2026-00001', email: 'erika@example.de' } });
-    assert.equal(api.status, 404);
-    const home = (await anon.req('GET', '/impressum')).text;
-    assert.ok(!home.includes('Vertrag widerrufen'), 'kein Widerrufslink vor der Freischaltung');
+describe('Widerrufsstrecke vor dem Bestellabschluss erreichbar (WIDERRUF_AKTIV=1)', () => {
+  it('Belehrung mit Anbieteranschrift, Widerrufsfunktion, Footer-Link und Verlinkung im Bestellablauf', async () => {
+    const notice = await anon.req('GET', '/widerrufsbelehrung');
+    assert.equal(notice.status, 200);
+    assert.ok(notice.text.includes('Kirchbachstraße 200') && notice.text.includes('Muster-Widerrufsformular'));
+    assert.ok(!notice.text.includes('Entwurf – nicht veröffentlicht'));
+    assert.equal((await anon.req('GET', '/widerruf')).status, 200);
+    const ip = `10.7.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+    const api = await anon.req('POST', '/api/widerruf', { body: { name: 'Erika Muster', contract: 'EK-2026-00001', email: 'erika@example.de' }, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    assert.equal(api.status, 200);
+    assert.ok((await anon.req('GET', '/impressum')).text.includes('Vertrag widerrufen'), 'Widerrufslink im Footer');
+    const order = await anon.req('GET', '/kfz-anmelden/auftrag');
+    assert.equal(order.status, 200);
+    assert.match(order.text, /<meta name="robots" content="noindex, follow"/);
   });
 });
 

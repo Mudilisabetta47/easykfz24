@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import { BRAND, BRAND_NOTE, PROVIDER, PROVIDER_NAME, sentence, telHref } from '../../../lib/site.ts';
 
-export const metadata: Metadata = { title: 'Impressum', description: `${BRAND_NOTE} Anbieterkennzeichnung nach § 5 DDG.`, robots: { index: false, follow: true } };
+// Footer (Widerrufslink) hängt von Laufzeit-Schaltern ab – nicht beim Build festschreiben
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Impressum', description: `${BRAND_NOTE} Anbieterkennzeichnung nach § 5 DDG.`, alternates: { canonical: '/impressum' }, robots: { index: false, follow: true } };
 
 /** Impressum: Marke (EasyKFZ24) und rechtlicher Anbieter (MONVEX) klar getrennt; nur nachgewiesene Angaben. */
 export default function ImpressumPage() {

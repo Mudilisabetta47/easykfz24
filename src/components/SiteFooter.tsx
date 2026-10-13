@@ -23,15 +23,16 @@ export function SiteFooter() {
             <h2>Leistungen</h2>
             <ul>
               <li><Link href="/kfz-anmelden#neuzulassung">Zulassung</Link></li>
-              <li><Link href="/kfz-anmelden#ummeldung">Ummeldung</Link></li>
+              <li><Link href="/auto-ummelden">Ummeldung</Link></li>
               <li><Link href="/kfz-anmelden#wiederzulassung">Wiederzulassung</Link></li>
-              <li><Link href="/kfz-anmelden#abmeldung">Abmeldung</Link></li>
+              <li><Link href="/auto-abmelden">Abmeldung</Link></li>
             </ul>
           </div>
           <div>
             <h2>Service</h2>
             <ul>
               <li><Link href="/kfz-anmelden/auftrag">Vorgang starten</Link></li>
+              <li><Link href="/wunschkennzeichen">Wunschkennzeichen</Link></li>
               <li><Link href="/kennzeichen">Kennzeichen A–Z</Link></li>
               <li><Link href="/status">Status abrufen</Link></li>
               <li><Link href="/#ablauf">So funktioniert&apos;s</Link></li>

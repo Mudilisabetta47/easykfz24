@@ -9,6 +9,9 @@ import { withdrawalMode } from '../../../server/withdrawal.ts';
 export const metadata: Metadata = {
   title: 'Status abrufen',
   description: 'Mit Auftragsnummer und E-Mail-Adresse den aktuellen Stand Ihres Vorgangs abrufen.',
+  alternates: { canonical: '/status' },
+  // Kundenstatus mit personenbezogenen Angaben: nicht indexieren
+  robots: { index: false, follow: true },
 };
 
 export default async function StatusPage({ searchParams }: { searchParams: Promise<{ nr?: string }> }) {

@@ -52,9 +52,13 @@ const VEHICLES = [
 type VehicleId = (typeof VEHICLES)[number]['id'];
 
 /** Schnellstart im ersten Bildschirm: Leistung wählen, Kennzeichen direkt ins Schild tippen, weiter zum Auftrag. */
-export function HeroQuickStart({ initialCity = '', initialPlace = null }: { initialCity?: string; initialPlace?: PlacePick | null } = {}) {
+export function HeroQuickStart({
+  initialCity = '',
+  initialPlace = null,
+  initialMode = 'anmelden',
+}: { initialCity?: string; initialPlace?: PlacePick | null; initialMode?: Mode } = {}) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>('anmelden');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [vehicle, setVehicle] = useState<VehicleId>('auto');
   const veh = VEHICLES.find((v) => v.id === vehicle) ?? VEHICLES[0];
   const suffix = 'suffix' in veh ? veh.suffix : undefined;

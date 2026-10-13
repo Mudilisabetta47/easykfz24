@@ -29,6 +29,8 @@ const fakeMollie = createFakeMollie();
 await new Promise((r) => fakeMollie.server.listen(0, '127.0.0.1', r));
 const fakeMollieBase = `http://127.0.0.1:${fakeMollie.server.address().port}`;
 const mollieEnv = { MOLLIE_API_BASE: `${fakeMollieBase}/v2`, MOLLIE_API_KEY: FAKE_MOLLIE_KEYS.test, ZAHLUNG_ONLINE: '1' };
+// Wie im Produktivbetrieb: Widerrufsbelehrung erreichbar, Checkout freigegeben (Sicherheitsschalter, siehe src/server/checkout.ts)
+const legalEnv = { WIDERRUF_AKTIV: '1', BESTELLUNG_AKTIV: '1' };
 
 let server;
 if (mode === 'node') {
@@ -36,12 +38,12 @@ if (mode === 'node') {
   if (!fs.existsSync(path.join(dir, 'server.js'))) throw new Error('Erst „npm run build“ ausführen');
   server = spawn(process.execPath, ['server.js'], {
     cwd: dir,
-    env: { ...blank, ...secrets, ...mollieEnv, PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port), HOSTNAME: '127.0.0.1', DATA_DIR: tmp, PUBLIC_BASE_URL: base },
+    env: { ...blank, ...secrets, ...mollieEnv, ...legalEnv, PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port), HOSTNAME: '127.0.0.1', DATA_DIR: tmp, PUBLIC_BASE_URL: base },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 } else {
   const envFile = path.join(tmp, 'e2e.env');
-  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, ...mollieEnv, PUBLIC_BASE_URL: base }).map(([k, v]) => `${k}=${v}`).join('\n'));
+  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, ...mollieEnv, ...legalEnv, PUBLIC_BASE_URL: base }).map(([k, v]) => `${k}=${v}`).join('\n'));
   server = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', path.join(tmp, 'state'), '--env-file', envFile], {
     env: { ...process.env, ...blank },
     stdio: ['ignore', 'pipe', 'pipe'],

@@ -52,10 +52,13 @@ export function Hero() {
                 <span className="hero__live" aria-hidden="true" />
                 Digitaler Zulassungsservice
               </p>
-              <Split as="h1" id="hero-title" className="hero__title" text={'Einfach.\nZugelassen.'} reveal="mask" delay={120} />
-              <p className="hero__sub" data-reveal="up" style={{ '--rv-delay': '380ms' } as CSSProperties}>
-                Zulassen, ummelden oder abmelden – digital, schnell und deutschlandweit.
-              </p>
+              {/* Eine H1 mit Leitsatz und Suchbegriff: der Untertitel gehört zur Überschrift (gleiches Erscheinungsbild) */}
+              <h1 id="hero-title" className="hero__h1">
+                <Split as="span" className="hero__title" text={'Einfach.\nZugelassen.'} reveal="mask" delay={120} />
+                <span className="hero__sub" data-reveal="up" style={{ '--rv-delay': '380ms' } as CSSProperties}>
+                  Kfz-Zulassung online: Auto zulassen, ummelden oder abmelden – digital, schnell und deutschlandweit.
+                </span>
+              </h1>
               {promoActive() ? (
                 <p className="hero__promo" data-reveal="up" style={{ '--rv-delay': '500ms' } as CSSProperties}>
                   <PromoBadge tone="dark" />

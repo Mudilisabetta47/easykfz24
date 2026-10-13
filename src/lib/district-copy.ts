@@ -76,8 +76,8 @@ export function districtCopy(p: DistrictPage, plateOffer?: PlateOffer): District
   const wishC = `Nicht jede Kombination ist erlaubt: Buchstabenfolgen wie HJ, KZ, NS, SA und SS werden bundesweit nicht zugeteilt, außerdem dürfen die Zahlen nicht mit einer 0 beginnen. Für Elektrofahrzeuge gibt es zusätzlich das E-Kennzeichen, für Oldtimer ab 30 Jahren das H-Kennzeichen.`;
 
   return {
-    title: `Kennzeichen ${C} ${place} – Wunschkennzeichen & Zulassung`,
-    metaDescription: `Kennzeichen ${C} · ${shortLabel}, ${land}: Wunschkennzeichen eintippen, Zulassung online beauftragen, Schilder per DHL oder UPS.${promo ? ' Neukunden sparen 10 % auf die Servicepauschale.' : ''}`,
+    title: `Wunschkennzeichen ${C} reservieren in ${place}`,
+    metaDescription: `Kennzeichen ${C} (${shortLabel}): Wunschkennzeichen reservieren und Auto online zulassen, ummelden oder abmelden – ohne Termin vor Ort.`,
     lead: leads[variant(C, 'lead', leads.length)],
     howTitle: `So bekommst du dein ${C}-Kennzeichen für ${place}`,
     howIntro: intros[variant(C, 'intro', intros.length)],

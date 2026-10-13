@@ -9,7 +9,12 @@ import { withdrawalMode } from '../../../server/withdrawal.ts';
 import { WithdrawalForm } from './WithdrawalForm.tsx';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: WITHDRAW_LABEL, robots: { index: false, follow: true } };
+export const metadata: Metadata = {
+  title: WITHDRAW_LABEL,
+  description: 'Elektronische Widerrufsfunktion: Vertrag mit EasyKFZ24 online widerrufen und sofort eine Eingangsbestätigung erhalten.',
+  alternates: { canonical: '/widerruf' },
+  robots: { index: false, follow: true },
+};
 
 /** Elektronische Widerrufsfunktion nach § 356a BGB – ENTWURF, nur mit WIDERRUF_AKTIV=1 öffentlich */
 export default async function WiderrufPage({ searchParams }: { searchParams: Promise<{ nr?: string }> }) {

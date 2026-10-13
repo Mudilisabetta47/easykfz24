@@ -10,8 +10,12 @@ import { Check } from '../../../../components/icons.tsx';
 import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 import { districtCopy } from '../../../../lib/district-copy.ts';
 import { allCodes, codeFromSlug, districtLabel, districtPage, joinGerman, placeName, slugForCode } from '../../../../lib/district-pages.ts';
+import { og } from '../../../../lib/seo.ts';
 import { publicBaseUrl } from '../../../../server/payments.ts';
 import { getPlateOffer } from '../../../../server/plates.ts';
+import { placesForCode } from '../../../../server/regions.ts';
+import { PLATE_CODES_CHECKED } from '../../../../lib/plate-codes.generated.ts';
+import { formatIsoDay } from '../../../../lib/format.ts';
 
 type Params = Promise<{ kuerzel: string }>;
 
@@ -29,7 +33,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     title: { absolute: `${copy.title} | EasyKFZ24` },
     description: copy.metaDescription,
     alternates: { canonical: url },
-    openGraph: { title: copy.title, description: copy.metaDescription, url, type: 'website', locale: 'de_DE' },
+    openGraph: og(copy.title, copy.metaDescription, url),
   };
 }
 
@@ -57,6 +61,7 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
   const copy = districtCopy(page, await getPlateOffer());
   const label = districtLabel(page.district);
   const base = publicBaseUrl();
+  const places = placesForCode(page.code);
 
   const jsonLd = [
     {
@@ -197,6 +202,23 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
           </Link>
         </p>
       </section>
+
+      {places.length > 1 ? (
+        <section className="shell section-pad seo-text" aria-labelledby="orte">
+          <h2 id="orte" className="info-h2">
+            Städte und Gemeinden mit Kennzeichen {page.code}
+          </h2>
+          <p className="seo-text__p">
+            Das Kürzel {page.code} gilt für diese {places.length} Städte und Gemeinden ({label}). Maßgeblich ist der Hauptwohnsitz des Halters bzw. der
+            Firmensitz. Quelle: Kraftfahrt-Bundesamt und Destatis-Gemeindeverzeichnis, Stand der Zuordnung {formatIsoDay(PLATE_CODES_CHECKED)}.
+          </p>
+          <ul className="place-list" role="list">
+            {places.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="info-band">
         <div className="shell section-pad seo-text" aria-labelledby="kosten">

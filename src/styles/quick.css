@@ -1,6 +1,8 @@
 /* Schnellstart-Karte (Startseite, Kennzeichen-Seiten) */
 .quick {
   display: grid;
+  /* eine Spalte, die nie breiter als das Formular wird (die Fahrzeugauswahl scrollt mobil waagerecht) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px 20px;
   border-radius: 24px;
@@ -66,6 +68,7 @@
 }
 .quick__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -96,6 +99,8 @@
   }
   .quick__foot .btn {
     padding-inline: 18px;
+    /* bricht die Schaltfläche um, nutzt sie die volle Breite */
+    flex: 1 0 auto;
   }
 }
 .quick__price > span:last-child {

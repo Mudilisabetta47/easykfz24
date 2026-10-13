@@ -80,6 +80,11 @@
 .info-service__cta {
   justify-self: start;
   margin-block-start: 6px;
+  /* lange Leistungsnamen dürfen auf schmalen Bildschirmen umbrechen statt die Seite zu verbreitern */
+  max-inline-size: 100%;
+  white-space: normal;
+  text-align: center;
+  padding-block: 10px;
 }
 .info-band {
   background: var(--ez-surface);

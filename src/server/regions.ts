@@ -118,6 +118,32 @@ export function placeByAgs(ags: string): Place | null {
   };
 }
 
+let byCode: Map<string, string[]> | null = null;
+/**
+ * Städte und Gemeinden, für die ein Kürzel VERIFIZIERT gilt (Destatis-Gemeindeverzeichnis + KBA), alphabetisch –
+ * für die Ortsseiten. Gleichnamige Gemeinden im selben Kreis mit Zusatz. Nicht verifizierte Zuordnungen fehlen bewusst.
+ */
+export function placesForCode(code: string): string[] {
+  if (!byCode) {
+    const d = regions();
+    const m = new Map<string, string[]>();
+    for (const g of d.gemeinden) {
+      const codes = d.gemeindeCodes[g[0]]?.codes ?? d.kreise[g[0].slice(0, 5)]?.codes ?? {};
+      const name = placeName(g[1]);
+      const zusatz = zusatzOf(g[1], name, g[0].slice(0, 5), g[2]);
+      for (const [c, status] of Object.entries(codes)) {
+        if (status !== 'verifiziert') continue;
+        const list = m.get(c) ?? [];
+        list.push(zusatz ? `${name} (${zusatz})` : name);
+        m.set(c, list);
+      }
+    }
+    for (const list of m.values()) list.sort((a, b) => a.localeCompare(b, 'de'));
+    byCode = m;
+  }
+  return byCode.get(code) ?? [];
+}
+
 const fold = (s: string) =>
   s
     .toLowerCase()

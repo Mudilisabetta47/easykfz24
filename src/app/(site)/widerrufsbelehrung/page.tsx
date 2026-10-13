@@ -6,7 +6,12 @@ import { REVIEW_ITEMS, WITHDRAW_LABEL, WITHDRAW_PATH, WITHDRAWAL_FORM, WITHDRAWA
 import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Widerrufsbelehrung', robots: { index: false, follow: true } };
+export const metadata: Metadata = {
+  title: 'Widerrufsbelehrung',
+  description: 'Widerrufsbelehrung und Muster-Widerrufsformular von EasyKFZ24 (MONVEX UG (haftungsbeschränkt) i. G.).',
+  alternates: { canonical: '/widerrufsbelehrung' },
+  robots: { index: false, follow: true },
+};
 
 /** Widerrufsbelehrung und Muster-Widerrufsformular (Wortlaut vom Inhaber) – nur mit WIDERRUF_AKTIV=1 öffentlich */
 export default function WiderrufsbelehrungPage() {
