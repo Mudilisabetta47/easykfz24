@@ -166,7 +166,7 @@ export interface PoaPayloadResult {
  */
 export function buildPoaRequest(
   order: ValidatedOrder,
-  opts: { number: string; attempt: number; birthPlace: string; sendEmail: boolean; redirectUrl?: string },
+  opts: { number: string; attempt: number; birthPlace: string; sendEmail: boolean; redirectUrl?: string; sepa?: boolean },
 ): PoaPayloadResult | { ok: false; reasons: string[] } {
   const reasons: string[] = [];
   const h = order.holder;
@@ -186,6 +186,9 @@ export function buildPoaRequest(
   if (!h.email) reasons.push('E-Mail-Adresse fehlt');
   const rep = splitStreet(PROVIDER.street);
   if (!rep) reasons.push('Anschrift des Bevollmächtigten nicht zerlegbar');
+  // SEPA-Mandat (Kfz-Steuer) nur auf ausdrückliche Wahl – und nur, wenn Kontodaten und Kontoinhaber passen
+  const sepa = sepaOption(order);
+  if (opts.sepa && !sepa.available) reasons.push(`SEPA-Mandat gewählt, aber nicht möglich: ${sepa.reason}`);
   if (reasons.length || !hn || !rep) return { ok: false, reasons };
 
   const principal = {
@@ -205,7 +208,7 @@ export function buildPoaRequest(
     address: { companyName: PROVIDER_NAME, ...rep, zipCode: PROVIDER.zip, cityName: PROVIDER.city },
   };
   const iban = order.finish.iban.replace(/\s/g, '').toUpperCase();
-  const withSepa = !!order.finish.sepaMandat && !!iban && accountHolderMatches(order.finish.kontoinhaber, h.vorname, h.nachname);
+  const withSepa = !!opts.sepa && sepa.available;
   const body: Record<string, unknown> = {
     principal,
     representative,
@@ -217,6 +220,41 @@ export function buildPoaRequest(
     ...(opts.redirectUrl ? { redirectUrl: opts.redirectUrl } : {}),
   };
   return { ok: true, body, withSepa };
+}
+
+/**
+ * SEPA-Lastschriftmandat für die Kfz-Steuer (Generalzolldirektion, BMF-Formular 032021) im selben Nect-Vorgang – laut Doku
+ * optional über bankAccount. Möglich nur mit IBAN, Zustimmung im Auftrag und Kontoinhaber = Vollmachtgeber.
+ */
+export function sepaOption(order: ValidatedOrder): { available: boolean; reason: string; ibanMasked: string; accountHolder: string } {
+  const iban = order.finish.iban.replace(/\s/g, '').toUpperCase();
+  const ibanMasked = iban ? `${iban.slice(0, 4)} •••• ${iban.slice(-4)}` : '';
+  const accountHolder = order.finish.kontoinhaber.trim();
+  const h = order.holder;
+  let reason = '';
+  if (!iban) reason = 'keine IBAN im Auftrag';
+  else if (!order.finish.sepaMandat) reason = 'Kunde hat dem SEPA-Mandat im Auftrag nicht zugestimmt';
+  else if (h.typ !== 'privat' || !accountHolderMatches(accountHolder, h.vorname, h.nachname)) reason = 'Kontoinhaber ist nicht der Vollmachtgeber';
+  return { available: !reason, reason, ibanMasked, accountHolder };
+}
+
+/** Preis laut kfz-api.de/preise (Stand 13.10.2026): Signatur 6,95 € netto zzgl. 19 % USt, monatliche Sammelrechnung */
+export const POA_COST = { netCents: 695, grossCents: Math.round(695 * 1.19), source: 'kfz-api.de/preise (Stand 13.10.2026)' } as const;
+
+export const euro = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+
+/** Hinweise, die vor dem Anlegen eines echten Vorgangs bestätigt werden müssen */
+export function poaNotices(p: { name: string; fin: string; email: string; sendEmail: boolean; withSepa: boolean; ibanMasked: string }): string[] {
+  return [
+    `Rechtsverbindlich: ${p.name} bevollmächtigt ${PROVIDER_NAME} (Marke EasyKFZ24), für das Fahrzeug mit der FIN ${p.fin} Zulassungsvorgänge zu beantragen. Unterschrieben wird qualifiziert elektronisch nach Identifizierung mit dem Ausweis bei Nect.`,
+    p.withSepa
+      ? `Mit SEPA-Mandat: Zusätzlich wird das SEPA-Lastschriftmandat der Generalzolldirektion für die Kfz-Steuer (Konto ${p.ibanMasked}) mit unterschrieben. Es ist keine Zahlung an EasyKFZ24; übermittelt wird es erst mit einem Zulassungsantrag.`
+      : 'Ohne SEPA-Mandat: Es wird kein Lastschriftmandat erteilt.',
+    `Kosten beim Partner kfz-api.de: ${euro(POA_COST.netCents)} netto (${euro(POA_COST.grossCents)} brutto) für die Signatur, Abrechnung monatlich per Sammelrechnung. Ein offener oder unterschriebener Vorgang wird wiederverwendet; eine Wiederholung nach Verbindungsabbruch nutzt dieselbe Referenz und legt keinen zweiten Vorgang an.`,
+    p.sendEmail ? `Den Unterschriftslink schickt der Partner per E-Mail (in Ihrer Marke) an ${p.email}.` : 'Es wird keine E-Mail verschickt – den Unterschriftslink im OS kopieren und selbst weitergeben.',
+    'Es wird kein Zulassungsantrag eingereicht und nichts bezahlt: Unterschrift, Zahlung und Zulassung bleiben getrennte Schritte.',
+    'Für eine vollständige Vollmacht mit dem Personalausweis identifizieren – ein Reisepass enthält keine Anschrift, der Vorgang bliebe dann unvollständig.',
+  ];
 }
 
 /** Rücksprung je Vorgang nur mit HTTPS und demselben Origin wie die im Partner-Dashboard hinterlegte Adresse (sonst 400 laut Doku) */

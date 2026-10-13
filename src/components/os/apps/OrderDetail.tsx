@@ -2,7 +2,7 @@
 
 // Auftragsakte im Auftragscenter: alle Bearbeitungsschritte eines Auftrags mit Sprüngen in die anderen Programme.
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { OrderFacts } from '../../admin/OrderFacts.tsx';
 import { BUSINESS_TRANSACTIONS } from '../../../lib/kfz-status.ts';
 import { PAYMENT_STATUS, PAYMENT_STATUS_LABEL, type PaymentStatus } from '../../../lib/payment.ts';
@@ -15,7 +15,7 @@ import type { ValidatedOrder } from '../../../lib/order.ts';
 import { plateSignCount, type PriceBreakdown } from '../../../lib/pricing.ts';
 import { plateFinishOf, plateSummary } from '../../../lib/plates.ts';
 import { PROCESSING, type Milestone, type ProcessingLevel } from '../../../lib/express.ts';
-import { dateTime, euro, osFetch, useOsData } from '../api.ts';
+import { dateTime, euro, OsError, osFetch, useOsData } from '../api.ts';
 import { useOs } from '../context.ts';
 import { IChevron, IExternal } from '../icons.tsx';
 import {
@@ -33,7 +33,7 @@ import {
   useStaff,
 } from '../shared.tsx';
 import { Badge, Empty, ErrorBox, KfzState, Loading, Panel, StatusBadge, Tabs, useFlash } from '../ui.tsx';
-import type { PoaView } from '../../../server/power-of-attorney.ts';
+import type { PoaPreview, PoaTestRelease, PoaView } from '../../../server/power-of-attorney.ts';
 import { Preview } from './Preview.tsx';
 
 interface Transition {
@@ -99,6 +99,8 @@ export interface OrderBundle {
   wishPlace: { ags: string; name: string; kreis: string; land: string; codes: string[]; fits: boolean } | null;
   poas: PoaView[];
   poaEnabled: boolean;
+  poaMode: 'aus' | 'test' | 'aktiv';
+  poaTest: { canGrant: boolean; isInhaber: boolean; release: (PoaTestRelease & { active: boolean }) | null; otherOrder: string | null };
   transitions: Transition[];
   checklistProgress: { done: number; total: number };
   canWrite: boolean;
@@ -627,12 +629,15 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
   const [birthPlace, setBirthPlace] = useState('');
   const poa = data.poas[0] ?? null;
   const needed = POA_SERVICE_IDS.includes(o.service);
-  const canRequest = data.canWrite && data.poaEnabled && needed && (!poa || ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state));
-  const run = async (path: string, success: string, confirmText?: string) => {
+  const release = data.poaTest.release;
+  const allowedMode = data.poaMode === 'aktiv' ? data.canWrite : data.poaMode === 'test' && data.poaTest.isInhaber && !!release?.active;
+  const canRequest = allowedMode && needed && o.data.holder.typ === 'privat' && (!poa || ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state));
+  const [confirming, setConfirming] = useState(false);
+  const run = async (path: string, success: string, confirmText?: string, body: Record<string, unknown> = {}) => {
     if (confirmText && !window.confirm(confirmText)) return;
     setBusy(true);
     try {
-      await osFetch(`orders/${o.id}/${path}`, { method: 'POST', body: {} });
+      await osFetch(`orders/${o.id}/${path}`, { method: 'POST', body });
       await done(true, success);
     } catch (e) {
       await done(false, (e as Error).message);
@@ -656,9 +661,11 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
       {!poa ? (
         <p className="os-muted os-small">
           {needed
-            ? data.poaEnabled
+            ? data.poaMode === 'aktiv'
               ? 'Noch kein Vollmachtsvorgang. Die Anforderung legt beim Partner einen kostenpflichtigen Unterschriftsvorgang an (Online-Unterschrift mit Ausweis).'
-              : 'Die digitale Vollmacht ist noch nicht freigeschaltet. Bis dahin gilt die Vollmacht im Original.'
+              : data.poaMode === 'test'
+                ? 'Testmodus: Die digitale Vollmacht ist nicht für alle Aufträge freigeschaltet. Nur der Inhaber kann einen einzelnen, ausdrücklich freigegebenen eigenen Auftrag für einen echten Vorgang freigeben.'
+                : 'Die digitale Vollmacht ist noch nicht eingerichtet (kein Partner-Zugang). Bis dahin gilt die Vollmacht im Original.'
             : 'Für diese Leistung ist keine Vollmacht nötig.'}
         </p>
       ) : (
@@ -696,7 +703,7 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
             ) : null}
             <>
               <dt>SEPA-Mandat</dt>
-              <dd>{poa.withSepa ? 'im selben Vorgang mit unterschrieben' : 'nicht enthalten (Kontoinhaber ≠ Halter oder kein Mandat) – separat einholen'}</dd>
+              <dd>{poa.withSepa ? 'Kfz-Steuer-Mandat (Zoll) im selben Vorgang mit unterschrieben' : 'nicht enthalten – für die Zulassung separat einholen'}</dd>
             </>
           </dl>
           {poa.note ? <p className="os-flash is-warn">Hinweis des Partners: {poa.note}</p> : null}
@@ -761,24 +768,175 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
             Stand jetzt abfragen
           </button>
         ) : null}
-        {canRequest ? (
-          <button
-            type="button"
-            className="os-btn"
-            disabled={busy}
-            onClick={() =>
-              void run(
-                'vollmacht',
-                poa ? 'Neuer Vollmachtsvorgang angefordert' : 'Digitale Vollmacht angefordert',
-                `${poa ? 'Neuen Vollmachtsvorgang' : 'Digitale Vollmacht'} für ${o.number} beim Partner anfordern? Das legt einen kostenpflichtigen, rechtsverbindlichen Unterschriftsvorgang an.`,
-              )
-            }
-          >
-            {poa ? 'Neuen Vorgang anfordern' : 'Digitale Vollmacht anfordern'}
+        {canRequest && !confirming ? (
+          <button type="button" className="os-btn" disabled={busy} onClick={() => setConfirming(true)}>
+            {poa ? 'Neuen Vorgang vorbereiten' : 'Digitale Vollmacht vorbereiten'}
           </button>
         ) : null}
       </div>
+      {confirming && canRequest ? (
+        <PoaConfirm
+          orderId={o.id}
+          onCancel={() => setConfirming(false)}
+          onDone={async (ok, text) => {
+            if (ok) setConfirming(false);
+            await done(ok, text);
+          }}
+        />
+      ) : null}
+      {data.poaMode === 'test' && needed ? <PoaTestRelease data={data} busy={busy} run={run} /> : null}
     </Panel>
+  );
+}
+
+/** Testmodus: genau diesen Auftrag für einen echten Vorgang freigeben (nur Inhaber, einmalig, 24 Stunden) */
+function PoaTestRelease({ data, busy, run }: { data: OrderBundle; busy: boolean; run: (path: string, success: string, confirmText?: string, body?: Record<string, unknown>) => Promise<void> }) {
+  const o = data.order;
+  const t = data.poaTest;
+  const r = t.release;
+  if (!t.canGrant) {
+    return r?.active ? (
+      <p className="os-muted os-small">Testfreigabe aktiv bis {dateTime(r.expiresAt)} – anfordern kann nur der Inhaber.</p>
+    ) : null;
+  }
+  return (
+    <div className="poa-test">
+      <p className="os-small">
+        <strong>Testmodus.</strong>{' '}
+        {r?.active
+          ? `Dieser Auftrag ist für einen echten Vorgang freigegeben – bis ${dateTime(r.expiresAt)}${r.attempt !== null ? `, gebunden an Versuch ${r.attempt}` : ', noch nicht genutzt'}.`
+          : r
+            ? `Die Testfreigabe ist abgelaufen (${dateTime(r.expiresAt)}).`
+            : 'Für einen echten Test kann der Inhaber genau diesen Auftrag freigeben: einmal, 24 Stunden lang, nur mit seinen eigenen echten Angaben.'}
+        {t.otherOrder ? ` Aktuell freigegeben ist ${t.otherOrder} – eine neue Freigabe ersetzt sie.` : ''}
+      </p>
+      <div className="os-row">
+        {r?.active ? (
+          <button type="button" className="os-btn os-btn--ghost" disabled={busy} onClick={() => void run('vollmacht/testfreigabe', 'Testfreigabe zurückgezogen', undefined, { aktiv: false })}>
+            Testfreigabe zurückziehen
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="os-btn os-btn--ghost"
+            disabled={busy || o.data.holder.typ !== 'privat'}
+            onClick={() =>
+              void run(
+                'vollmacht/testfreigabe',
+                'Testfreigabe erteilt – jetzt die Vorschau prüfen',
+                `${o.number} für genau einen echten, kostenpflichtigen Vollmachtsvorgang freigeben (24 Stunden)? Nur für einen eigenen Auftrag mit Ihren eigenen echten Angaben verwenden. Angefordert wird erst nach Vorschau und ausdrücklicher Bestätigung.`,
+                { aktiv: true },
+              )
+            }
+          >
+            Testfreigabe für diesen Auftrag erteilen
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Bestätigung vor dem Anlegen: Angaben, SEPA-Wahl, Kosten und Hinweise – angefordert wird nur genau dieser Stand (Prüfsumme) */
+function PoaConfirm({ orderId, onCancel, onDone }: { orderId: number; onCancel: () => void; onDone: (ok: boolean, text: string) => Promise<void> }) {
+  const [sepa, setSepa] = useState(false);
+  const [preview, setPreview] = useState<PoaPreview | null>(null);
+  const [error, setError] = useState<{ text: string; reasons: string[] } | null>(null);
+  const [checked, setChecked] = useState(false);
+  const [sending, setSending] = useState(false);
+  const load = async (withSepa: boolean) => {
+    setPreview(null);
+    setChecked(false);
+    try {
+      const r = await osFetch<{ ok: true; preview: PoaPreview }>(`orders/${orderId}/vollmacht/vorschau`, { method: 'POST', body: { sepa: withSepa } });
+      setPreview(r.preview);
+      setError(null);
+    } catch (e) {
+      const d = e instanceof OsError ? e.data : {};
+      setError({ text: (e as Error).message, reasons: Array.isArray(d.reasons) ? d.reasons.map(String) : [] });
+    }
+  };
+  useEffect(() => {
+    void load(sepa);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, sepa]);
+  const send = async () => {
+    if (!preview || sending) return;
+    setSending(true);
+    try {
+      const r = await osFetch<{ ok: true; reused: boolean; poa: PoaView }>(`orders/${orderId}/vollmacht`, {
+        method: 'POST',
+        body: { sepa: preview.sepa.chosen, fingerprint: preview.fingerprint, bestaetigt: true },
+      });
+      await onDone(true, r.reused ? 'Bestehender Vorgang verwendet – keine weiteren Kosten' : `Digitale Vollmacht angefordert (Vorgang ${r.poa.processId ?? '–'})`);
+    } catch (e) {
+      if (e instanceof OsError && e.status === 409) await load(sepa);
+      await onDone(false, (e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <section className="poa-confirm" aria-label="Digitale Vollmacht anfordern – Bestätigung">
+      <h4>Vor dem Anfordern prüfen</h4>
+      {error ? (
+        <div className="os-flash is-error">
+          {error.text}
+          {error.reasons.length ? (
+            <ul>
+              {error.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : !preview ? (
+        <p className="os-muted os-small">Vorschau wird erstellt …</p>
+      ) : (
+        <>
+          {preview.mode === 'test' ? <p className="os-flash is-warn">Testmodus: Echter, rechtsverbindlicher und kostenpflichtiger Vorgang beim Partner – nur für diesen freigegebenen Auftrag.</p> : null}
+          <dl className="os-dl os-small">
+            {preview.details.map((d) => (
+              <Fragment key={d.label}>
+                <dt>{d.label}</dt>
+                <dd>{d.value}</dd>
+              </Fragment>
+            ))}
+            <dt>Unterschriftslink</dt>
+            <dd>{preview.sendEmail ? 'per E-Mail durch den Partner (in Ihrer Marke)' : 'keine E-Mail – Link im OS kopieren'}</dd>
+            <dt>Kosten</dt>
+            <dd>
+              <strong>
+                {euro(preview.costs.netCents)} netto ({euro(preview.costs.grossCents)} brutto)
+              </strong>{' '}
+              <span className="os-muted">laut {preview.costs.source}</span>
+            </dd>
+          </dl>
+          <label className="os-check-field">
+            <input type="checkbox" checked={sepa} disabled={!preview.sepa.available && !sepa} onChange={(e) => setSepa(e.target.checked)} /> SEPA-Lastschriftmandat für die Kfz-Steuer (Zoll)
+            mit unterschreiben
+            {preview.sepa.available ? ` – Konto ${preview.sepa.ibanMasked}, Inhaber ${preview.sepa.accountHolder}` : ` – nicht möglich: ${preview.sepa.reason}`}
+          </label>
+          <ul className="poa-confirm__notices">
+            {preview.notices.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+          <label className="os-check-field">
+            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> Ich habe Angaben, Kosten und Hinweise geprüft und fordere genau diesen
+            kostenpflichtigen, rechtsverbindlichen Vorgang an.
+          </label>
+        </>
+      )}
+      <div className="os-row">
+        <button type="button" className="os-btn os-btn--ghost" disabled={sending} onClick={onCancel}>
+          Abbrechen
+        </button>
+        <button type="button" className="os-btn" disabled={!preview || !checked || sending || !!error} onClick={() => void send()}>
+          {sending ? 'Wird angefordert …' : preview ? `Jetzt kostenpflichtig anfordern (${euro(preview.costs.netCents)} netto)` : 'Jetzt kostenpflichtig anfordern'}
+        </button>
+      </div>
+    </section>
   );
 }
 

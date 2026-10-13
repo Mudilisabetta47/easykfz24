@@ -459,6 +459,7 @@ export const systemRoutes: Route[] = [
         cloudflare: { worker: !!env, d1Binding: !!env?.DB, r2Binding: !!env?.UPLOADS },
         integrations: { kfzWebhook: kfzWebhookConfigured(), kfzApi: kfzApiConfigured(), mail: mailConfigured(), payments: paymentsEnabled(), stripeWebhook: !!process.env.STRIPE_WEBHOOK_SECRET },
         runtime: { node: typeof process !== 'undefined' ? process.version ?? '' : '', at: new Date().toISOString() },
+        build: { commit: process.env.EK_BUILD_COMMIT ?? '', builtAt: process.env.EK_BUILD_AT ?? '' },
       };
     },
   },

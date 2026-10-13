@@ -9,6 +9,9 @@ import { after, before, describe, it } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { emptyDraft, validateOrder, type ValidatedOrder } from '../src/lib/order.ts';
 import {
+  POA_COST,
+  poaNotices,
+  sepaOption,
   accountHolderMatches,
   adminState,
   buildPoaRequest,
@@ -60,6 +63,13 @@ function validated(over: Parameters<typeof draft>[0] = {}): ValidatedOrder {
   return (v as { ok: true; order: ValidatedOrder }).order;
 }
 const control = async (p: string, body: unknown) => (await fetch(`${base}${p}`, { method: 'POST', body: JSON.stringify(body) })).json();
+const staff = { name: 'Test', role: 'verwaltung' as const };
+const owner = { name: 'Inhaber', role: 'inhaber' as const };
+/** Wie im OS: Vorschau holen, Prüfsumme bestätigen, anfordern */
+async function request(orderId: number, actor: { name: string; role: 'verwaltung' | 'inhaber' } = staff, sepa = false) {
+  const pv = await poa.previewPoa(orderId, actor, { sepa });
+  return poa.requestPoa(orderId, actor, { sepa, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
+}
 
 before(async () => {
   await new Promise<void>((r) => fake.server.listen(0, '127.0.0.1', () => r()));
@@ -73,7 +83,7 @@ after(() => fake.server.close());
 
 describe('Aufbau nach Partner-Doku (POST /powerOfAttorneys)', () => {
   it('Pflichtfelder principal, representative, email, vehicles; Hausnummer nur Ziffern + Zusatz; externalOrderId je Versuch', () => {
-    const r = buildPoaRequest(validated(), { number: 'EK-2026-00042', attempt: 2, birthPlace: 'Kiel', sendEmail: true });
+    const r = buildPoaRequest(validated(), { number: 'EK-2026-00042', attempt: 2, birthPlace: 'Kiel', sendEmail: true, sepa: true });
     assert.ok(r.ok);
     const b = (r as { body: Record<string, any> }).body;
     assert.deepEqual(Object.keys(b).sort(), ['bankAccount', 'email', 'externalOrderId', 'principal', 'representative', 'sendEmail', 'vehicles']);
@@ -98,12 +108,22 @@ describe('Aufbau nach Partner-Doku (POST /powerOfAttorneys)', () => {
     assert.deepEqual(splitStreet('Kirchbachstraße 200'), { streetName: 'Kirchbachstraße', houseNumber: '200' });
   });
 
-  it('SEPA-Mandat nur, wenn der Kontoinhaber zum Vollmachtgeber passt (Regel laut Doku)', () => {
+  it('SEPA-Mandat nur auf ausdrückliche Wahl und nur, wenn der Kontoinhaber zum Vollmachtgeber passt (Regel laut Doku)', () => {
     assert.ok(accountHolderMatches('Musterfrau, Erika', 'Erika', 'Musterfrau'));
     assert.ok(!accountHolderMatches('Erika Musterfrau GmbH', 'Erika', 'Musterfrau'));
     assert.ok(!accountHolderMatches('Max Mustermann', 'Erika', 'Musterfrau'));
-    const other = buildPoaRequest(validated({ kontoinhaber: 'Max Mustermann' }), { number: 'EK-1', attempt: 1, birthPlace: 'Kiel', sendEmail: true });
-    assert.ok(other.ok && !other.withSepa && !('bankAccount' in other.body));
+    const none = buildPoaRequest(validated(), { number: 'EK-1', attempt: 1, birthPlace: 'Kiel', sendEmail: true });
+    assert.ok(none.ok && !none.withSepa && !('bankAccount' in none.body), 'ohne Wahl kein Mandat');
+    const other = buildPoaRequest(validated({ kontoinhaber: 'Max Mustermann' }), { number: 'EK-1', attempt: 1, birthPlace: 'Kiel', sendEmail: true, sepa: true });
+    assert.ok(!other.ok && other.reasons.some((x) => /SEPA-Mandat gewählt, aber nicht möglich: Kontoinhaber/.test(x)));
+    assert.deepEqual(sepaOption(validated()), { available: true, reason: '', ibanMasked: 'DE89 •••• 3000', accountHolder: 'Erika Musterfrau' });
+  });
+
+  it('Hinweise vor dem Anlegen: Rechtsverbindlichkeit, SEPA (Kfz-Steuer), Kosten 6,95 € netto / 8,27 € brutto, keine Einreichung', () => {
+    assert.deepEqual([POA_COST.netCents, POA_COST.grossCents], [695, 827]);
+    const n = poaNotices({ name: 'Erika Musterfrau', fin: 'WVWZZZ1KZAW000999', email: 'erika@example.de', sendEmail: true, withSepa: true, ibanMasked: 'DE89 •••• 3000' }).join(' ');
+    for (const re of [/Rechtsverbindlich/, /MONVEX UG \(haftungsbeschränkt\) i\. G\./, /Kfz-Steuer/, /6,95 € netto \(8,27 € brutto\)/, /kein Zulassungsantrag/, /Personalausweis/]) assert.match(n, re);
+    assert.match(poaNotices({ name: 'E', fin: 'F', email: 'e@x.de', sendEmail: false, withSepa: false, ibanMasked: '' }).join(' '), /Ohne SEPA-Mandat.*keine E-Mail/s);
   });
 
   it('redirectUrl nur mit HTTPS und gleichem Origin wie die Dashboard-Adresse', () => {
@@ -148,14 +168,15 @@ describe('Ablauf gegen den Testnachbau', () => {
     orderId = created.id;
     number = created.number;
     delete process.env.VOLLMACHT_DIGITAL;
-    const r = await poa.requestPoa(orderId, 'Test');
-    assert.ok(!r.ok && /nicht freigeschaltet/.test(r.error));
+    assert.equal(poa.poaMode(), 'test');
+    const r = await request(orderId);
+    assert.ok(!r.ok && r.code === 'denied' && /Testmodus/.test(r.error));
     assert.equal(fake.processes.size, 0);
     process.env.VOLLMACHT_DIGITAL = '1';
   });
 
   it('Anforderung: Vorgang wird angelegt, serverseitig mit dem Auftrag verknüpft, im Verlauf protokolliert', async () => {
-    const r = await poa.requestPoa(orderId, 'Test');
+    const r = await request(orderId);
     assert.ok(r.ok, JSON.stringify(r));
     if (!r.ok) return;
     assert.equal(r.poa.status, 'offen');
@@ -166,7 +187,7 @@ describe('Ablauf gegen den Testnachbau', () => {
     const ev = await (await getDb()).all<{ type: string; message: string }>("SELECT type, message FROM events WHERE order_id = ? AND type = 'vollmacht'", orderId);
     assert.ok(ev.some((e) => /angefordert/.test(e.message)));
     // erneuter Aufruf: kein zweiter (kostenpflichtiger) Vorgang
-    const again = await poa.requestPoa(orderId, 'Test');
+    const again = await request(orderId);
     assert.ok(again.ok && again.reused && again.poa.processId === r.poa.processId);
     assert.equal(fake.processes.size, 1);
   });
@@ -215,7 +236,7 @@ describe('Ablauf gegen den Testnachbau', () => {
 
   it('Partner offline: Stand bleibt beim zuletzt bestätigten, Fehler wird protokolliert, kein Erfolg erfunden', async () => {
     const d2 = await orders.createOrder(validated(), []);
-    const r = await poa.requestPoa(d2.id, 'Test');
+    const r = await request(d2.id);
     assert.ok(r.ok);
     await control('/__test/mode', { offline: true });
     const rec = (await poa.latestPoa(d2.id))!;
@@ -232,10 +253,10 @@ describe('Ablauf gegen den Testnachbau', () => {
   it('Antwort geht verloren: erneute Anforderung liefert denselben Vorgang (externalOrderId), kein Doppelvorgang', async () => {
     const d3 = await orders.createOrder(validated(), []);
     await control('/__test/mode', { dropNextPostResponse: true });
-    const lost = await poa.requestPoa(d3.id, 'Test');
+    const lost = await request(d3.id);
     assert.ok(!lost.ok);
     const before = fake.processes.size;
-    const retry = await poa.requestPoa(d3.id, 'Test');
+    const retry = await request(d3.id);
     assert.ok(retry.ok, JSON.stringify(retry));
     assert.equal(fake.processes.size, before, 'Partner hat keinen zweiten Vorgang angelegt');
     assert.equal(retry.ok && retry.poa.attempt, 1);
@@ -243,13 +264,13 @@ describe('Ablauf gegen den Testnachbau', () => {
 
   it('Abgelaufen: Kunde sieht den Hinweis; neuer Vorgang mit neuem Versuch (V2) möglich', async () => {
     const d4 = await orders.createOrder(validated(), []);
-    const r = await poa.requestPoa(d4.id, 'Test');
+    const r = await request(d4.id);
     assert.ok(r.ok);
     const rec = (await poa.latestPoa(d4.id))!;
     await control('/__test/set', { id: rec.process_id, status: 'verfallen' });
     await poa.verifyPoa(rec.id, { force: true });
     assert.equal((await pub.publicPoaState(rec.process_id)).view, 'expired');
-    const next = await poa.requestPoa(d4.id, 'Test');
+    const next = await request(d4.id);
     assert.ok(next.ok && !next.reused && next.poa.attempt === 2 && next.poa.externalOrderId.endsWith('-V2'));
     assert.equal((await poa.listPoas(d4.id)).length, 2);
   });
@@ -257,7 +278,7 @@ describe('Ablauf gegen den Testnachbau', () => {
   it('Partner gestört beim Anlegen (502): Vorgang als fehlgeschlagen verknüpft, Fehler sichtbar', async () => {
     const d5 = await orders.createOrder(validated(), []);
     await control('/__test/mode', { failNextPost: 502 });
-    const r = await poa.requestPoa(d5.id, 'Test');
+    const r = await request(d5.id);
     assert.ok(!r.ok);
     const rec = (await poa.latestPoa(d5.id))!;
     assert.equal(rec.status, 'fehlgeschlagen');
@@ -267,7 +288,7 @@ describe('Ablauf gegen den Testnachbau', () => {
 
   it('Unterschrieben, aber unvollständig (Reisepass ohne Anschrift): kein voller Erfolg', async () => {
     const d6 = await orders.createOrder(validated(), []);
-    const r = await poa.requestPoa(d6.id, 'Test');
+    const r = await request(d6.id);
     assert.ok(r.ok);
     const rec = (await poa.latestPoa(d6.id))!;
     await control('/__test/set', { id: rec.process_id, status: 'signiert', ready: false, missing: ['Straße', 'Hausnummer', 'Postleitzahl', 'Ort'] });
@@ -279,5 +300,133 @@ describe('Ablauf gegen den Testnachbau', () => {
   it('Abgleich-Automatik findet offene Vorgänge (höchstens alle 10 Minuten je Vorgang)', async () => {
     const due = await poa.poasDue(50);
     assert.ok(due.every((d) => d.process_id > 0));
+  });
+});
+
+describe('Bestätigung, Testmodus und Doppelklick', () => {
+  it('ohne bestätigte Vorschau (Prüfsumme) wird nichts angelegt', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const before = fake.processes.size;
+    const r = await poa.requestPoa(d.id, staff, { sepa: false, fingerprint: '' });
+    assert.ok(!r.ok && r.code === 'changed');
+    assert.equal(fake.processes.size, before);
+    assert.equal(await poa.latestPoa(d.id), null, 'kein Datensatz');
+  });
+
+  it('Prüfsumme gilt nur für den bestätigten Stand: SEPA nachträglich umgeschaltet → abgewiesen', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const pv = await poa.previewPoa(d.id, staff, { sepa: false });
+    assert.ok(pv.ok && pv.preview.fingerprint.length === 64 && !pv.preview.sepa.chosen && pv.preview.sepa.available);
+    const r = await poa.requestPoa(d.id, staff, { sepa: true, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
+    assert.ok(!r.ok && r.code === 'changed');
+  });
+
+  it('Vorschau zeigt Angaben, Kosten und Hinweise und ruft den Partner nicht auf', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const before = fake.processes.size;
+    const pv = await poa.previewPoa(d.id, staff, { sepa: true });
+    assert.ok(pv.ok);
+    if (!pv.ok) return;
+    assert.equal(fake.processes.size, before);
+    const labels = pv.preview.details.map((x) => x.label);
+    for (const l of ['Vollmachtgeber', 'Geburtsdatum', 'Geburtsort', 'Anschrift', 'E-Mail', 'Fahrzeug (FIN)', 'Bevollmächtigter']) assert.ok(labels.includes(l), l);
+    assert.equal(pv.preview.details.find((x) => x.label === 'Geburtsdatum')?.value, '15.03.1988');
+    assert.deepEqual([pv.preview.costs.netCents, pv.preview.costs.grossCents], [695, 827]);
+    assert.ok(pv.preview.sepa.chosen && /Kfz-Steuer/.test(pv.preview.notices.join(' ')));
+  });
+
+  it('SEPA-Mandat geht nur nach ausdrücklicher Wahl an den Partner', async () => {
+    const a = await orders.createOrder(validated(), []);
+    const b = await orders.createOrder(validated(), []);
+    const ra = await request(a.id, staff, false);
+    const rb = await request(b.id, staff, true);
+    assert.ok(ra.ok && rb.ok);
+    const body = (id: number | null) => (fake.processes.get(id!) as { _body: Record<string, unknown> })._body;
+    assert.equal(body(ra.ok ? ra.poa.processId : null).bankAccount, undefined);
+    assert.deepEqual(body(rb.ok ? rb.poa.processId : null).bankAccount, { iban: 'DE89370400440532013000', accountHolder: 'Erika Musterfrau' });
+    assert.ok(rb.ok && rb.poa.withSepa);
+  });
+
+  it('Doppelklick: zwei gleichzeitige Anforderungen ergeben genau einen Vorgang', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const pv = await poa.previewPoa(d.id, staff, { sepa: false });
+    assert.ok(pv.ok);
+    const fp = pv.ok ? pv.preview.fingerprint : '';
+    const before = fake.processes.size;
+    const [x, y] = await Promise.all([poa.requestPoa(d.id, staff, { sepa: false, fingerprint: fp }), poa.requestPoa(d.id, staff, { sepa: false, fingerprint: fp })]);
+    assert.ok(x.ok || y.ok);
+    assert.equal(fake.processes.size, before + 1, 'genau ein Vorgang beim Partner');
+    assert.equal((await poa.listPoas(d.id)).length, 1);
+    for (const r of [x, y]) if (!r.ok) assert.equal(r.code, 'busy');
+  });
+
+  it('Testmodus: nur Inhaber, nur der freigegebene Auftrag, genau ein Versuch, befristet', async () => {
+    delete process.env.VOLLMACHT_DIGITAL;
+    try {
+      assert.equal(poa.poaMode(), 'test');
+      const mine = await orders.createOrder(validated(), []);
+      const other = await orders.createOrder(validated(), []);
+      const before = fake.processes.size;
+      // ohne Freigabe: niemand
+      assert.ok(!(await request(mine.id, owner)).ok);
+      assert.ok(!(await poa.previewPoa(mine.id, owner, { sepa: false })).ok, 'auch keine Vorschau ohne Freigabe');
+      // Freigabe nur durch den Inhaber
+      const byStaff = await poa.setTestRelease(mine.id, true, staff);
+      assert.ok(!byStaff.ok && /Inhaber/.test(byStaff.error));
+      const g = await poa.setTestRelease(mine.id, true, owner);
+      assert.ok(g.ok && g.release?.attempt === null);
+      assert.ok(g.ok && Date.parse(g.release!.expiresAt) - Date.now() > 23 * 3_600_000);
+      // Mitarbeiter und fremder Auftrag bleiben gesperrt
+      const s1 = await request(mine.id, staff);
+      assert.ok(!s1.ok && s1.code === 'denied');
+      const o1 = await request(other.id, owner);
+      assert.ok(!o1.ok && /keine Testfreigabe/.test(o1.error));
+      assert.equal(fake.processes.size, before, 'nichts beim Partner angelegt');
+      // genau ein echter Vorgang
+      const r = await request(mine.id, owner);
+      assert.ok(r.ok && !r.reused, JSON.stringify(r));
+      assert.equal(fake.processes.size, before + 1);
+      assert.equal((await poa.getTestRelease())?.attempt, 1, 'Freigabe an Versuch 1 gebunden');
+      // erneut: derselbe Vorgang, keine Kosten
+      const again = await request(mine.id, owner);
+      assert.ok(again.ok && again.reused);
+      // nach Ablauf des Vorgangs kein zweiter kostenpflichtiger Versuch ohne neue Freigabe
+      const rec = (await poa.latestPoa(mine.id))!;
+      await control('/__test/set', { id: rec.process_id, status: 'verfallen' });
+      await poa.verifyPoa(rec.id, { force: true });
+      const v2 = await request(mine.id, owner);
+      assert.ok(!v2.ok && /verbraucht/.test(v2.error));
+      assert.equal(fake.processes.size, before + 1);
+      // abgelaufene Freigabe
+      await poa.setTestRelease(mine.id, true, owner);
+      await (await getDb()).run("UPDATE settings SET value = json_set(value, '$.expiresAt', '2000-01-01T00:00:00.000Z') WHERE key = 'vollmacht_testfreigabe'");
+      const exp = await request(mine.id, owner);
+      assert.ok(!exp.ok && /abgelaufen/.test(exp.error));
+      // zurückziehen
+      const off = await poa.setTestRelease(mine.id, false, owner);
+      assert.ok(off.ok && off.release === null);
+      assert.equal(await poa.getTestRelease(), null);
+      const ev = await (await getDb()).all<{ message: string }>("SELECT message FROM events WHERE order_id = ? AND type = 'vollmacht'", mine.id);
+      assert.ok(ev.some((e) => /Testfreigabe .*erteilt/.test(e.message)) && ev.some((e) => /zurückgezogen/.test(e.message)));
+    } finally {
+      process.env.VOLLMACHT_DIGITAL = '1';
+    }
+  });
+
+  it('im aktiven Betrieb ist keine Testfreigabe möglich (und nötig)', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const g = await poa.setTestRelease(d.id, true, owner);
+    assert.ok(!g.ok && /bereits für alle Aufträge/.test(g.error));
+  });
+
+  it('Zeitsteuerung (Cron): nur der Vollmacht-Abgleich läuft, unabhängig von der Drossel der Oberfläche', async () => {
+    const { runScheduledRules } = await import('../src/server/os/automation.ts');
+    const r = await runScheduledRules(true, ['vollmacht_abgleich']);
+    assert.ok(r.ran);
+    const rules = await (await getDb()).all<{ rule_id: string }>('SELECT DISTINCT rule_id FROM automation_runs');
+    assert.deepEqual(
+      rules.map((x) => x.rule_id).filter((x) => x !== 'vollmacht_abgleich'),
+      [],
+    );
   });
 });

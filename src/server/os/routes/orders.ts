@@ -36,7 +36,7 @@ import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.t
 import { processingOf } from '../../../lib/express.ts';
 import { orderMilestones } from '../../express.ts';
 import { orderWishPlace } from '../../regions.ts';
-import { latestPoa, listPoas, poaCreationEnabled, requestPoa, setBirthPlace, verifyPoa, viewOf } from '../../power-of-attorney.ts';
+import { getTestRelease, latestPoa, listPoas, poaCreationEnabled, poaMode, previewPoa, requestPoa, setBirthPlace, setTestRelease, verifyPoa, viewOf } from '../../power-of-attorney.ts';
 
 function filterFrom(url: URL): OrderFilter {
   const p = url.searchParams;
@@ -56,6 +56,18 @@ function filterFrom(url: URL): OrderFilter {
     issues: p.get('issues') === '1',
     express: p.get('express') === '1',
     limit: p.get('limit') ? Math.min(2000, Number(p.get('limit')) || 500) : 500,
+  };
+}
+
+/** Testmodus der digitalen Vollmacht: Freigabe dieses Auftrags (bzw. Hinweis auf einen anderen freigegebenen Auftrag) */
+async function poaTestInfo(c: Ctx, orderId: number) {
+  const r = poaMode() === 'test' ? await getTestRelease() : null;
+  const active = !!r && Date.parse(r.expiresAt) > Date.now();
+  return {
+    canGrant: poaMode() === 'test' && c.s.user.role === 'inhaber',
+    isInhaber: c.s.user.role === 'inhaber',
+    release: r && r.orderId === orderId ? { ...r, active } : null,
+    otherOrder: r && active && r.orderId !== orderId ? r.number : null,
   };
 }
 
@@ -99,6 +111,8 @@ async function orderBundle(c: Ctx, id: number) {
     // Digitale Vollmacht: alle Versuche mit bestätigtem Stand (Abgleich über die Partner-Schnittstelle)
     poas: (await listPoas(id)).map(viewOf),
     poaEnabled: poaCreationEnabled(),
+    poaMode: poaMode(),
+    poaTest: await poaTestInfo(c, id),
     // Einkaufspreise und Kosten nur mit Finanzrecht
     order: { ...order, payment_token: undefined, ...extra, price: c.can('finance.read') ? order.price : { ...order.price, cost: undefined } },
     customer,
@@ -183,16 +197,49 @@ export const orderRoutes: Route[] = [
     },
   },
   {
-    // Digitale Vollmacht anfordern (kostenpflichtig beim Partner) – je Auftrag einzeln, bestehender offener Vorgang wird wiederverwendet
+    // Vorschau vor dem Anlegen: Angaben, Kosten, Rechtshinweise und Prüfsumme – ruft den Partner nicht auf
+    method: 'POST',
+    path: 'orders/:id/vollmacht/vorschau',
+    perm: 'orders.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (!(await getOrder(id))) throw new HttpError(404, 'Auftrag nicht gefunden');
+      const r = await previewPoa(id, { name: c.actor.name, role: c.s.user.role }, { sepa: c.body.sepa === true });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, reasons: r.reasons ?? [] }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json(r, { headers: { 'Cache-Control': 'no-store' } });
+    },
+  },
+  {
+    // Digitale Vollmacht anfordern (kostenpflichtig beim Partner) – nur mit bestätigter Vorschau (Prüfsumme), je Auftrag einzeln,
+    // bestehender offener Vorgang wird wiederverwendet; im Testmodus nur Inhaber mit Testfreigabe dieses Auftrags
     method: 'POST',
     path: 'orders/:id/vollmacht',
     perm: 'orders.write',
     handler: async (c) => {
       const id = int(c.params.id, 'Auftrags-ID');
       if (!(await getOrder(id))) throw new HttpError(404, 'Auftrag nicht gefunden');
-      const r = await requestPoa(id, c.actor.name);
-      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, reasons: r.reasons ?? [], poa: r.poa ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
-      await audit(c.audit, r.reused ? 'vollmacht.bestehend' : 'vollmacht.angefordert', String(id), `Vorgang ${r.poa.processId ?? '–'}`);
+      if (c.body.bestaetigt !== true || typeof c.body.fingerprint !== 'string')
+        return NextResponse.json({ ok: false, error: 'Bitte zuerst die Vorschau prüfen und die Kosten und Hinweise bestätigen.', reasons: [] }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      const r = await requestPoa(id, { name: c.actor.name, role: c.s.user.role }, { sepa: c.body.sepa === true, fingerprint: str(c.body.fingerprint, 100) });
+      if (!r.ok) {
+        const status = r.code === 'denied' ? 403 : r.code === 'changed' || r.code === 'busy' ? 409 : 422;
+        return NextResponse.json({ ok: false, error: r.error, code: r.code ?? null, reasons: r.reasons ?? [], poa: r.poa ?? null }, { status, headers: { 'Cache-Control': 'no-store' } });
+      }
+      await audit(c.audit, r.reused ? 'vollmacht.bestehend' : 'vollmacht.angefordert', String(id), `Vorgang ${r.poa.processId ?? '–'}${r.poa.withSepa ? ', mit SEPA-Mandat' : ''}`);
+      return r;
+    },
+  },
+  {
+    // Testmodus: genau diesen Auftrag für einen echten Vorgang freigeben bzw. die Freigabe zurückziehen (nur Inhaber)
+    method: 'POST',
+    path: 'orders/:id/vollmacht/testfreigabe',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann eine Testfreigabe erteilen.');
+      const r = await setTestRelease(id, c.body.aktiv === true, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, c.body.aktiv === true ? 'vollmacht.testfreigabe' : 'vollmacht.testfreigabe_entzogen', String(id), r.release ? `bis ${r.release.expiresAt}` : '');
       return r;
     },
   },

@@ -5,7 +5,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "easykfz24",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -35,6 +35,8 @@
       "jurisdiction": "eu"
     }
   ],
+  // Zeitsteuerung: alle 10 Minuten nur der kostenlose Vollmacht-Abgleich (worker.ts → /api/intern/zeitplan)
+  "triggers": { "crons": ["*/10 * * * *"] },
   // Im Dashboard gesetzte Variablen (z. B. PUBLIC_BASE_URL) beim Deployment nicht überschreiben
   "keep_vars": true,
   "observability": {

@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 107;
+const EXPECTED_ROUTES = 109;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -52,6 +52,8 @@ const NEEDS_EXTERNAL: Record<string, string> = {
   'POST messages/send': 'E-Mail-Dienst (Resend/SMTP)',
   'POST orders/:id/vollmacht': 'kfz-api.de Vollmachtsvorgang (kostenpflichtig, nur mit VOLLMACHT_DIGITAL) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/abgleich': 'kfz-api.de GET /powerOfAttorneys (nur mit vorhandenem Vorgang) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST orders/:id/vollmacht/vorschau': 'kfz-api.de-Zugang und vollständige Vollmachtsangaben – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST orders/:id/vollmacht/testfreigabe': 'Testmodus nur mit kfz-api.de-Zugang – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
 };
 const hits: Record<string, Set<string>> = Object.fromEntries(ROUTES.map((r) => [r.key, new Set<string>()]));
 const fivehundreds: string[] = [];
@@ -1359,13 +1361,33 @@ describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
   });
 
   it('OS: Anforderung ohne Freischaltung sauber abgelehnt, Leserecht reicht nicht; Abgleich ohne Vorgang', async () => {
-    const r = await expect(sb, 'POST', `orders/${ids.a}/vollmacht`, 422);
-    assert.match(String(r.json.error), /nicht freigeschaltet/);
+    const unconfirmed = await expect(sb, 'POST', `orders/${ids.a}/vollmacht`, 422);
+    assert.match(String(unconfirmed.json.error), /Vorschau prüfen/, 'ohne Bestätigung keine Anforderung');
+    const r = await expect(sb, 'POST', `orders/${ids.a}/vollmacht`, 422, { bestaetigt: true, fingerprint: 'x', sepa: false });
+    assert.match(String(r.json.error), /nicht eingerichtet/);
     await expect(le, 'POST', `orders/${ids.a}/vollmacht`, 403);
+    await expect(sb, 'POST', `orders/${ids.a}/vollmacht/vorschau`, 422, { sepa: false });
+    await expect(le, 'POST', `orders/${ids.a}/vollmacht/vorschau`, 403, { sepa: false });
+    // Testfreigabe: nur Inhaber (Verwaltung hat Einstellungsrecht, ist aber nicht Inhaber); ohne Partner-Zugang nicht möglich
+    await expect(vw, 'POST', `orders/${ids.a}/vollmacht/testfreigabe`, 403, { aktiv: true });
+    await expect(le, 'POST', `orders/${ids.a}/vollmacht/testfreigabe`, 403, { aktiv: true });
+    const t = await expect(owner, 'POST', `orders/${ids.a}/vollmacht/testfreigabe`, 422, { aktiv: true });
+    assert.match(String(t.json.error), /nicht eingerichtet/);
     const a = await expect(le, 'POST', `orders/${ids.a}/vollmacht/abgleich`, 422);
     assert.match(String(a.json.error), /keinen Vollmachtsvorgang/);
     const d = await expect(sb, 'GET', `orders/${ids.a}`, 200);
-    assert.deepEqual([d.json.poas, d.json.poaEnabled], [[], false]);
+    assert.deepEqual([d.json.poas, d.json.poaEnabled, d.json.poaMode], [[], false, 'aus']);
+  });
+
+  it('Zeitsteuerung: interner Endpunkt ist von außen nicht aufrufbar; Versionskennung ohne Geheimnisse', async () => {
+    for (const h of [{}, { 'x-ek-zeitplan': 'x'.repeat(64) }] as Record<string, string>[]) {
+      const r = await anon.req('POST', '/api/intern/zeitplan', { headers: h });
+      assert.equal(r.status, 404);
+    }
+    const v = await anon.req('GET', '/api/version');
+    assert.equal(v.status, 200);
+    assert.deepEqual(Object.keys(v.json).sort(), ['builtAt', 'commit']);
+    assert.match(String(v.json.commit), /^[0-9a-f]{7,12}$/);
   });
 });
 

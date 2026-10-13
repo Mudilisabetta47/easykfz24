@@ -19,14 +19,18 @@ import { eventStmt, touchStmt } from './orders.ts';
 import { emitSafe } from './os/events.ts';
 import { publicBaseUrl } from './payments.ts';
 import type { ValidatedOrder } from '../lib/order.ts';
+import type { Role } from '../lib/permissions.ts';
 import {
   ADMIN_LABEL,
   adminState,
   buildPoaRequest,
   isPoaStatus,
+  POA_COST,
   POA_SERVICES,
+  poaNotices,
   RETURN_PATH,
   safeRedirectUrl,
+  sepaOption,
   type AdminState,
   type PoaStatus,
 } from '../lib/power-of-attorney.ts';
@@ -40,6 +44,21 @@ const SWEEP_MS = 10 * 60_000;
 
 export function poaCreationEnabled(): boolean {
   return process.env.VOLLMACHT_DIGITAL === '1' && kfzApiConfigured();
+}
+
+/**
+ * Betriebsart: „aus“ ohne Partner-Zugang; „test“ mit Zugang, aber ohne VOLLMACHT_DIGITAL – dann nur der vom Inhaber
+ * ausdrücklich freigegebene Auftrag (Testfreigabe, einmalig, befristet); „aktiv“ für alle geeigneten Aufträge.
+ */
+export type PoaMode = 'aus' | 'test' | 'aktiv';
+export function poaMode(): PoaMode {
+  if (!kfzApiConfigured()) return 'aus';
+  return poaCreationEnabled() ? 'aktiv' : 'test';
+}
+
+export interface PoaActor {
+  name: string;
+  role: Role;
 }
 export function poaReturnUrl(): string {
   return process.env.VOLLMACHT_RUECKSPRUNG_URL || `${publicBaseUrl()}${RETURN_PATH}`;
@@ -213,52 +232,273 @@ function partnerFields(p: PartnerProcess) {
   };
 }
 
+// ---------- Testfreigabe (nur Inhaber, genau ein Auftrag, einmalig, befristet) ----------
+
+const TEST_KEY = 'vollmacht_testfreigabe';
+const TEST_HOURS = 24;
+
+export interface PoaTestRelease {
+  orderId: number;
+  number: string;
+  grantedBy: string;
+  grantedAt: string;
+  expiresAt: string;
+  /** Versuch, an den die Freigabe gebunden ist, sobald angefordert wurde (null = noch nicht genutzt) */
+  attempt: number | null;
+}
+
+export async function getTestRelease(): Promise<PoaTestRelease | null> {
+  const row = await (await getDb()).first<{ value: string }>('SELECT value FROM settings WHERE key = ?', TEST_KEY);
+  if (!row?.value) return null;
+  try {
+    const v = JSON.parse(row.value) as PoaTestRelease;
+    return Number.isInteger(v.orderId) && typeof v.expiresAt === 'string' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveTestRelease(v: PoaTestRelease | null, by: string): Promise<void> {
+  const db = await getDb();
+  if (!v) {
+    await db.run('DELETE FROM settings WHERE key = ?', TEST_KEY);
+    return;
+  }
+  await db.run(
+    'INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by',
+    TEST_KEY,
+    JSON.stringify(v),
+    now(),
+    by,
+  );
+}
+
+const releaseActive = (r: PoaTestRelease | null): r is PoaTestRelease => !!r && Date.parse(r.expiresAt) > Date.now();
+
+/** Testfreigabe für genau diesen Auftrag erteilen (ersetzt eine bestehende) oder zurückziehen. Nur Inhaber, nur im Testmodus. */
+export async function setTestRelease(orderId: number, active: boolean, actor: PoaActor): Promise<{ ok: true; release: PoaTestRelease | null } | { ok: false; error: string }> {
+  if (actor.role !== 'inhaber') return { ok: false, error: 'Nur der Inhaber kann eine Testfreigabe erteilen.' };
+  const db = await getDb();
+  const order = await db.first<{ id: number; number: string; service: string; status: string; data_json: string }>('SELECT id, number, service, status, data_json FROM orders WHERE id = ?', orderId);
+  if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
+  const current = await getTestRelease();
+  if (!active) {
+    if (current?.orderId !== orderId) return { ok: true, release: null };
+    await saveTestRelease(null, actor.name);
+    await db.batch([eventStmt(orderId, { type: 'vollmacht', message: 'Testfreigabe digitale Vollmacht zurückgezogen', actor: actor.name })]);
+    return { ok: true, release: null };
+  }
+  const mode = poaMode();
+  if (mode === 'aus') return { ok: false, error: 'kfz-api.de ist nicht eingerichtet (KFZ_API_BASE_URL, KFZ_API_LOGIN, KFZ_API_PASSWORD).' };
+  if (mode === 'aktiv') return { ok: false, error: 'Die digitale Vollmacht ist bereits für alle Aufträge freigeschaltet (VOLLMACHT_DIGITAL=1) – keine Testfreigabe nötig.' };
+  if (order.status === 'storniert') return { ok: false, error: 'Der Auftrag ist storniert.' };
+  if (!POA_SERVICES.includes(order.service as never)) return { ok: false, error: 'Für diese Leistung ist keine Vollmacht nötig.' };
+  if ((JSON.parse(order.data_json) as ValidatedOrder).holder.typ !== 'privat') return { ok: false, error: 'Testfreigabe nur für Privatpersonen (Firmen brauchen Business Sign).' };
+  const t = new Date();
+  const release: PoaTestRelease = {
+    orderId,
+    number: order.number,
+    grantedBy: actor.name,
+    grantedAt: t.toISOString(),
+    expiresAt: new Date(t.getTime() + TEST_HOURS * 3_600_000).toISOString(),
+    attempt: null,
+  };
+  await saveTestRelease(release, actor.name);
+  await db.batch([
+    eventStmt(orderId, { type: 'vollmacht', message: `Testfreigabe digitale Vollmacht erteilt (ein kostenpflichtiger Vorgang, gültig ${TEST_HOURS} Stunden)`, actor: actor.name }),
+  ]);
+  return { ok: true, release };
+}
+
+/** Darf für diesen Auftrag ein neuer (kostenpflichtiger) Vorgang angelegt werden? */
+async function creationAllowed(orderId: number, attempt: number, actor: PoaActor): Promise<string | null> {
+  const mode = poaMode();
+  if (mode === 'aus') return 'kfz-api.de ist nicht eingerichtet.';
+  if (mode === 'aktiv') return null;
+  if (actor.role !== 'inhaber') return 'Testmodus: Nur der Inhaber kann eine echte Vollmacht anfordern.';
+  const r = await getTestRelease();
+  if (!r || r.orderId !== orderId) return 'Testmodus: Für diesen Auftrag besteht keine Testfreigabe.';
+  if (!releaseActive(r)) return 'Testmodus: Die Testfreigabe ist abgelaufen – bitte erneut freigeben.';
+  if (r.attempt !== null && r.attempt !== attempt)
+    return `Testmodus: Die Testfreigabe galt für Versuch ${r.attempt} und ist verbraucht. Für einen weiteren kostenpflichtigen Vorgang bitte erneut freigeben.`;
+  return null;
+}
+
 // ---------- Anforderung ----------
 
-export type CreateResult = { ok: true; poa: PoaView; reused: boolean } | { ok: false; error: string; reasons?: string[]; poa?: PoaView };
+async function sha256(s: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
-/**
- * Vollmachtsvorgang für einen Auftrag anfordern. Besteht bereits ein offener oder unterschriebener Vorgang, wird er
- * zurückgegeben (keine weiteren Kosten). Nach abgelehnt/verfallen/fehlgeschlagen entsteht ein neuer Versuch.
- */
-export async function requestPoa(orderId: number, actor: string): Promise<CreateResult> {
-  if (!poaCreationEnabled()) return { ok: false, error: 'Die digitale Vollmacht ist noch nicht freigeschaltet (VOLLMACHT_DIGITAL).' };
+type Prepared =
+  | { kind: 'error'; error: string; reasons?: string[] }
+  | { kind: 'reuse'; rec: PoaRecord }
+  | {
+      kind: 'new';
+      data: ValidatedOrder;
+      number: string;
+      attempt: number;
+      retrySame: boolean;
+      body: Record<string, unknown>;
+      withSepa: boolean;
+      sendEmail: boolean;
+      fingerprint: string;
+    };
+
+/** Gemeinsame Prüfung für Vorschau und Anforderung – ruft den Partner nicht auf */
+async function prepare(orderId: number, sepa: boolean): Promise<Prepared> {
   const db = await getDb();
   const order = await db.first<{ id: number; number: string; service: string; data_json: string; status: string }>(
     'SELECT id, number, service, data_json, status FROM orders WHERE id = ?',
     orderId,
   );
-  if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
-  if (order.status === 'storniert') return { ok: false, error: 'Der Auftrag ist storniert.' };
-  if (!POA_SERVICES.includes(order.service as never)) return { ok: false, error: 'Für diese Leistung ist keine Vollmacht nötig.' };
+  if (!order) return { kind: 'error', error: 'Auftrag nicht gefunden' };
+  if (order.status === 'storniert') return { kind: 'error', error: 'Der Auftrag ist storniert.' };
+  if (!POA_SERVICES.includes(order.service as never)) return { kind: 'error', error: 'Für diese Leistung ist keine Vollmacht nötig.' };
 
   const last = await latestPoa(orderId);
-  if (last && (last.status === 'offen' || last.status === 'signiert')) return { ok: true, poa: viewOf(last), reused: true };
+  if (last && (last.status === 'offen' || last.status === 'signiert')) return { kind: 'reuse', rec: last };
   // Unklarer Anstoß (Abbruch vor der Antwort): mit derselben externalOrderId wiederholen – der Partner liefert dann denselben Vorgang
   const retrySame = !!last && last.status === '' && !last.process_id;
   const attempt = retrySame && last ? last.attempt : (last?.attempt ?? 0) + 1;
 
   const data = JSON.parse(order.data_json) as ValidatedOrder;
   const sendEmail = process.env.VOLLMACHT_EMAIL_SENDEN !== '0';
-  const built = buildPoaRequest(data, { number: order.number, attempt, birthPlace: data.holder.geburtsort ?? '', sendEmail, redirectUrl: requestRedirectUrl() });
-  if (!built.ok) return { ok: false, error: `Für die digitale Vollmacht fehlen Angaben: ${built.reasons.join('; ')}`, reasons: built.reasons };
-  const externalOrderId = String(built.body.externalOrderId);
-  const t = now();
-  if (!retrySame) {
-    await db.run(
-      'INSERT INTO power_of_attorneys (order_id, attempt, external_order_id, send_email, with_sepa, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      orderId,
-      attempt,
-      externalOrderId,
-      sendEmail ? 1 : 0,
-      built.withSepa ? 1 : 0,
-      actor,
-      t,
-      t,
-    );
+  const built = buildPoaRequest(data, { number: order.number, attempt, birthPlace: data.holder.geburtsort ?? '', sendEmail, redirectUrl: requestRedirectUrl(), sepa });
+  if (!built.ok) return { kind: 'error', error: `Für die digitale Vollmacht fehlen Angaben: ${built.reasons.join('; ')}`, reasons: built.reasons };
+  // Prüfsumme über genau die Angaben, die gesendet würden – die Bestätigung gilt nur für diesen Stand
+  const fingerprint = await sha256(JSON.stringify({ attempt, retrySame, body: built.body }));
+  return { kind: 'new', data, number: order.number, attempt, retrySame, body: built.body, withSepa: built.withSepa, sendEmail, fingerprint };
+}
+
+export interface PoaPreview {
+  mode: PoaMode;
+  /** Bestehender offener/unterschriebener Vorgang: keine neue Anforderung, keine Kosten */
+  reuse: PoaView | null;
+  attempt: number;
+  retrySame: boolean;
+  externalOrderId: string;
+  details: { label: string; value: string }[];
+  sepa: { available: boolean; reason: string; chosen: boolean; ibanMasked: string; accountHolder: string };
+  sendEmail: boolean;
+  costs: { netCents: number; grossCents: number; source: string };
+  notices: string[];
+  fingerprint: string;
+}
+
+/** Vorschau vor dem Anlegen: alle Angaben, Kosten und Hinweise, die bestätigt werden müssen. Ruft den Partner NICHT auf. */
+export async function previewPoa(orderId: number, actor: PoaActor, opts: { sepa: boolean }): Promise<{ ok: true; preview: PoaPreview } | { ok: false; error: string; reasons?: string[] }> {
+  const p = await prepare(orderId, opts.sepa);
+  if (p.kind === 'error') return { ok: false, error: p.error, reasons: p.reasons };
+  const mode = poaMode();
+  if (p.kind === 'reuse') {
+    const view = viewOf(p.rec);
+    return {
+      ok: true,
+      preview: {
+        mode,
+        reuse: view,
+        attempt: view.attempt,
+        retrySame: false,
+        externalOrderId: view.externalOrderId,
+        details: [],
+        sepa: { available: false, reason: '', chosen: view.withSepa, ibanMasked: '', accountHolder: '' },
+        sendEmail: view.sendEmail,
+        costs: { ...POA_COST, netCents: 0, grossCents: 0 },
+        notices: ['Es besteht bereits ein offener oder unterschriebener Vorgang – er wird verwendet, es entstehen keine weiteren Kosten.'],
+        fingerprint: '',
+      },
+    };
   }
-  const res = await partner('POST', '/powerOfAttorneys', built.body);
+  const denied = await creationAllowed(orderId, p.attempt, actor);
+  if (denied) return { ok: false, error: denied };
+  const h = p.data.holder;
+  const principal = p.body.principal as { address: { streetName: string; houseNumber: string; addressSuffix?: string; zipCode: string; cityName: string } };
+  const rep = p.body.representative as { address: { companyName: string; streetName: string; houseNumber: string; addressSuffix?: string; zipCode: string; cityName: string } };
+  const fin = (p.body.vehicles as { vehicleIdentificationNumber: string }[])[0].vehicleIdentificationNumber;
+  const a = principal.address;
+  const s = sepaOption(p.data);
+  const name = `${h.vorname} ${h.nachname}`;
+  return {
+    ok: true,
+    preview: {
+      mode,
+      reuse: null,
+      attempt: p.attempt,
+      retrySame: p.retrySame,
+      externalOrderId: String(p.body.externalOrderId),
+      details: [
+        { label: 'Auftrag', value: p.number },
+        { label: 'Vollmachtgeber', value: name },
+        { label: 'Geburtsdatum', value: h.geburtsdatum.split('-').reverse().join('.') },
+        { label: 'Geburtsort', value: h.geburtsort ?? '' },
+        { label: 'Anschrift', value: `${a.streetName} ${a.houseNumber}${a.addressSuffix ?? ''}, ${a.zipCode} ${a.cityName}` },
+        { label: 'E-Mail', value: String(p.body.email) },
+        { label: 'Fahrzeug (FIN)', value: fin },
+        {
+          label: 'Bevollmächtigter',
+          value: `${rep.address.companyName}, ${rep.address.streetName} ${rep.address.houseNumber}${rep.address.addressSuffix ?? ''}, ${rep.address.zipCode} ${rep.address.cityName}`,
+        },
+        { label: 'Referenz beim Partner', value: `${String(p.body.externalOrderId)}${p.retrySame ? ' (Wiederholung desselben Anstoßes)' : ''}` },
+      ],
+      sepa: { available: s.available, reason: s.reason, chosen: p.withSepa, ibanMasked: s.ibanMasked, accountHolder: s.accountHolder },
+      sendEmail: p.sendEmail,
+      costs: { ...POA_COST },
+      notices: poaNotices({ name, fin, email: String(p.body.email), sendEmail: p.sendEmail, withSepa: p.withSepa, ibanMasked: s.ibanMasked }),
+      fingerprint: p.fingerprint,
+    },
+  };
+}
+
+export type CreateResult = { ok: true; poa: PoaView; reused: boolean } | { ok: false; error: string; code?: 'changed' | 'busy' | 'denied'; reasons?: string[]; poa?: PoaView };
+
+/**
+ * Vollmachtsvorgang anlegen – nur mit bestätigter Vorschau (Prüfsumme über die gesendeten Angaben). Besteht bereits ein
+ * offener oder unterschriebener Vorgang, wird er zurückgegeben (keine weiteren Kosten). Nach abgelehnt/verfallen/fehlgeschlagen
+ * entsteht ein neuer Versuch – im Testmodus nur mit neuer Testfreigabe.
+ */
+export async function requestPoa(orderId: number, actor: PoaActor, opts: { sepa: boolean; fingerprint: string }): Promise<CreateResult> {
+  if (poaMode() === 'aus') return { ok: false, error: 'Die digitale Vollmacht ist nicht eingerichtet (kein Zugang zu kfz-api.de).' };
+  const p = await prepare(orderId, opts.sepa);
+  if (p.kind === 'error') return { ok: false, error: p.error, reasons: p.reasons };
+  if (p.kind === 'reuse') return { ok: true, poa: viewOf(p.rec), reused: true };
+  const denied = await creationAllowed(orderId, p.attempt, actor);
+  if (denied) return { ok: false, error: denied, code: 'denied' };
+  if (!opts.fingerprint || opts.fingerprint !== p.fingerprint)
+    return { ok: false, error: 'Die Angaben haben sich seit der Vorschau geändert oder wurden nicht bestätigt – bitte Vorschau erneut prüfen.', code: 'changed' };
+
+  const db = await getDb();
+  const externalOrderId = String(p.body.externalOrderId);
+  const t = now();
+  if (!p.retrySame) {
+    try {
+      await db.run(
+        'INSERT INTO power_of_attorneys (order_id, attempt, external_order_id, send_email, with_sepa, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        orderId,
+        p.attempt,
+        externalOrderId,
+        p.sendEmail ? 1 : 0,
+        p.withSepa ? 1 : 0,
+        actor.name,
+        t,
+        t,
+      );
+    } catch {
+      // Doppelklick / paralleler Aufruf: der andere Aufruf legt den Vorgang an – hier nichts senden
+      return { ok: false, error: 'Die Anforderung läuft bereits – bitte einen Moment warten und den Stand neu laden.', code: 'busy' };
+    }
+  }
+  // Testfreigabe an genau diesen Versuch binden – ein weiterer kostenpflichtiger Versuch braucht eine neue Freigabe
+  if (poaMode() === 'test') {
+    const r = await getTestRelease();
+    if (r && r.orderId === orderId && r.attempt === null) await saveTestRelease({ ...r, attempt: p.attempt }, actor.name);
+  }
+  const res = await partner('POST', '/powerOfAttorneys', p.body);
   const rec = (await db.first<PoaRecord>('SELECT * FROM power_of_attorneys WHERE external_order_id = ?', externalOrderId))!;
+  const attempt = p.attempt;
+  const withSepa = p.withSepa;
+  const sendEmail = p.sendEmail;
 
   if (res.kind === 'ok') {
     const f = partnerFields(res.process);
@@ -295,12 +535,12 @@ export async function requestPoa(orderId: number, actor: string): Promise<Create
       ),
       eventStmt(orderId, {
         type: 'vollmacht',
-        message: `Digitale Vollmacht angefordert (Vorgang ${f.processId}, Versuch ${attempt}${built.withSepa ? ', mit SEPA-Mandat' : ''}${sendEmail ? ', Link per E-Mail durch Partner' : ''}) – Stand: ${f.status}`,
-        actor,
+        message: `Digitale Vollmacht angefordert (Vorgang ${f.processId}, Versuch ${attempt}${withSepa ? ', mit SEPA-Mandat' : ''}${sendEmail ? ', Link per E-Mail durch Partner' : ''}) – Stand: ${f.status}`,
+        actor: actor.name,
       }),
       touchStmt(orderId),
     ]);
-    await emitSafe({ type: 'order.poa', orderId, actor, payload: { processId: f.processId, status: f.status, ready: f.ready, attempt }, dedupeKey: `poa:${f.processId}:${f.status}:${f.ready ? 1 : 0}` });
+    await emitSafe({ type: 'order.poa', orderId, actor: actor.name, payload: { processId: f.processId, status: f.status, ready: f.ready, attempt }, dedupeKey: `poa:${f.processId}:${f.status}:${f.ready ? 1 : 0}` });
     return { ok: true, poa: viewOf((await getPoa(rec.id))!), reused: false };
   }
 
@@ -319,10 +559,10 @@ export async function requestPoa(orderId: number, actor: string): Promise<Create
       now(),
       rec.id,
     ),
-    eventStmt(orderId, { type: 'vollmacht', message: `Digitale Vollmacht: Anforderung gescheitert (${error.slice(0, 200)})`, actor }),
+    eventStmt(orderId, { type: 'vollmacht', message: `Digitale Vollmacht: Anforderung gescheitert (${error.slice(0, 200)})`, actor: actor.name }),
   ];
   await db.batch(stmts);
-  await emitSafe({ type: 'order.poa', orderId, actor, payload: { status: 'fehler', error: error.slice(0, 120), attempt }, dedupeKey: `poa-create-fail:${externalOrderId}:${Date.now()}` });
+  await emitSafe({ type: 'order.poa', orderId, actor: actor.name, payload: { status: 'fehler', error: error.slice(0, 120), attempt }, dedupeKey: `poa-create-fail:${externalOrderId}:${Date.now()}` });
   return { ok: false, error: `Anforderung beim Partner gescheitert – ${error.slice(0, 200)}`, poa: viewOf((await getPoa(rec.id))!) };
 }
 

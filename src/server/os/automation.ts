@@ -472,14 +472,20 @@ export async function runAutomations(ev: OsEvent): Promise<void> {
   }
 }
 
-/** Zeitgesteuerte Regeln – höchstens alle 5 Minuten (ausgelöst durch die Oberfläche oder „Jetzt prüfen“). */
-export async function runScheduledRules(force = false): Promise<{ ran: boolean; cases: number }> {
-  if (!force && g.__ekScanAt && Date.now() - g.__ekScanAt < 5 * 60_000) return { ran: false, cases: 0 };
-  g.__ekScanAt = Date.now();
+/**
+ * Zeitgesteuerte Regeln – höchstens alle 5 Minuten (ausgelöst durch die Oberfläche oder „Jetzt prüfen“). Mit `only` nur die
+ * genannten Regeln (Cron-Trigger des Workers, siehe worker.ts) – unabhängig von der Drossel der Oberfläche.
+ */
+export async function runScheduledRules(force = false, only?: readonly string[]): Promise<{ ran: boolean; cases: number }> {
+  if (!only) {
+    if (!force && g.__ekScanAt && Date.now() - g.__ekScanAt < 5 * 60_000) return { ran: false, cases: 0 };
+    g.__ekScanAt = Date.now();
+  }
   const cfg = await config();
   let cases = 0;
   for (const rule of RULES) {
     if (rule.trigger !== 'zeitgesteuert' || !rule.scan) continue;
+    if (only && !only.includes(rule.id)) continue;
     const c = cfg.get(rule.id);
     if (!c?.enabled) continue;
     try {
