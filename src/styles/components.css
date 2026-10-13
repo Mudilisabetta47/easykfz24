@@ -1530,3 +1530,11 @@ html[data-motion='reduced'] .lp__caret {
   color: var(--ez-ink);
   letter-spacing: 0.04em;
 }
+
+/* Zahlarten als Karten-Logos (offizielle Mollie-Grafiken, 64 × 48 mit eigenem Rahmen) */
+.brand-card {
+  display: block;
+  inline-size: 40px;
+  block-size: 30px;
+  border-radius: 6px;
+}

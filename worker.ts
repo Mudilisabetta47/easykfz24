@@ -1,7 +1,7 @@
 // Einstieg für Cloudflare Workers: der von OpenNext erzeugte Worker (Seiten, API) plus Zeitsteuerung.
 // Der Cron-Trigger (wrangler.jsonc → triggers.crons) ruft im selben Isolat den internen Endpunkt /api/intern/zeitplan auf;
 // das Kennwort dafür entsteht hier zufällig beim ersten Lauf und verlässt das Isolat nie – kein Secret nötig, von außen nicht aufrufbar.
-// Ausgeführt wird nur der kostenlose Vollmacht-Abgleich (GET beim Partner), keine kostenpflichtigen Aufrufe.
+// Ausgeführt werden nur kostenlose, lesende Abgleiche (Vollmacht bei kfz-api.de, Zahlungen bei Mollie) – nichts Kostenpflichtiges.
 
 // @ts-expect-error: entsteht beim Build (opennextjs-cloudflare build → .open-next/worker.js)
 import openNext from './.open-next/worker.js';

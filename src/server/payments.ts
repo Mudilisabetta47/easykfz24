@@ -1,4 +1,4 @@
-// Zahlungsanbindung über Stripe Checkout (ohne SDK, nur HTTPS).
+// Zahlungsanbindung: Mollie (bevorzugt, src/server/mollie.ts) oder – bisher – Stripe Checkout (ohne SDK, nur HTTPS).
 // Stripe bietet Visa, Mastercard, Klarna, PayPal, Apple Pay und Google Pay über dieselbe Checkout-Seite an;
 // welche Methoden erscheinen, wird im Stripe-Dashboard aktiviert.
 //
@@ -10,9 +10,16 @@
 
 import { siteUrl } from '../lib/site-url.ts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { molliePaymentsEnabled } from './mollie.ts';
+
+/** Aktiver Zahlungsanbieter: Mollie (MOLLIE_API_KEY + ZAHLUNG_ONLINE=1, siehe src/server/mollie.ts) vor Stripe */
+export function paymentProvider(): 'mollie' | 'stripe' | null {
+  if (molliePaymentsEnabled()) return 'mollie';
+  return process.env.STRIPE_SECRET_KEY ? 'stripe' : null;
+}
 
 export function paymentsEnabled(): boolean {
-  return Boolean(process.env.STRIPE_SECRET_KEY);
+  return paymentProvider() !== null;
 }
 
 export function publicBaseUrl(req?: Request): string {

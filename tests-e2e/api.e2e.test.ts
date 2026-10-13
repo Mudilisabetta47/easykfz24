@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 109;
+const EXPECTED_ROUTES = 111;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -81,7 +81,7 @@ class Client {
     this.name = name;
     this.ip = ip;
   }
-  async req(method: 'GET' | 'POST', path: string, opts: { body?: unknown; form?: FormData; headers?: Record<string, string>; tag?: string; raw?: boolean } = {}): Promise<Res> {
+  async req(method: 'GET' | 'POST', path: string, opts: { body?: unknown; form?: FormData; headers?: Record<string, string>; tag?: string; raw?: boolean; allow5xx?: boolean } = {}): Promise<Res> {
     const url = path.startsWith('/') ? `${BASE}${path}` : `${BASE}/api/admin/os/${path}`;
     const headers: Record<string, string> = { Origin: BASE, 'cf-connecting-ip': this.ip, 'x-forwarded-for': this.ip, ...(this.cookie ? { Cookie: `ek_admin=${this.cookie}` } : {}) };
     if (opts.body !== undefined && !opts.form) headers['Content-Type'] = 'application/json';
@@ -103,7 +103,7 @@ class Client {
       const key = routeOf(method, path);
       if (key && opts.tag) hits[key].add(opts.tag);
     }
-    if (res.status >= 500) fivehundreds.push(`${this.name} ${method} ${path} → ${res.status} ${text.slice(0, 160)}`);
+    if (res.status >= 500 && !opts.allow5xx) fivehundreds.push(`${this.name} ${method} ${path} → ${res.status} ${text.slice(0, 160)}`);
     return { status: res.status, json, text, headers: res.headers, bytes };
   }
   get(path: string, tag = 'ok') {
@@ -348,7 +348,7 @@ describe('System-Endpunkte', () => {
 
   it('Automatisierungen: lesen, ändern, Zeitregeln, Rechteprüfung', async () => {
     const a = await expect(le, 'GET', 'automation', 200);
-    assert.equal((a.json.rules as unknown[]).length, 12);
+    assert.equal((a.json.rules as unknown[]).length, 13);
     await expect(le, 'GET', 'automation/runs', 200);
     await expect(sb, 'POST', 'automation/scan', 403);
     await expect(vw, 'POST', 'automation/scan', 200);
@@ -1388,6 +1388,135 @@ describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
     assert.equal(v.status, 200);
     assert.deepEqual(Object.keys(v.json).sort(), ['builtAt', 'commit']);
     assert.match(String(v.json.commit), /^[0-9a-f]{7,12}$/);
+  });
+});
+
+describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
+  const FAKE = process.env.E2E_FAKE_MOLLIE!;
+  const control = async (p: string, body: unknown) => (await fetch(`${FAKE}${p}`, { method: 'POST', body: JSON.stringify(body) })).json();
+  const fakeState = async () => (await (await fetch(`${FAKE}/__test/state`)).json()) as { payments: { id: string; amount: { value: string }; metadata: { order: string } }[] };
+  const fakeStateFull = async () => (await (await fetch(`${FAKE}/__test/state`)).json()) as { payments: { id: string; redirectUrl: string }[] };
+  const webhook = (id: string, allow5xx = false) => anon.req('POST', '/api/zahlung/mollie', { body: `id=${encodeURIComponent(id)}`, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, allow5xx });
+  const submit = async (extra: Record<string, unknown> = {}) => {
+    const form = new FormData();
+    form.set('data', JSON.stringify({ ...orderData({ service: 'abmeldung', email: `mollie.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` }), ...extra }));
+    form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+    form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+    const ip = `10.8.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+    const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    assert.equal(r.status, 200, r.text.slice(0, 200));
+    return r.json as { number: string; paymentUrl: string | null };
+  };
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!;
+  const orderIdOf = async (number: string) => ((await vw.get(`orders?status=alle&q=${number}`)).json as unknown as { id: number }[])[0].id;
+  let paid = { number: '', id: 0, payment: '' };
+
+  it('Bestellung führt direkt zu Mollie; Betrag serverseitig – manipulierte Preisfelder werden ignoriert', async () => {
+    const o = await submit({ totalCents: 1, price: { total: 1 }, amount: '0.01' });
+    assert.match(String(o.paymentUrl), /^https:\/\/www\.mollie\.com\/checkout\//);
+    const id = tokenOf(o.paymentUrl!);
+    const p = (await fakeState()).payments.find((x) => x.id === id)!;
+    const orderId = await orderIdOf(o.number);
+    const d = await expect(bh, 'GET', `orders/${orderId}`, 200);
+    const total = (d.json.order as { total_cents: number }).total_cents;
+    assert.ok(total > 100, 'Gesamtbetrag aus der Preisberechnung');
+    assert.equal(p.amount.value, `${Math.floor(total / 100)}.${String(total % 100).padStart(2, '0')}`);
+    assert.equal(p.metadata.order, o.number);
+    paid = { number: o.number, id: orderId, payment: id };
+  });
+
+  it('Webhook: unbekannt/ungültig 200 ohne Wirkung; vor Zahlung keine Änderung; bezahlt genau einmal gebucht', async () => {
+    for (const bad of ['tr_unbekannt999', 'kaputt', '']) assert.equal((await webhook(bad)).status, 200);
+    assert.equal((await webhook(paid.payment)).status, 200);
+    let d = await expect(bh, 'GET', `orders/${paid.id}`, 200);
+    assert.equal((d.json.order as { payment_status: string }).payment_status, 'offen');
+    await control('/__test/set', { id: paid.payment, status: 'paid', method: 'creditcard' });
+    const codes = await Promise.all([webhook(paid.payment), webhook(paid.payment), webhook(paid.payment)]);
+    assert.deepEqual(codes.map((c) => c.status), [200, 200, 200]);
+    d = await expect(bh, 'GET', `orders/${paid.id}`, 200);
+    assert.equal((d.json.order as { payment_status: string }).payment_status, 'bezahlt');
+    const pays = (d.json.payments as { provider: string; status: string; kind: string; note: string }[]).filter((p) => p.provider === 'mollie' && p.status === 'bezahlt');
+    assert.equal(pays.length, 1, 'doppelte Zustellung ohne doppelte Buchung');
+    assert.match(pays[0].note, /TESTMODUS/);
+    const att = d.json.paymentAttempts as { status: string; paymentId: string; mode: string }[];
+    assert.deepEqual([att[0].status, att[0].paymentId, att[0].mode], ['paid', paid.payment, 'test']);
+  });
+
+  it('Zahlungsseite zeigt nur den bestätigten Stand (Testmodus deutlich), Zahlungsstart ohne gültigen Link abgewiesen', async () => {
+    const list = (await vw.get(`orders?status=alle&q=${paid.number}`)).json as unknown as { id: number }[];
+    assert.equal(list.length, 1);
+    const bad = await anon.req('POST', '/api/zahlung/start', { body: `nr=${paid.number}&t=falsch`, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    assert.equal(bad.status, 303);
+    assert.match(String(bad.headers.get('location')), /\/status$/);
+    const fake = await anon.req('GET', `/zahlung/${paid.number}?t=falsch&rueckkehr=1`);
+    assert.ok(fake.text.includes('Zahlungslink ungültig'));
+    assert.ok(!fake.text.includes('Vielen Dank'), 'manipulierte Rückleitung zeigt keinen Erfolg');
+  });
+
+  it('fehlgeschlagen → erneuter Versuch; Mollie nicht erreichbar → 503 (Wiederholung), danach übernommen', async () => {
+    const o = await submit();
+    const id1 = tokenOf(o.paymentUrl!);
+    await control('/__test/set', { id: id1, status: 'failed' });
+    assert.equal((await webhook(id1)).status, 200);
+    const orderId = await orderIdOf(o.number);
+    let d = await expect(bh, 'GET', `orders/${orderId}`, 200);
+    assert.equal((d.json.order as { payment_status: string }).payment_status, 'offen');
+    assert.deepEqual((d.json.paymentAttempts as { status: string }[]).map((a) => a.status), ['failed']);
+    // Rückkehrseite (Link aus der Rückleitung) zeigt „fehlgeschlagen“ und bietet „Erneut bezahlen“
+    const back = new URL((await fakeStateFull()).payments.find((x) => x.id === id1)!.redirectUrl);
+    const t = back.searchParams.get('t')!;
+    const page = await anon.req('GET', `/zahlung/${o.number}?t=${encodeURIComponent(t)}&rueckkehr=1`);
+    assert.ok(page.text.includes('Die Zahlung ist fehlgeschlagen.') && page.text.includes('Erneut bezahlen') && page.text.includes('TESTMODUS'));
+    const again = await anon.req('POST', '/api/zahlung/start', { body: `nr=${o.number}&t=${encodeURIComponent(t)}`, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    assert.equal(again.status, 303);
+    const id1b = tokenOf(String(again.headers.get('location')));
+    assert.notEqual(id1b, id1, 'neuer Versuch mit neuer Zahlung');
+    d = await expect(bh, 'GET', `orders/${orderId}`, 200);
+    assert.deepEqual((d.json.paymentAttempts as { status: string; attempt: number }[]).map((a) => [a.attempt, a.status]), [[2, 'open'], [1, 'failed']]);
+    const sync = await expect(vw, 'POST', `orders/${orderId}/zahlung/abgleich`, 200);
+    assert.equal((sync.json.attempt as { status: string }).status, 'open');
+    await expect(le, 'POST', `orders/${orderId}/zahlung/abgleich`, 200);
+    await expect(vw, 'POST', `orders/${paid.id}/zahlung/abgleich`, 200);
+    const none = await expect(vw, 'POST', `orders/${ids.a}/zahlung/abgleich`, 422);
+    assert.match(String(none.json.error), /keine Online-Zahlung/);
+    // Ausfall bei Mollie: 503 → Mollie stellt erneut zu; Stand bleibt bis dahin offen
+    const o2 = await submit();
+    const id2 = tokenOf(o2.paymentUrl!);
+    await control('/__test/set', { id: id2, status: 'paid' });
+    await control('/__test/mode', { offline: true });
+    assert.equal((await webhook(id2, true)).status, 503);
+    await control('/__test/mode', { offline: false });
+    assert.equal((await webhook(id2)).status, 200);
+    d = await expect(bh, 'GET', `orders/${await orderIdOf(o2.number)}`, 200);
+    assert.equal((d.json.order as { payment_status: string }).payment_status, 'bezahlt');
+  });
+
+  it('Preismanipulation bei Mollie (anderer Betrag) wird nicht als bezahlt übernommen; Diagnose zeigt Testmodus', async () => {
+    const o = await submit();
+    const id = tokenOf(o.paymentUrl!);
+    await control('/__test/set', { id, status: 'paid', amountValue: '0.01' });
+    assert.equal((await webhook(id)).status, 200);
+    const d = await expect(bh, 'GET', `orders/${await orderIdOf(o.number)}`, 200);
+    assert.equal((d.json.order as { payment_status: string }).payment_status, 'offen');
+    assert.match((d.json.paymentAttempts as { mismatch: string }[])[0].mismatch, /Betrag 0\.01 EUR/);
+    const diag = await expect(vw, 'GET', 'system/diagnose', 200);
+    const m = diag.json.mollie as { ok: boolean; mode: string; online: boolean };
+    assert.deepEqual([m.ok, m.mode, m.online], [true, 'test', true]);
+    assert.ok(!JSON.stringify(diag.json).includes('test_fake'), 'Schlüssel wird nie ausgegeben');
+    const set = await expect(vw, 'GET', 'settings', 200);
+    assert.ok(!JSON.stringify(set.json).includes('test_fake'));
+  });
+
+  it('Testzahlung aus dem OS: nur Inhaber; offener Testmodus-Versuch wird fortgesetzt', async () => {
+    const o = await submit();
+    const orderId = await orderIdOf(o.number);
+    for (const c of [vw, sb, le]) await expect(c, 'POST', `orders/${orderId}/zahlung/test`, 403);
+    const r = await expect(owner, 'POST', `orders/${orderId}/zahlung/test`, 200);
+    assert.equal(tokenOf(String(r.json.checkoutUrl)), tokenOf(o.paymentUrl!), 'kein zweiter Zahlungsvorgang');
+    const d = await expect(owner, 'GET', `orders/${orderId}`, 200);
+    assert.deepEqual(d.json.mollieTest, { available: true, canStart: true });
+    const paidAlready = await expect(owner, 'POST', `orders/${paid.id}/zahlung/test`, 422);
+    assert.match(String(paidAlready.json.error), /bereits bezahlt/);
   });
 });
 

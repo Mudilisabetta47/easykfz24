@@ -1,5 +1,6 @@
 // Endpunkte: Finanzcenter.
 
+import { attemptByPaymentId, reconcileAttempt } from '../../mollie.ts';
 import { PAYMENT_STATUS_LABEL } from '../../../lib/payment.ts';
 import { SERVICE_IDS, SERVICES } from '../../../lib/services.ts';
 import { audit } from '../../audit.ts';
@@ -143,7 +144,24 @@ export const financeRoutes: Route[] = [
       return ok(await setPaymentFee(int(c.params.id, 'Buchungs-ID'), v === null || v === '' ? null : Math.round(Number(v)), c.actor.name));
     },
   },
-  { method: 'POST', path: 'finance/payments/:id/refresh', perm: 'finance.write', handler: async (c) => ok(await refreshStripeFee(int(c.params.id, 'Buchungs-ID'))) },
+  {
+    // Stripe: Gebühr nachladen; Mollie: Stand der Zahlung neu abgleichen (GET /v2/payments/{id})
+    method: 'POST',
+    path: 'finance/payments/:id/refresh',
+    perm: 'finance.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Buchungs-ID');
+      const p = await (await getDb()).first<{ provider: string; provider_ref: string }>('SELECT provider, provider_ref FROM payments WHERE id = ?', id);
+      if (p?.provider === 'mollie') {
+        const att = await attemptByPaymentId(p.provider_ref.split(':')[0]);
+        if (!att) throw new HttpError(422, 'Zahlungsversuch nicht gefunden');
+        const r = await reconcileAttempt(att.id, { force: true, actor: c.actor.name });
+        if (!r.ok) throw new HttpError(422, r.error);
+        return { ok: true, attempt: r.attempt, changed: r.changed };
+      }
+      return ok(await refreshStripeFee(id));
+    },
+  },
   { method: 'GET', path: 'finance/vouchers', perm: 'finance.read', handler: async () => listVouchers() },
   {
     method: 'POST',

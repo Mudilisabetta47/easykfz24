@@ -47,3 +47,21 @@ export function PaymentMarks({ label = 'Bezahlen mit' }: { label?: string }) {
     </div>
   );
 }
+
+/** Zahlarten als offizielle Karten-Logos (Mollie-Grafiken, bringen eigenen Rahmen mit) – nur die tatsächlich aktiven */
+export function MethodMarks({ marks, label = 'Möglich mit' }: { marks: { name: string; logo: string }[]; label?: string }) {
+  if (!marks.length) return null;
+  return (
+    <div className="brand-row" aria-label={`${label} ${marks.map((m) => m.name).join(', ')}`}>
+      <span className="brand-row__label" aria-hidden="true">
+        {label}
+      </span>
+      <span className="brand-row__marks" aria-hidden="true">
+        {marks.map((m) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={m.name} className="brand-card" src={m.logo} alt="" width={40} height={30} loading="lazy" decoding="async" />
+        ))}
+      </span>
+    </div>
+  );
+}

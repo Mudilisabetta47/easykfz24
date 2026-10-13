@@ -35,7 +35,7 @@
       "jurisdiction": "eu"
     }
   ],
-  // Zeitsteuerung: alle 10 Minuten nur der kostenlose Vollmacht-Abgleich (worker.ts → /api/intern/zeitplan)
+  // Zeitsteuerung: alle 10 Minuten nur kostenlose Abgleiche (Vollmacht, Zahlungen) – worker.ts → /api/intern/zeitplan
   "triggers": { "crons": ["*/10 * * * *"] },
   // Im Dashboard gesetzte Variablen (z. B. PUBLIC_BASE_URL) beim Deployment nicht überschreiben
   "keep_vars": true,

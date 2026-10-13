@@ -342,6 +342,29 @@ export const RULES: RuleDef[] = [
     },
   },
   {
+    id: 'zahlung_abgleich',
+    title: 'Online-Zahlung: Stand bei Mollie abgleichen',
+    description:
+      'Fragt offene Zahlungsversuche bei Mollie ab, falls ein Webhook ausbleibt oder nicht zugestellt werden konnte. Übernommen wird nur der von Mollie bestätigte Stand.',
+    trigger: 'zeitgesteuert',
+    safety: 'Nur lesende, kostenlose Abfrage (GET /v2/payments/{id}); höchstens alle 10 Minuten je Zahlung, nur Versuche der letzten 3 Tage.',
+    params: [],
+    defaultEnabled: true,
+    async scan() {
+      const { attemptsDue, reconcileAttempt } = await import('../mollie.ts');
+      const rows = await attemptsDue(20);
+      return rows.map((r) => ({
+        key: `${r.id}:${Math.floor(Date.now() / 600_000)}`,
+        orderId: r.order_id,
+        exec: async () => {
+          const res = await reconcileAttempt(r.id, { force: true, actor: 'Automatisierung (Zahlungsabgleich)' });
+          if (!res.ok) return { result: 'übersprungen', detail: `Zahlung ${r.provider_id}: Abfrage nicht möglich (${res.error}) – nächster Versuch beim nächsten Lauf` };
+          return { result: res.changed ? 'ausgeführt' : 'übersprungen', detail: `Zahlung ${r.provider_id}: ${res.attempt.status || 'unbekannt'}` };
+        },
+      }));
+    },
+  },
+  {
     id: 'aufgaben_erinnerung',
     title: 'Erinnerung zu Aufgaben',
     description: 'Zum eingestellten Erinnerungszeitpunkt erhält der Zuständige einen Hinweis.',

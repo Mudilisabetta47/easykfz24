@@ -15,6 +15,7 @@ export type OsEventType =
   | 'payment.paid'
   | 'payment.failed'
   | 'payment.refunded'
+  | 'payment.test'
   | 'kfz.status'
   | 'kfz.problem'
   | 'task.created'

@@ -734,7 +734,7 @@ function Payments({ canWrite }: { canWrite: boolean }) {
                       </button>
                     </td>
                     <td>
-                      {p.provider === 'stripe' ? 'Stripe' : 'manuell'}
+                      {p.provider === 'stripe' ? 'Stripe' : p.provider === 'mollie' ? 'Mollie' : 'manuell'}
                       {p.method ? ` · ${p.method}` : ''}
                     </td>
                     <td>
@@ -760,6 +760,22 @@ function Payments({ canWrite }: { canWrite: boolean }) {
                               }}
                             >
                               von Stripe
+                            </button>
+                          ) : p.provider === 'mollie' ? (
+                            <button
+                              type="button"
+                              className="os-linkbtn os-small"
+                              onClick={async () => {
+                                try {
+                                  await osFetch(`finance/payments/${p.id}/refresh`, { method: 'POST', body: {} });
+                                  flash.show(true, 'Stand bei Mollie abgeglichen');
+                                  void pays.reload(true);
+                                } catch (e) {
+                                  flash.show(false, (e as Error).message);
+                                }
+                              }}
+                            >
+                              bei Mollie abgleichen
                             </button>
                           ) : null}
                           <button

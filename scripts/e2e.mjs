@@ -3,7 +3,7 @@
 //   node scripts/e2e.mjs node     → Next-Standalone-Server (Node, SQLite, lokaler Dateispeicher)
 //   node scripts/e2e.mjs worker   → Cloudflare-Laufzeit workerd (wrangler dev --local, D1 und R2 emuliert)
 // Externe Dienste sind abgeschaltet (kein Stripe-, E-Mail- oder kfz-api.de-Schlüssel) – es werden keine echten
-// Zahlungen, E-Mails oder Zulassungsanträge ausgelöst. Ergebnis zusätzlich als JUnit-XML in test-results/.
+// Zahlungen, E-Mails oder Zulassungsanträge ausgelöst. Mollie nur gegen den lokalen Testnachbau (scripts/fake-mollie.mjs). Ergebnis zusätzlich als JUnit-XML in test-results/.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -23,6 +23,12 @@ const secrets = {
 };
 // Alles Externe ausdrücklich leer – überschreibt eventuelle Werte aus .env-Dateien
 const blank = { STRIPE_SECRET_KEY: '', RESEND_API_KEY: '', MAIL_FROM: '', SMTP_URL: '', KFZ_API_BASE_URL: '', KFZ_API_LOGIN: '', KFZ_API_PASSWORD: '', PLATE_AVAILABILITY_URL: '' };
+// Online-Zahlung nur gegen den lokalen Mollie-Testnachbau (scripts/fake-mollie.mjs) – nie gegen Mollie selbst
+const { createFakeMollie, FAKE_MOLLIE_KEYS } = await import('./fake-mollie.mjs');
+const fakeMollie = createFakeMollie();
+await new Promise((r) => fakeMollie.server.listen(0, '127.0.0.1', r));
+const fakeMollieBase = `http://127.0.0.1:${fakeMollie.server.address().port}`;
+const mollieEnv = { MOLLIE_API_BASE: `${fakeMollieBase}/v2`, MOLLIE_API_KEY: FAKE_MOLLIE_KEYS.test, ZAHLUNG_ONLINE: '1' };
 
 let server;
 if (mode === 'node') {
@@ -30,12 +36,12 @@ if (mode === 'node') {
   if (!fs.existsSync(path.join(dir, 'server.js'))) throw new Error('Erst „npm run build“ ausführen');
   server = spawn(process.execPath, ['server.js'], {
     cwd: dir,
-    env: { ...blank, ...secrets, PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port), HOSTNAME: '127.0.0.1', DATA_DIR: tmp, PUBLIC_BASE_URL: base },
+    env: { ...blank, ...secrets, ...mollieEnv, PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port), HOSTNAME: '127.0.0.1', DATA_DIR: tmp, PUBLIC_BASE_URL: base },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 } else {
   const envFile = path.join(tmp, 'e2e.env');
-  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, PUBLIC_BASE_URL: base }).map(([k, v]) => `${k}=${v}`).join('\n'));
+  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, ...mollieEnv, PUBLIC_BASE_URL: base }).map(([k, v]) => `${k}=${v}`).join('\n'));
   server = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', path.join(tmp, 'state'), '--env-file', envFile], {
     env: { ...process.env, ...blank },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -51,6 +57,7 @@ const stop = () => {
   } catch {
     /* schon beendet */
   }
+  fakeMollie.server.close();
 };
 process.on('exit', stop);
 process.on('SIGINT', () => (stop(), process.exit(130)));
@@ -90,7 +97,7 @@ const run = spawn(
   ],
   {
     stdio: 'inherit',
-    env: { ...process.env, E2E_BASE: base, E2E_MODE: mode, E2E_ADMIN_PASSWORD: secrets.ADMIN_PASSWORD, E2E_KFZ_SECRET: secrets.KFZ_API_WEBHOOK_SECRET, E2E_STRIPE_SECRET: secrets.STRIPE_WEBHOOK_SECRET, E2E_SERVER_LOG: path.join(tmp, 'server.log') },
+    env: { ...process.env, E2E_BASE: base, E2E_MODE: mode, E2E_ADMIN_PASSWORD: secrets.ADMIN_PASSWORD, E2E_KFZ_SECRET: secrets.KFZ_API_WEBHOOK_SECRET, E2E_STRIPE_SECRET: secrets.STRIPE_WEBHOOK_SECRET, E2E_FAKE_MOLLIE: fakeMollieBase, E2E_SERVER_LOG: path.join(tmp, 'server.log') },
   },
 );
 run.on('exit', (code) => {

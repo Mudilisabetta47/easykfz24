@@ -36,6 +36,8 @@ import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.t
 import { processingOf } from '../../../lib/express.ts';
 import { orderMilestones } from '../../express.ts';
 import { orderWishPlace } from '../../regions.ts';
+import { attemptView, listAttempts, mollieMode, mollieTestAvailable, reconcileAttempt, startMolliePayment } from '../../mollie.ts';
+import { publicBaseUrl } from '../../payments.ts';
 import { getTestRelease, latestPoa, listPoas, poaCreationEnabled, poaMode, previewPoa, requestPoa, setBirthPlace, setTestRelease, verifyPoa, viewOf } from '../../power-of-attorney.ts';
 
 function filterFrom(url: URL): OrderFilter {
@@ -113,6 +115,10 @@ async function orderBundle(c: Ctx, id: number) {
     poaEnabled: poaCreationEnabled(),
     poaMode: poaMode(),
     poaTest: await poaTestInfo(c, id),
+    // Online-Zahlung (Mollie): Versuche mit bestätigtem Stand; Modus nur am Schlüssel-Präfix
+    paymentAttempts: (await listAttempts(id)).map(attemptView),
+    mollieMode: mollieMode(),
+    mollieTest: { available: mollieTestAvailable(), canStart: mollieTestAvailable() && c.s.user.role === 'inhaber' },
     // Einkaufspreise und Kosten nur mit Finanzrecht
     order: { ...order, payment_token: undefined, ...extra, price: c.can('finance.read') ? order.price : { ...order.price, cost: undefined } },
     customer,
@@ -254,6 +260,36 @@ export const orderRoutes: Route[] = [
       if (!rec) return NextResponse.json({ ok: false, error: 'Zu diesem Auftrag gibt es keinen Vollmachtsvorgang.' }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       const r = await verifyPoa(rec.id, { force: true, actor: c.actor.name });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, poa: r.poa ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return r;
+    },
+  },
+  {
+    // Testzahlung im Mollie-Testmodus (kein echtes Geld) für genau diesen Auftrag – nur Inhaber. Ist der Hauptschlüssel live,
+    // bleibt der Auftrag „Zahlung offen“ und es laufen keine Automatisierungen (src/server/mollie.ts).
+    method: 'POST',
+    path: 'orders/:id/zahlung/test',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann eine Testzahlung starten.');
+      if (!(await getOrder(id))) throw new HttpError(404, 'Auftrag nicht gefunden');
+      const r = await startMolliePayment(id, publicBaseUrl(c.req), { test: true });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'zahlung.testzahlung', String(id), r.reused ? 'fortgesetzt' : 'gestartet');
+      return { ok: true, checkoutUrl: r.checkoutUrl, reused: r.reused };
+    },
+  },
+  {
+    // Stand der Online-Zahlung jetzt bei Mollie abfragen (kostenlos, GET /v2/payments/{id})
+    method: 'POST',
+    path: 'orders/:id/zahlung/abgleich',
+    perm: 'orders.read',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const last = (await listAttempts(id)).find((a) => a.provider_id);
+      if (!last) return NextResponse.json({ ok: false, error: 'Zu diesem Auftrag gibt es keine Online-Zahlung.' }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      const r = await reconcileAttempt(last.id, { force: true, actor: c.actor.name });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       return r;
     },
   },

@@ -655,6 +655,35 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX power_of_attorneys_order ON power_of_attorneys(order_id);
   CREATE INDEX power_of_attorneys_status ON power_of_attorneys(status, checked_at);
   `,
+  // v9: Online-Zahlung über Mollie – Zahlungsversuche je Auftrag mit bestätigtem Stand; nur neue Tabelle
+  `
+  CREATE TABLE payment_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    provider_id TEXT UNIQUE,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    mode TEXT NOT NULL DEFAULT '',
+    amount_cents INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT '',
+    checkout_url TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT '',
+    expires_at TEXT NOT NULL DEFAULT '',
+    paid_at TEXT NOT NULL DEFAULT '',
+    refunded_cents INTEGER NOT NULL DEFAULT 0,
+    charged_back_cents INTEGER NOT NULL DEFAULT 0,
+    mismatch TEXT NOT NULL DEFAULT '',
+    create_error TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT '',
+    check_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (order_id, attempt)
+  );
+  CREATE INDEX payment_attempts_order ON payment_attempts(order_id);
+  CREATE INDEX payment_attempts_status ON payment_attempts(status, checked_at);
+  `,
 ];
 
 

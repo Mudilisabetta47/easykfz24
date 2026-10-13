@@ -12,6 +12,7 @@ const g = globalThis as unknown as {
     plates: SlidingWindowLimiter;
     withdrawals: SlidingWindowLimiter;
     poaStatus: SlidingWindowLimiter;
+    mollieWebhook: SlidingWindowLimiter;
   };
 };
 
@@ -25,6 +26,7 @@ const FACTORIES: { [K in keyof Limits]: () => SlidingWindowLimiter } = {
   plates: () => new SlidingWindowLimiter(40, 60 * 1000), // 40 Kennzeichen-Abfragen pro Minute und IP
   withdrawals: () => new SlidingWindowLimiter(10, 60 * 60 * 1000), // 10 Widerrufserklärungen pro Stunde und IP (Missbrauchsschutz)
   poaStatus: () => new SlidingWindowLimiter(60, 10 * 60 * 1000), // Rücksprungseite und Nachprüfung: 60 pro 10 Minuten und IP
+  mollieWebhook: () => new SlidingWindowLimiter(300, 60 * 1000), // Mollie-Webhook: großzügig (Mollie wiederholt bei 429), gegen Abfrage-Verstärkung
 };
 
 export function limits(): Limits {

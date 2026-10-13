@@ -34,6 +34,7 @@ import {
 } from '../shared.tsx';
 import { Badge, Empty, ErrorBox, KfzState, Loading, Panel, StatusBadge, Tabs, useFlash } from '../ui.tsx';
 import type { PoaPreview, PoaTestRelease, PoaView } from '../../../server/power-of-attorney.ts';
+import type { AttemptView } from '../../../server/mollie.ts';
 import { Preview } from './Preview.tsx';
 
 interface Transition {
@@ -100,6 +101,9 @@ export interface OrderBundle {
   poas: PoaView[];
   poaEnabled: boolean;
   poaMode: 'aus' | 'test' | 'aktiv';
+  paymentAttempts: AttemptView[];
+  mollieMode: 'test' | 'live' | null;
+  mollieTest: { available: boolean; canStart: boolean };
   poaTest: { canGrant: boolean; isInhaber: boolean; release: (PoaTestRelease & { active: boolean }) | null; otherOrder: string | null };
   transitions: Transition[];
   checklistProgress: { done: number; total: number };
@@ -1055,6 +1059,116 @@ function DocsTab({ data, busy, act, reload, flash }: { data: OrderBundle; busy: 
 
 /* ---------- Zahlung & Rechnung ---------- */
 
+const PROVIDER_LABEL: Record<string, string> = { stripe: 'Stripe', mollie: 'Mollie', manuell: 'manuell' };
+const ATTEMPT_TONE: Record<string, string> = {
+  paid: 'green',
+  open: 'blue',
+  pending: 'amber',
+  authorized: 'amber',
+  failed: 'red',
+  canceled: 'slate',
+  expired: 'slate',
+  '': 'slate',
+};
+const ATTEMPT_LABEL: Record<string, string> = {
+  paid: 'bezahlt',
+  open: 'offen',
+  pending: 'wird bestätigt',
+  authorized: 'autorisiert',
+  failed: 'fehlgeschlagen',
+  canceled: 'abgebrochen',
+  expired: 'abgelaufen',
+  '': 'nicht angelegt',
+};
+
+/** Online-Zahlung über Mollie: alle Versuche mit dem über die API bestätigten Stand */
+function OnlinePaymentPanel({ data, reload, flash }: { data: OrderBundle; reload: () => void; flash: (ok: boolean, t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const list = data.paymentAttempts;
+  const o = data.order;
+  const canTest = data.mollieTest.canStart && o.payment_status === 'offen' && o.status !== 'storniert' && o.total_cents > 0;
+  if (!list.length && !canTest) return null;
+  const startTest = async () => {
+    const live = data.mollieMode === 'live';
+    if (
+      !window.confirm(
+        `Testzahlung für ${o.number} im Mollie-Testmodus starten? Es wird kein echtes Geld bewegt.${live ? ' Der Auftrag bleibt „Zahlung offen“, es laufen keine Automatisierungen.' : ''} Der Testcheckout öffnet sich in einem neuen Tab – dort den gewünschten Status wählen.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const r = await osFetch<{ checkoutUrl: string; reused: boolean }>(`orders/${o.id}/zahlung/test`, { method: 'POST', body: {} });
+      window.open(r.checkoutUrl, '_blank', 'noopener');
+      flash(true, r.reused ? 'Offene Testzahlung fortgesetzt – Testcheckout geöffnet' : 'Testzahlung angelegt – Testcheckout geöffnet');
+      reload();
+    } catch (e) {
+      flash(false, (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const sync = async () => {
+    setBusy(true);
+    try {
+      const r = await osFetch<{ changed: boolean; attempt: AttemptView }>(`orders/${data.order.id}/zahlung/abgleich`, { method: 'POST', body: {} });
+      flash(true, r.changed ? `Stand übernommen: ${ATTEMPT_LABEL[r.attempt.status]}` : 'Stand bei Mollie abgefragt – unverändert');
+      reload();
+    } catch (e) {
+      flash(false, (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title="Online-Zahlung (Mollie)" actions={list.some((a) => a.mode === 'test') ? <Badge tone="amber">Testmodus</Badge> : null}>
+      {!list.length ? <p className="os-muted os-small">Noch keine Online-Zahlung zu diesem Auftrag.</p> : null}
+      {list.length ? (
+        <table className="os-table os-table--compact">
+          <tbody>
+            {list.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  Versuch {a.attempt}
+                  <span className="os-muted os-small"> · {a.paymentId ?? 'ohne Zahlungs-ID'}</span>
+                </td>
+                <td>
+                  <Badge tone={ATTEMPT_TONE[a.status] ?? 'slate'}>{ATTEMPT_LABEL[a.status] ?? a.status}</Badge>
+                  {a.method ? <span className="os-muted os-small"> · {a.method}</span> : null}
+                </td>
+                <td className="num">{euro(a.amountCents)}</td>
+                <td className="os-muted os-small">{a.checkedAt ? `geprüft ${dateTime(a.checkedAt)}` : dateTime(a.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {list.map((a) =>
+        a.mismatch ? (
+          <p key={`m${a.id}`} className="os-flash is-error">
+            Versuch {a.attempt}: {a.mismatch} – nicht als bezahlt übernommen.
+          </p>
+        ) : null,
+      )}
+      {list[0]?.createError ? <p className="os-flash is-warn">Anlage: {list[0].createError}</p> : null}
+      {list[0]?.checkError ? <p className="os-flash is-warn">Letzte Abfrage: {list[0].checkError}</p> : null}
+      <p className="os-muted os-small">Maßgeblich ist der über die Mollie-API bestätigte Stand. Webhook und Rückleitung stoßen nur einen Abgleich an.</p>
+      <div className="os-row">
+        {list.some((a) => a.paymentId) ? (
+          <button type="button" className="os-btn os-btn--ghost" disabled={busy} onClick={() => void sync()}>
+            Stand bei Mollie abfragen
+          </button>
+        ) : null}
+        {canTest ? (
+          <button type="button" className="os-btn os-btn--ghost" disabled={busy} onClick={() => void startTest()}>
+            Testzahlung starten (Mollie-Testmodus)
+          </button>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
 function PaymentTab({ data, busy, act, reload, flash }: { data: OrderBundle; busy: boolean; act: Act; reload: () => void; flash: (ok: boolean, t: string) => void }) {
   const o = data.order;
   const [pay, setPay] = useState<PaymentStatus>(o.payment_status);
@@ -1074,6 +1188,7 @@ function PaymentTab({ data, busy, act, reload, flash }: { data: OrderBundle; bus
   return (
     <div className="os-grid os-grid--detail">
       <div className="os-stack">
+        <OnlinePaymentPanel data={data} reload={reload} flash={flash} />
         <Panel title="Preis" actions={<Badge tone={o.payment_status === 'bezahlt' ? 'green' : o.payment_status === 'erstattet' ? 'slate' : 'amber'}>{PAYMENT_STATUS_LABEL[o.payment_status]}</Badge>}>
           <table className="os-table os-table--compact">
             <tbody>
@@ -1194,7 +1309,7 @@ function PaymentTab({ data, busy, act, reload, flash }: { data: OrderBundle; bus
                     <tr key={p.id}>
                       <td>{dateTime(p.at)}</td>
                       <td>
-                        {p.provider === 'stripe' ? 'Stripe' : 'manuell'} · {p.kind.replace('_', ' ')} · {p.status}
+                        {PROVIDER_LABEL[p.provider] ?? p.provider} · {p.kind.replace('_', ' ')} · {p.status}
                         {p.method ? ` · ${p.method}` : ''}
                         {p.note ? <span className="os-muted"> · {p.note}</span> : null}
                       </td>

@@ -11,7 +11,8 @@ import { cloudflareEnv, getDb, schemaVersion, SCHEMA_VERSION } from '../../db.ts
 import { kfzApiConfigured, kfzWebhookConfigured } from '../../kfz-api.ts';
 import { mailConfigured } from '../../mailer.ts';
 import { listTrash, purgeTrash, restoreNote } from '../../orders.ts';
-import { paymentsEnabled } from '../../payments.ts';
+import { paymentProvider, paymentsEnabled } from '../../payments.ts';
+import { checkMollie, mollieModes } from '../../mollie.ts';
 import { getSettings, LOCK_MINUTES_RANGE, setSettings } from '../../settings.ts';
 import { authenticate, createUser, listUsers, loadUser, updateUser } from '../../users.ts';
 import { disableTwoFactor, enableTwoFactor, setupTwoFactor, twoFactorStatus } from '../twofactor.ts';
@@ -367,7 +368,14 @@ export const systemRoutes: Route[] = [
           kfzApi: kfzApiConfigured(),
           mail: mailConfigured(),
           payments: paymentsEnabled(),
+          paymentProvider: paymentProvider(),
+          stripe: !!process.env.STRIPE_SECRET_KEY,
           stripeWebhook: !!process.env.STRIPE_WEBHOOK_SECRET,
+          // Mollie: nur ob ein Schlüssel da ist und welcher Modus (Präfix) – nie der Schlüssel selbst
+          mollie: !!process.env.MOLLIE_API_KEY,
+          mollieMode: mollieModes().haupt,
+          mollieTestKey: mollieModes().testschluessel,
+          mollieOnline: mollieModes().online,
           plateAvailability: !!process.env.PLATE_AVAILABILITY_URL,
         },
       };
@@ -460,6 +468,8 @@ export const systemRoutes: Route[] = [
         integrations: { kfzWebhook: kfzWebhookConfigured(), kfzApi: kfzApiConfigured(), mail: mailConfigured(), payments: paymentsEnabled(), stripeWebhook: !!process.env.STRIPE_WEBHOOK_SECRET },
         runtime: { node: typeof process !== 'undefined' ? process.version ?? '' : '', at: new Date().toISOString() },
         build: { commit: process.env.EK_BUILD_COMMIT ?? '', builtAt: process.env.EK_BUILD_AT ?? '' },
+        // Verbindungstest Mollie (GET /v2/methods, legt nichts an) – Modus nur am Schlüssel-Präfix, der Schlüssel bleibt geheim
+        mollie: await checkMollie(),
       };
     },
   },

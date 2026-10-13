@@ -10,7 +10,8 @@ import { createOrder, type UploadFile } from '../../../server/orders.ts';
 import { runAfter } from '../../../server/db.ts';
 import { afterOrderCreated } from '../../../server/os/order-actions.ts';
 import { ipFrom, limits } from '../../../server/limits.ts';
-import { createCheckout, paymentsEnabled, publicBaseUrl } from '../../../server/payments.ts';
+import { startMolliePayment } from '../../../server/mollie.ts';
+import { createCheckout, paymentProvider, publicBaseUrl } from '../../../server/payments.ts';
 import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
@@ -89,9 +90,13 @@ export async function POST(req: Request) {
     // Kundenstamm, Ereignis, Benachrichtigung und Automatisierungen – nach der Antwort, darf die Bestellung nie gefährden
     runAfter(afterOrderCreated(created.id, 'website'));
     // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
-    const paymentUrl = paymentsEnabled()
-      ? await createCheckout({ number: created.number, email: order.holder.email, totalCents: created.totalCents, token: created.paymentToken }, publicBaseUrl(req))
-      : null;
+    const provider = paymentProvider();
+    const paymentUrl =
+      provider === 'mollie'
+        ? await startMolliePayment(created.id, publicBaseUrl(req)).then((r) => (r.ok ? r.checkoutUrl : null))
+        : provider === 'stripe'
+          ? await createCheckout({ number: created.number, email: order.holder.email, totalCents: created.totalCents, token: created.paymentToken }, publicBaseUrl(req))
+          : null;
     return NextResponse.json({ ok: true, number: created.number, service: order.service, discount: created.discountApplied, paymentUrl });
   } catch (e) {
     console.error('[auftrag] Anlage fehlgeschlagen', e);

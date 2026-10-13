@@ -47,7 +47,9 @@ async function draftFor(ev: OsEvent): Promise<Draft | null> {
     case 'customer.returning':
       return { kind: 'bestandskunde', title: 'Bestandskunde bestellt erneut', text: `${label}${p.orders ? ` · ${p.orders}. Auftrag` : ''}` };
     case 'payment.paid':
-      return { kind: 'zahlung_ok', title: 'Zahlung eingegangen', text: label };
+      // Zweite Zahlung für einen bereits bezahlten Auftrag (z. B. zwei Zahlarten nacheinander): Geld zurückzahlen
+      if (p.double) return { kind: 'zahlung_fehler', title: 'Doppelte Zahlung – bitte erstatten', text: label, priority: 'kritisch' };
+      return { kind: 'zahlung_ok', title: p.test ? 'Testzahlung eingegangen (Mollie-Testmodus)' : 'Zahlung eingegangen', text: label };
     case 'order.poa': {
       // Stand der digitalen Vollmacht – nur verifizierte Änderungen (Abgleich über die Partner-Schnittstelle)
       const st = String(p.status ?? '');
@@ -58,7 +60,12 @@ async function draftFor(ev: OsEvent): Promise<Draft | null> {
     case 'order.withdrawal':
       // Widerruf über die Online-Funktion: Frist für die Rückzahlung beachten (14 Tage ab Eingang)
       return { kind: 'widerruf', title: 'Widerruf eingegangen', text: `${label || `Vertrag: ${p.contract ?? ''}`} · Vorgang ${p.reference ?? ''}` };
+    case 'payment.test':
+      // Testzahlung im Mollie-Testmodus (kein echtes Geld) – nur zur Kontrolle des Ablaufs
+      return { kind: 'zahlung_ok', title: `Testzahlung ${p.status === 'paid' ? 'erfolgreich' : String(p.status ?? '')} (Mollie-Testmodus, kein echtes Geld)`, text: label };
     case 'payment.failed':
+      // Betrag/Zuordnung weicht ab oder Rückbuchung: sofort prüfen
+      if (p.critical) return { kind: 'zahlung_fehler', title: 'Zahlung prüfen', text: `${label}${p.reason ? ` · ${p.reason}` : ''}`, priority: 'kritisch' };
       return { kind: 'zahlung_fehler', title: 'Zahlung fehlgeschlagen', text: `${label}${p.reason ? ` · ${p.reason}` : ''}` };
     case 'order.status':
       // Automatische Schritte nach kfz-api.de-Meldung: dafür gibt es schon die kfz.status-Benachrichtigung

@@ -728,7 +728,7 @@ interface SettingsData {
   lockMinutes: number;
   lockRange: { min: number; max: number };
   canManage: boolean;
-  system: { platform: string; database: string; uploads: string; publicUrl: string; kfzWebhook: boolean; kfzApi: boolean; mail: boolean; payments: boolean; stripeWebhook: boolean; plateAvailability: boolean };
+  system: { platform: string; database: string; uploads: string; publicUrl: string; kfzWebhook: boolean; kfzApi: boolean; mail: boolean; payments: boolean; paymentProvider: 'mollie' | 'stripe' | null; stripe: boolean; stripeWebhook: boolean; mollie: boolean; mollieMode: 'test' | 'live' | null; mollieTestKey: boolean; mollieOnline: boolean; plateAvailability: boolean };
 }
 
 interface AuditRow {
@@ -1045,7 +1045,15 @@ function Integrations() {
         <tbody>
           {row('KFZ-API Webhook', s.kfzWebhook, 'Statusmeldungen von kfz-api.de empfangen (signiert)', 'KFZ_API_WEBHOOK_SECRET')}
           {row('KFZ-API Zugang', s.kfzApi, 'Belege abrufen, Verbindungstest (nur lesend)', 'KFZ_API_BASE_URL, KFZ_API_LOGIN, KFZ_API_PASSWORD')}
-          {row('Zahlungsanbieter (Stripe)', s.payments, 'Bezahlseite, Gebühren als Ist-Wert', 'STRIPE_SECRET_KEY')}
+          {row(
+            `Zahlungsanbieter Mollie${s.mollieMode ? (s.mollieMode === 'test' ? ' (Testschlüssel)' : ' (Live-Schlüssel)') : ''}`,
+            s.mollie && !!s.mollieMode,
+            'Online-Zahlung, Webhook mit Abgleich über die API',
+            'MOLLIE_API_KEY',
+          )}
+          {row('Mollie-Testschlüssel (separat)', s.mollieTestKey, 'Testzahlungen im Mollie-Testmodus (OS, nur Inhaber)', 'MOLLIE_TEST_API_KEY')}
+          {row('Online-Zahlung für Kunden', s.mollieOnline, 'Bezahlseite im Bestellablauf – nur mit ausdrücklicher Freischaltung', 'ZAHLUNG_ONLINE=1')}
+          {row('Zahlungsanbieter (Stripe, bisher)', s.stripe, 'Bezahlseite, Gebühren als Ist-Wert', 'STRIPE_SECRET_KEY')}
           {row('Stripe-Webhook', s.stripeWebhook, 'Zahlungseingang automatisch buchen', 'STRIPE_WEBHOOK_SECRET')}
           {row('E-Mail-Versand', s.mail, 'Kunden- und Mitarbeiter-E-Mails', 'RESEND_API_KEY, MAIL_FROM')}
           {row('Wunschkennzeichen-Prüfung', s.plateAvailability, 'Verfügbarkeit prüfen', 'PLATE_AVAILABILITY_URL')}
@@ -1068,6 +1076,16 @@ function SystemStatus() {
     storage: { ok: boolean; ms: number; error?: string };
     cloudflare: { worker: boolean; d1Binding: boolean; r2Binding: boolean };
     runtime: { node: string; at: string };
+    build?: { commit: string; builtAt: string };
+    mollie?: {
+      configured: boolean;
+      mode: 'test' | 'live' | null;
+      online: boolean;
+      ok: boolean;
+      message: string;
+      methods: string[];
+      test: { available: boolean; separate: boolean; ok: boolean; message: string };
+    };
   }>(can('settings.manage') ? 'system/diagnose' : null);
   if (loading && !data) return <Loading />;
   if (error && !data) return <ErrorBox message={error} onRetry={() => void reload()} />;
@@ -1098,6 +1116,15 @@ function SystemStatus() {
               {row('Datenbestand', true, Object.entries(diag.data.database.counts).map(([k, v]) => `${k} ${v}`).join(' · '))}
               {row('Speicher-Test (schreiben/lesen/löschen)', diag.data.storage.ok, `${diag.data.storage.ms} ms${diag.data.storage.error ? ` · ${diag.data.storage.error}` : ''}`)}
               {row('Cloudflare', diag.data.cloudflare.worker || !diag.data.cloudflare.worker, diag.data.cloudflare.worker ? `Worker · D1 ${diag.data.cloudflare.d1Binding ? 'gebunden' : 'fehlt'} · R2 ${diag.data.cloudflare.r2Binding ? 'gebunden' : 'fehlt'}` : 'lokal (kein Worker)')}
+              {diag.data.build ? row('Version', true, diag.data.build.commit ? `Commit ${diag.data.build.commit} · gebaut ${diag.data.build.builtAt.slice(0, 16).replace('T', ' ')} UTC` : 'unbekannt') : null}
+              {diag.data.mollie
+                ? row(
+                    'Mollie (Verbindungstest)',
+                    diag.data.mollie.ok,
+                    `${diag.data.mollie.message}${diag.data.mollie.methods.length ? ` · aktive Zahlarten: ${diag.data.mollie.methods.join(', ')}` : ''} · Online-Zahlung für Kunden ${diag.data.mollie.online ? 'EIN' : 'aus'}`,
+                  )
+                : null}
+              {diag.data.mollie ? row('Mollie-Testzahlungen', diag.data.mollie.test.ok, diag.data.mollie.test.message || (diag.data.mollie.test.available ? 'verfügbar' : 'kein Testschlüssel')) : null}
             </ul>
           ) : (
             <Loading />
