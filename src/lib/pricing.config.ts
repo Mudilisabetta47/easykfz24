@@ -24,7 +24,12 @@ export interface PriceConfig {
   /** Komplett-Paket je Leistung (Leistung + Wunschkennzeichen + Schilder + Versand); null = kein Paket */
   bundleCents: Record<ServiceId, number | null>;
   wishPlateHandlingCents: number;
+  /** Kennzeichenschild Standard je Stück (Verkauf brutto) – im Betrieb aus dem Finanzcenter (lib/plates.ts) */
   plateSignCents: number;
+  /** Kennzeichenschild Carbon-Optik je Stück; null = nicht im Angebot */
+  plateSignCarbonCents: number | null;
+  /** Express-Aufpreise (brutto); null = Stufe nicht im Angebot – im Betrieb aus dem Finanzcenter (lib/express.ts) */
+  expressCents: { express: number | null; express_plus: number | null };
   shippingCents: number;
   pickupCents: number;
 }
@@ -49,8 +54,12 @@ export const PRICE_CONFIG: PriceConfig = {
   },
   /** Bearbeitung Wunschkennzeichen (unsere Leistung, ohne amtliche Reservierungsgebühr) */
   wishPlateHandlingCents: 1499,
-  /** Kennzeichenschild je Stück, geprägt */
+  /** Kennzeichenschild je Stück, geprägt (Standard) – Ausgangswert, im Finanzcenter änderbar */
   plateSignCents: 1299,
+  /** Carbon-Optik erst nach Preisfreigabe im Finanzcenter */
+  plateSignCarbonCents: null,
+  /** Express erst nach Freigabe im Finanzcenter */
+  expressCents: { express: null, express_plus: null },
   /** Versand der Unterlagen per Einschreiben */
   shippingCents: 699,
   /** Abholung in unserer Geschäftsstelle */

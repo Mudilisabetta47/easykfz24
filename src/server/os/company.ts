@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { getDb } from '../db.ts';
+import { PROVIDER_NAME } from '../../lib/site.ts';
 
 export const TAX_MODES = ['regel', 'kleinunternehmer'] as const;
 export type TaxMode = (typeof TAX_MODES)[number];
@@ -74,6 +75,16 @@ export async function setCompany(input: unknown, by: string): Promise<{ ok: true
   );
   g.__ekCompany = undefined;
   return { ok: true };
+}
+
+/**
+ * Abweichungen zum Impressum (nur Hinweis, sperrt nichts): Rechnungen, Kundenmails und Website sollen dieselbe Firma nennen –
+ * die Gesellschaft, nicht die Marke.
+ */
+export function companyWarnings(c: Company): string[] {
+  const w: string[] = [];
+  if (c.name && c.name !== PROVIDER_NAME) w.push(`Firmenname weicht vom Impressum ab – dort steht „${PROVIDER_NAME}“. Die Marke EasyKFZ24 gehört in die Fußzeile, nicht in den Firmennamen.`);
+  return w;
 }
 
 /** Fehlende Pflichtangaben für eine ordnungsgemäße Rechnung (§ 14 Abs. 4 UStG) – leer = vollständig. */

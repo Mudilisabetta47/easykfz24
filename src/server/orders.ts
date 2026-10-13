@@ -6,6 +6,12 @@ import type { DetectedType } from '../lib/files.ts';
 import { holderDisplayName, type ValidatedOrder } from '../lib/order.ts';
 import { formatOrderNumber } from '../lib/order-number.ts';
 import { calculatePrice, type PriceBreakdown } from '../lib/pricing.ts';
+import { offerOf } from '../lib/plates.ts';
+import { withExpressOffer, withPlateOffer } from '../lib/pricing.ts';
+import { expressOfferOf, isExpress, PROCESSING, processingOf, type Milestone, type ProcessingLevel } from '../lib/express.ts';
+import { currentExpress, expressCostSnapshot, orderMilestones } from './express.ts';
+import { PRICE_CONFIG } from '../lib/pricing.config.ts';
+import { currentPlateVersion, plateCostSnapshot } from './plates.ts';
 import type { DocumentKind, ServiceId } from '../lib/services.ts';
 import { checkTransition, isStatusId, OPEN_STATUSES, STATUS_IDS, type StatusId } from '../lib/status.ts';
 import { checkPlate } from '../lib/validation.ts';
@@ -60,7 +66,7 @@ export interface DocumentRow {
 export interface EventRow {
   id: number;
   at: string;
-  type: 'created' | 'status' | 'note' | 'plate' | 'checklist' | 'shipment' | 'payment' | 'kfz';
+  type: 'created' | 'status' | 'note' | 'plate' | 'checklist' | 'shipment' | 'payment' | 'kfz' | 'vollmacht';
   from_status: StatusId | null;
   to_status: StatusId | null;
   message: string;
@@ -137,15 +143,29 @@ export async function createOrder(
 
     // Neukunde = noch kein (nicht stornierter) Auftrag mit dieser E-Mail-Adresse.
     const existing = await db.first("SELECT 1 AS x FROM orders WHERE email = ? AND status != 'storniert' LIMIT 1", order.holder.email);
-    const price = calculatePrice({
-      service: order.service,
-      vehicleType: order.vehicle.art,
-      plateChoice: order.plate.wahl,
-      plateSigns: order.plate.schilder,
-      delivery: order.plate.zustellung,
-      newCustomer: !existing,
-      carrier: order.plate.versanddienst ?? undefined,
-    });
+    // Preise mit den aktuellen Schilderpreisen aus dem Finanzcenter (gleiche Quelle wie die Website)
+    const plateVersion = await currentPlateVersion();
+    const expressVersion = await currentExpress();
+    const price = calculatePrice(
+      {
+        service: order.service,
+        vehicleType: order.vehicle.art,
+        plateChoice: order.plate.wahl,
+        plateSigns: order.plate.schilder,
+        delivery: order.plate.zustellung,
+        newCustomer: !existing,
+        carrier: order.plate.versanddienst ?? undefined,
+        plateFinish: order.plate.ausfuehrung,
+        processing: order.bearbeitung,
+      },
+      withExpressOffer(withPlateOffer(PRICE_CONFIG, offerOf(plateVersion.prices, plateVersion.carbonChecks)), expressOfferOf(expressVersion)),
+    );
+    // Einkauf, Versand des Lieferanten und Preisversion dauerhaft am Auftrag – Preisänderungen ändern ihn nicht mehr
+    const plateLine = price.lines.find((l) => l.key === 'schilder');
+    if (plateLine?.finish && plateLine.qty) price.cost = { plates: plateCostSnapshot(plateVersion, plateLine.finish, plateLine.qty) };
+    if (isExpress(order.bearbeitung) && price.lines.some((l) => l.key === 'express')) {
+      price.cost = { ...price.cost, express: expressCostSnapshot(expressVersion, order.bearbeitung) };
+    }
     const paymentToken = randomBytes(18).toString('base64url');
     const idOf = '(SELECT id FROM orders WHERE number = ?)';
 
@@ -488,6 +508,10 @@ export interface PublicStatus {
   /** Bearbeitungsstand laut kfz-api.de ('' = noch keine Meldung → „Auftrag eingegangen“) */
   kfzDisplay: string;
   kfzTimeline: { at: string; label: string }[];
+  /** Nur bei Express: Stufe und Meilensteine mit tatsächlichen Zeitpunkten (keine Dauer-Zusagen) */
+  express?: { level: 'express' | 'express_plus'; label: string; milestones: Milestone[] };
+  /** Digitale Vollmacht: bestätigter Stand (Abgleich über die Partner-Schnittstelle), Link nur solange offen */
+  vollmacht?: { view: string; title: string; verifiedAt: string; signatureUrl: string };
 }
 
 export async function lookupStatus(number: string, email: string): Promise<PublicStatus | null> {
@@ -507,8 +531,9 @@ export async function lookupStatus(number: string, email: string): Promise<Publi
     payment_token: string;
     total_cents: number;
     kfz_display: string;
+    data_json: string;
   }>(
-    'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents, kfz_display FROM orders WHERE number = ?',
+    'SELECT id, number, service, status, created_at, assigned_plate, delivery, email, carrier, tracking_number, payment_status, payment_token, total_cents, kfz_display, data_json FROM orders WHERE number = ?',
     number,
   );
   // Gleiche Antwort für „unbekannte Nummer“ und „falsche E-Mail“ – verrät nichts.
@@ -536,5 +561,38 @@ export async function lookupStatus(number: string, email: string): Promise<Publi
     timeline: events.map((e) => ({ at: e.at, status: e.to_status, message: e.public_message })),
     kfzDisplay: row.kfz_display,
     kfzTimeline: kfz.map((e) => ({ at: e.at, label: e.public_message })),
+    ...(await expressStatus(row.id, row.data_json)),
+    ...(await poaStatus(row.id)),
   };
+}
+
+async function poaStatus(orderId: number): Promise<Pick<PublicStatus, 'vollmacht'>> {
+  const { latestPoa, verifyPoa } = await import('./power-of-attorney.ts');
+  const { customerView, CUSTOMER_TEXT } = await import('../lib/power-of-attorney.ts');
+  const rec = await latestPoa(orderId);
+  if (!rec || !rec.process_id) return {};
+  const r = await verifyPoa(rec.id, { actor: 'Statusabfrage (Abgleich)' });
+  const cur = r.ok ? r.poa : r.poa;
+  const status = (cur?.status || rec.status || 'offen') as Parameters<typeof customerView>[0];
+  const view = customerView(status, cur ? cur.ready : !!rec.ready);
+  return {
+    vollmacht: {
+      view,
+      title: CUSTOMER_TEXT[view].title,
+      verifiedAt: cur?.verifiedAt ?? rec.verified_at,
+      signatureUrl: view === 'pending' ? (cur?.signatureUrl ?? rec.signature_url) : '',
+    },
+  };
+}
+
+async function expressStatus(orderId: number, dataJson: string): Promise<Pick<PublicStatus, 'express'>> {
+  let level: ProcessingLevel = 'standard';
+  try {
+    level = processingOf(JSON.parse(dataJson) as ValidatedOrder);
+  } catch {
+    level = 'standard';
+  }
+  if (level === 'standard') return {};
+  const milestones = (await orderMilestones(orderId)) ?? [];
+  return { express: { level, label: PROCESSING[level].label, milestones } };
 }

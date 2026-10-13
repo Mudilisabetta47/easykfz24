@@ -1,25 +1,50 @@
 import Link from 'next/link';
+import { WORDMARK_PATHS, WORDMARK_STROKE, WORDMARK_WIDTH } from './logo-paths.generated.ts';
 
-/** Bildmarke: ein „E“, dessen mittlerer Balken als Bewegungspfeil nach vorn läuft. */
+/**
+ * Bildmarke „E-Pfeil“: ein E, dessen Mittelbalken als Pfeil nach vorn läuft (Quelle: scripts/brand/logo.py).
+ * Eigene Konstruktion ohne Fremdschrift – identisch in Website, OS, Favicon und Logodateien.
+ */
 export function LogoMark({ className = 'logo__mark' }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 34 34" aria-hidden="true">
-      <rect x="0.5" y="0.5" width="33" height="33" rx="9.5" fill="#0a1433" stroke="rgb(255 255 255 / 0.14)" />
-      <rect x="9" y="8.6" width="3.4" height="16.8" rx="1.7" fill="#fff" />
-      <rect x="9" y="8.6" width="15.4" height="3.4" rx="1.7" fill="#fff" />
-      <rect x="9" y="22" width="15.4" height="3.4" rx="1.7" fill="#fff" />
-      <path d="M10.7 15.3h12.6l-1.7-1.7a1 1 0 0 1 1.4-1.4l3.6 3.6a1.2 1.2 0 0 1 0 1.7l-3.6 3.6a1 1 0 0 1-1.4-1.4l1.7-1.7H10.7a1.35 1.35 0 0 1 0-2.7z" fill="#3d6bff" />
+    <svg className={className} viewBox="0 0 100 100" aria-hidden="true">
+      <rect width="100" height="100" rx="24" fill="#2a55ff" />
+      <g transform="translate(-3,0)" fill="none" stroke="#fff" strokeWidth="10" strokeLinejoin="round">
+        <path d="M58,27 H28 V73 H58" strokeLinecap="butt" />
+        <path d="M28,50 H76" strokeLinecap="butt" />
+        <path d="M67,40.5 L77,50 L67,59.5" strokeLinecap="round" />
+      </g>
     </svg>
   );
 }
 
-export function Logo({ href = '/' }: { href?: string }) {
+/** Wortmarke „EASYKFZ24“ als Pfade; Farben über --logo-ink (EASY) und --logo-accent (KFZ24) */
+export function Wordmark({ className = 'logo__word', id = 'wm' }: { className?: string; id?: string }) {
+  return (
+    <svg className={className} viewBox={`0 0 ${WORDMARK_WIDTH} 100`} aria-hidden="true">
+      <clipPath id={`${id}-clip`}>
+        <rect x="-20" y="0" width={WORDMARK_WIDTH + 40} height="100" />
+      </clipPath>
+      <g clipPath={`url(#${id}-clip)`} fill="none" strokeWidth={WORDMARK_STROKE} strokeLinejoin="round">
+        {WORDMARK_PATHS.map((p, i) => (
+          <path
+            key={i}
+            d={p.d}
+            transform={`translate(${p.x},0)`}
+            strokeLinecap={p.cap}
+            stroke={p.part === 'easy' ? 'var(--logo-ink, currentColor)' : 'var(--logo-accent, #2a55ff)'}
+          />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+export function Logo({ href = '/', id = 'logo' }: { href?: string; id?: string }) {
   return (
     <Link href={href} className="logo" aria-label="EasyKFZ24 – zur Startseite">
       <LogoMark />
-      <span className="logo__word" aria-hidden="true">
-        Easy<b>KFZ24</b>
-      </span>
+      <Wordmark id={id} />
     </Link>
   );
 }

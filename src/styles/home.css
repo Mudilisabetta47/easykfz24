@@ -213,7 +213,7 @@
 .hero__car {
   position: relative;
   inline-size: min(68vw, 1080px, 150svh);
-  aspect-ratio: 1200 / 420;
+  aspect-ratio: 1642 / 532;
   pointer-events: auto;
   will-change: transform, opacity;
 }
@@ -222,6 +222,31 @@
   inline-size: 100%;
   block-size: auto;
   overflow: visible;
+}
+.hero__car-img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.hero__sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  -webkit-mask: url('/media/hero-car-mask.png') center / 100% 100% no-repeat;
+  mask: url('/media/hero-car-mask.png') center / 100% 100% no-repeat;
+}
+.hero__sheen-band {
+  position: absolute;
+  inset-block: -10% 0;
+  inset-inline-start: 0;
+  inline-size: 18%;
+  background: linear-gradient(100deg, transparent, rgb(190 215 255 / 0.32) 45%, rgb(255 255 255 / 0.5) 52%, transparent);
+  transform: translate3d(-120%, 0, 0);
+  will-change: transform;
 }
 .car__wheel {
   transform-box: fill-box;

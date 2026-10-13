@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
-import { CarSvg } from '../CarSvg.tsx';
 import { ArrowRight, Check, Doc, Receipt, Shield } from '../icons.tsx';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateTrigger } from '../plate/PlateConfigurator.tsx';
@@ -101,7 +100,15 @@ export function Hero() {
           <div className="hero__scene" aria-hidden="true">
             <div className="hero__car" data-car data-cursor="Entdecken">
               <div className="hero__glow" data-glow />
-              <CarSvg id="hero-car" />
+              {/* Skizze (Nutzungsrecht beim Betreiber); Markenzeichen an Felgen und Kotflügel retuschiert */}
+              <picture>
+                <source type="image/avif" srcSet="/media/hero-car-960.avif 960w, /media/hero-car.avif 1642w" sizes="(max-width: 760px) 112vw, min(68vw, 1080px)" />
+                <img className="hero__car-img" src="/media/hero-car.png" width={1642} height={532} alt="" decoding="async" fetchPriority="high" draggable={false} />
+              </picture>
+              {/* Lichtkante über die Karosserie, auf die Form des Fahrzeugs maskiert */}
+              <div className="hero__sheen">
+                <span className="hero__sheen-band" data-sweep />
+              </div>
               <div className="hero__scan" data-scan />
               {CHIPS.map((c, i) => (
                 <div key={c.label} className={`hero__chip hero__chip--${i}`} data-chip={i}>

@@ -22,6 +22,19 @@ export interface Db {
   batch(stmts: Stmt[]): Promise<void>;
 }
 
+/**
+ * Lange ID-Listen in Blöcken abfragen: Cloudflare D1 erlaubt höchstens 100 gebundene Parameter je Abfrage
+ * (lokal mit SQLite fällt eine Überschreitung nicht auf). sql erhält die Platzhalter („?,?,…“) eines Blocks.
+ */
+export async function allIn<T>(db: Db, ids: Param[], sql: (placeholders: string) => string, extra: Param[] = [], size = 90): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    const part = ids.slice(i, i + size);
+    out.push(...(await db.all<T>(sql(part.map(() => '?').join(',')), ...part, ...extra)));
+  }
+  return out;
+}
+
 export function dataDir(): string {
   return path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
 }
@@ -589,6 +602,58 @@ export const MIGRATIONS: string[] = [
     read_until TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
   );
+  `,
+  // v7: Widerrufserklärungen über die elektronische Widerrufsfunktion (§ 356a BGB) – nur neue Tabelle, nichts wird verändert
+  `
+  CREATE TABLE withdrawals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference TEXT NOT NULL UNIQUE,
+    received_at TEXT NOT NULL,
+    name TEXT NOT NULL,
+    contract TEXT NOT NULL,
+    email TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    order_id INTEGER,
+    order_number TEXT NOT NULL DEFAULT '',
+    confirmation_state TEXT NOT NULL DEFAULT '',
+    confirmation_at TEXT NOT NULL DEFAULT '',
+    handled_at TEXT NOT NULL DEFAULT '',
+    handled_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX withdrawals_order ON withdrawals(order_id);
+  CREATE INDEX withdrawals_received ON withdrawals(received_at);
+  `,
+  // v8: Digitale Vollmacht (kfz-api.de/Nect) – Zuordnung Vollmachtsvorgang ↔ Auftrag, verifizierter Stand; nur neue Tabelle
+  `
+  CREATE TABLE power_of_attorneys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    external_order_id TEXT NOT NULL UNIQUE,
+    process_id INTEGER UNIQUE,
+    status TEXT NOT NULL DEFAULT '',
+    ready INTEGER NOT NULL DEFAULT 0,
+    send_email INTEGER NOT NULL DEFAULT 1,
+    with_sepa INTEGER NOT NULL DEFAULT 0,
+    signature_url TEXT NOT NULL DEFAULT '',
+    valid_until TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    missing_json TEXT NOT NULL DEFAULT '[]',
+    blocking_json TEXT NOT NULL DEFAULT '[]',
+    failure_category TEXT NOT NULL DEFAULT '',
+    create_error TEXT NOT NULL DEFAULT '',
+    partner_updated_at TEXT NOT NULL DEFAULT '',
+    verified_at TEXT NOT NULL DEFAULT '',
+    status_changed_at TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT '',
+    check_error TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (order_id, attempt)
+  );
+  CREATE INDEX power_of_attorneys_order ON power_of_attorneys(order_id);
+  CREATE INDEX power_of_attorneys_status ON power_of_attorneys(status, checked_at);
   `,
 ];
 

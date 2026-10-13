@@ -15,6 +15,11 @@ import { Services } from '../../components/home/Services.tsx';
 import { StatusDemo } from '../../components/home/StatusDemo.tsx';
 import { Trust } from '../../components/home/Trust.tsx';
 import { Split } from '../../components/Split.tsx';
+import { getPlateOffer } from '../../server/plates.ts';
+import { getExpressOffer } from '../../server/express.ts';
+
+// Schilderpreise kommen aus dem Finanzcenter – Seite daher je Aufruf (Preisangabe = berechneter Preis)
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: { absolute: 'EasyKFZ24 – Kfz-Zulassung. Einfach digital.' },
@@ -26,7 +31,8 @@ const faqJsonLd = {
   mainEntity: HOME_FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [plateOffer, expressOffer] = await Promise.all([getPlateOffer(), getExpressOffer()]);
   return (
     <>
       <Hero />
@@ -38,7 +44,7 @@ export default function HomePage() {
       <Germany />
       <Trust />
       <Dealers />
-      <Pricing />
+      <Pricing plateOffer={plateOffer} expressOffer={expressOffer} />
       <section className="faq-sec" id="faq" aria-labelledby="faq-title">
         <div className="shell faq-sec__grid">
           <div>

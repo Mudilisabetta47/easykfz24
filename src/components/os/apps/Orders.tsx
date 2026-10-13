@@ -12,7 +12,7 @@ import type { OrderListRow } from '../../../server/os/order-query.ts';
 import { dateTime, euro, osFetch, relTime, useOsData } from '../api.ts';
 import { useOs } from '../context.ts';
 import { IRefresh, ISearch } from '../icons.tsx';
-import { Chips, dateOnly, ExportMenu, IssueDot, isOverdue, PRIORITY_LABEL, PriorityBadge, StaffSelect, StageBadge, staffName, useStaff } from '../shared.tsx';
+import { Chips, dateOnly, ExportMenu, IssueDot, isOverdue, PlateBadge, PRIORITY_LABEL, PriorityBadge, ProcessingBadge, StaffSelect, StageBadge, staffName, useStaff } from '../shared.tsx';
 import { Empty, ErrorBox, KfzState, Loading, StatusBadge, useFlash } from '../ui.tsx';
 import { OrderDetailView } from './OrderDetail.tsx';
 import { OrderForm } from './OrderForm.tsx';
@@ -47,7 +47,7 @@ function toQuery(f: Filters, extra: Record<string, string | number | undefined> 
 
 export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>; nonce: number }) {
   const { can } = useOs();
-  const [view, setView] = useState<'liste' | 'kanban'>('liste');
+  const [view, setView] = useState<'liste' | 'kanban' | 'express'>(params?.view === 'express' ? 'express' : 'liste');
   const [f, setF] = useState<Filters>(() => ({ ...EMPTY, status: typeof params?.status === 'string' ? params.status : EMPTY.status }));
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selected, setSelected] = useState<number | null>((params?.orderId as number) ?? null);
@@ -77,7 +77,11 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
     return () => window.clearTimeout(t);
   }, [f.q]);
 
-  const query = toQuery({ ...f, q: debouncedQ }, { customer: params?.customer as number | undefined, limit: view === 'kanban' ? 2000 : 500 });
+  const query = toQuery(view === 'express' ? { ...f, q: debouncedQ, status: 'laufend' } : { ...f, q: debouncedQ }, {
+    customer: params?.customer as number | undefined,
+    limit: view === 'kanban' ? 2000 : 500,
+    ...(view === 'express' ? { express: 1 } : {}),
+  });
   const list = useOsData<OrderListRow[]>(`orders?${query}`, { pollMs: 30_000 });
   const rows = list.data ?? [];
   const active = Object.entries(f).filter(([k, v]) => k !== 'q' && k !== 'status' && v).length;
@@ -119,6 +123,7 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
           options={[
             { id: 'liste', label: 'Liste' },
             { id: 'kanban', label: 'Kanban' },
+            { id: 'express', label: 'Express-Warteschlange' },
           ]}
         />
         <button type="button" className="os-iconbtn" onClick={() => void list.reload()} aria-label="Aktualisieren" title="Aktualisieren">
@@ -230,6 +235,11 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
           {filterBar}
           {content ?? <Kanban rows={rows} onOpen={(id) => (setSelected(id), setView('liste'))} onChanged={() => void list.reload(true)} />}
         </>
+      ) : view === 'express' ? (
+        <>
+          {filterBar}
+          {content ?? <ExpressQueue rows={rows} staff={staff} onOpen={(id) => (setSelected(id), setView('liste'))} />}
+        </>
       ) : (
         <div className={`os-split os-split--wide${selected ? ' has-detail' : ''}`}>
           <section className="os-split__list" aria-label="Auftragsliste">
@@ -259,6 +269,8 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
                             <span className="os-mono">{o.number}</span>
                             <span className="os-row os-row--tight">
                               <PriorityBadge value={o.priority} />
+                              <ProcessingBadge level={o.processing} />
+                              <PlateBadge signs={o.plate_signs} />
                               <IssueDot issues={o.issues} />
                               <StageBadge stage={o.stage} />
                             </span>
@@ -318,6 +330,81 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+/* ---------- Express-Warteschlange ---------- */
+
+const sinceText = (iso: string | null) => {
+  if (!iso) return '–';
+  const h = (Date.now() - Date.parse(iso)) / 3_600_000;
+  return h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} Tage`;
+};
+
+/** Laufende Express-Aufträge: bezahlte zuerst, dann nach interner Frist; mit fehlenden Unterlagen/Codes und Verzögerungen. */
+function ExpressQueue({ rows, staff, onOpen }: { rows: OrderListRow[]; staff: ReturnType<typeof useStaff>; onOpen: (id: number) => void }) {
+  const sorted = [...rows].sort(
+    (a, b) =>
+      Number(!a.paid_at) - Number(!b.paid_at) ||
+      (a.processing === 'express_plus' ? 0 : 1) - (b.processing === 'express_plus' ? 0 : 1) ||
+      (a.due_at || '9999').localeCompare(b.due_at || '9999') ||
+      a.created_at.localeCompare(b.created_at),
+  );
+  if (!sorted.length) return <Empty title="Keine laufenden Express-Aufträge" text="Express-Aufträge erscheinen hier nach dem Eingang – bezahlte zuerst." />;
+  return (
+    <div className="os-tablewrap os-pad">
+      <table className="os-table os-table--compact">
+        <thead>
+          <tr>
+            <th scope="col">Auftrag</th>
+            <th scope="col">Stufe</th>
+            <th scope="col">Bezahlt seit</th>
+            <th scope="col">Hinweise</th>
+            <th scope="col">Phase</th>
+            <th scope="col">Interne Frist</th>
+            <th scope="col">Zuständig</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((o) => {
+            const late = isOverdue(o.due_at);
+            const hints = o.issues.filter((i) => i.level !== 'hinweis');
+            return (
+              <tr key={o.id} className={`is-link${late ? ' is-late' : ''}`} onClick={() => onOpen(o.id)}>
+                <td>
+                  <span className="os-mono">{o.number}</span>
+                  <br />
+                  <span className="os-small">{o.holder_name}</span>
+                </td>
+                <td>
+                  <ProcessingBadge level={o.processing} />
+                </td>
+                <td>{o.paid_at ? sinceText(o.paid_at) : <span className="os-muted">noch nicht bezahlt</span>}</td>
+                <td>
+                  {hints.length ? (
+                    <ul className="os-list-plain os-small">
+                      {hints.slice(0, 3).map((i) => (
+                        <li key={i.code}>{i.text}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="os-muted">–</span>
+                  )}
+                </td>
+                <td>
+                  <StageBadge stage={o.stage} />
+                </td>
+                <td>{o.due_at ? <span className={late ? 'is-neg' : undefined}>{late ? `überschritten (${dateOnly(o.due_at)})` : dateOnly(o.due_at)}</span> : <span className="os-muted">–</span>}</td>
+                <td>{staffName(staff, o.assignee_id) || <span className="os-muted">niemand</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="os-muted os-small">
+        Interne Frist = Bearbeitungsziel laut Express-Einstellungen ab Zahlung (nur intern, nie Kundenzusage). „Bezahlt seit“ zählt die tatsächlich vergangene Zeit.
+      </p>
     </div>
   );
 }
@@ -403,6 +490,8 @@ function Kanban({ rows, onOpen, onChanged }: { rows: OrderListRow[]; onOpen: (id
                       <span className="os-mono">{o.number}</span>
                       <span className="os-row os-row--tight">
                         <PriorityBadge value={o.priority} />
+                        <ProcessingBadge level={o.processing} />
+                        <PlateBadge signs={o.plate_signs} />
                         <IssueDot issues={o.issues} />
                       </span>
                     </span>

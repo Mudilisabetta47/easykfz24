@@ -4,7 +4,9 @@
 // aus einer ausdrücklichen Eingabe in der Verwaltung.
 
 import { z } from 'zod';
-import type { PriceBreakdown } from '../../lib/pricing.ts';
+import { plateSignCount, type PriceBreakdown } from '../../lib/pricing.ts';
+import { PLATE_FINISHES, plateFinishOf, type PlateFinish } from '../../lib/plates.ts';
+import { platePriceHistory, versionAt, type PlatePriceVersion } from '../plates.ts';
 import { SERVICES, type ServiceId } from '../../lib/services.ts';
 import type { ValidatedOrder } from '../../lib/order.ts';
 import { getDb, q } from '../db.ts';
@@ -122,7 +124,50 @@ export interface Contribution {
   feeCents: number | null;
   feeIsActual: boolean;
   otherCostCents: number;
+  /** Schilder: Ausführung, Stückzahl, Einkauf und Versand des Lieferanten (netto, zum Bestellzeitpunkt gespeichert) */
+  plateFinish: PlateFinish | '';
+  plateCount: number;
+  plateBuyCents: number;
+  /** null = Versandkosten des Lieferanten beim Bestellen nicht gepflegt (dann kein Deckungsbeitrag) */
+  plateShippingCents: number | null;
+  plateCostCents: number;
+  platePriceVersion: number | null;
   contributionCents: number | null;
+}
+
+export interface PlateFacts {
+  finish: PlateFinish;
+  qty: number;
+  /** Verkauf laut Preisposition (brutto) */
+  grossCents: number;
+  /** Einkauf netto (Stückpreis × Anzahl) zum Bestellzeitpunkt */
+  buyCents: number;
+  /** Versand des Lieferanten netto; null = beim Bestellen nicht gepflegt */
+  supplierShippingCents: number | null;
+  priceVersion: number;
+  /** true = Kosten beim Bestellen im Auftrag gespeichert; false = ältere Aufträge, aus dem Preisverlauf ermittelt */
+  snapshot: boolean;
+}
+
+/** Schilder eines Auftrags: bevorzugt die beim Bestellen gespeicherten Kosten (unveränderlich). */
+export function plateFacts(dataJson: string, priceJson: string, createdAt: string, history: PlatePriceVersion[]): PlateFacts | null {
+  try {
+    const data = JSON.parse(dataJson) as ValidatedOrder;
+    if (!data.plate?.schilder) return null;
+    const price = JSON.parse(priceJson) as PriceBreakdown;
+    const line = price.lines.find((l) => l.key === 'schilder');
+    if (!line) return null;
+    const snap = price.cost?.plates;
+    if (snap) {
+      return { finish: snap.finish, qty: snap.qty, grossCents: line.cents, buyCents: snap.buyCents, supplierShippingCents: snap.supplierShippingCents, priceVersion: snap.priceVersion, snapshot: true };
+    }
+    const finish = line.finish ?? plateFinishOf(data.plate);
+    const qty = line.qty ?? plateSignCount(data.vehicle.art);
+    const v = versionAt(history, createdAt);
+    return { finish, qty, grossCents: line.cents, buyCents: qty * v.prices[finish].buyCents, supplierShippingCents: v.supplierShippingCents, priceVersion: v.version, snapshot: false };
+  } catch {
+    return null;
+  }
 }
 
 /** Verkaufspreis (netto) – Einkaufskosten – Zahlungsgebühren – weitere direkte Kosten = Deckungsbeitrag. */
@@ -141,8 +186,9 @@ export async function contributions(filter: { from?: string; to?: string; limit?
     params.push(filter.to);
   }
   params.push(Math.min(filter.limit ?? 2000, 5000));
-  const rows = await db.all<{ id: number; number: string; holder_name: string; service: ServiceId; status: string; payment_status: string; created_at: string; total_cents: number; fee: number | null; fees_known: number; pays: number }>(
-    `SELECT o.id, o.number, o.holder_name, o.service, o.status, o.payment_status, o.created_at, o.total_cents,
+  const history = await platePriceHistory();
+  const rows = await db.all<{ id: number; number: string; holder_name: string; service: ServiceId; status: string; payment_status: string; created_at: string; total_cents: number; fee: number | null; fees_known: number; pays: number; data_json: string; price_json: string }>(
+    `SELECT o.id, o.number, o.holder_name, o.service, o.status, o.payment_status, o.created_at, o.total_cents, o.data_json, o.price_json,
        (SELECT SUM(p.fee_cents) FROM payments p WHERE p.order_id = o.id AND p.fee_cents IS NOT NULL) AS fee,
        (SELECT COUNT(*) FROM payments p WHERE p.order_id = o.id AND p.kind = 'zahlung' AND p.status = 'bezahlt' AND p.fee_cents IS NOT NULL) AS fees_known,
        (SELECT COUNT(*) FROM payments p WHERE p.order_id = o.id AND p.kind = 'zahlung' AND p.status = 'bezahlt') AS pays
@@ -154,7 +200,10 @@ export async function contributions(filter: { from?: string; to?: string; limit?
     const cost = settings.costs[r.service];
     const feeActual = r.pays > 0 && r.fees_known === r.pays;
     const fee = r.fee ?? (r.pays === 0 && r.payment_status !== 'bezahlt' ? 0 : null);
-    const contribution = cost === null || fee === null ? null : net - cost - fee;
+    const plate = plateFacts(r.data_json, r.price_json, r.created_at, history);
+    const plateCost = plate ? plate.buyCents + (plate.supplierShippingCents ?? 0) : 0;
+    const plateUnknown = !!plate && plate.supplierShippingCents === null;
+    const contribution = cost === null || fee === null || plateUnknown ? null : net - cost - plateCost - fee;
     return {
       orderId: r.id,
       number: r.number,
@@ -170,9 +219,93 @@ export async function contributions(filter: { from?: string; to?: string; limit?
       feeCents: fee,
       feeIsActual: feeActual,
       otherCostCents: 0,
+      plateFinish: plate?.finish ?? '',
+      plateCount: plate?.qty ?? 0,
+      plateBuyCents: plate?.buyCents ?? 0,
+      plateShippingCents: plate ? plate.supplierShippingCents : 0,
+      plateCostCents: plateCost,
+      platePriceVersion: plate?.priceVersion ?? null,
       contributionCents: contribution,
     };
   });
+}
+
+/* ---------- Kennzeichenschilder: Standard und Carbon-Optik getrennt ---------- */
+
+export interface PlateReportRow {
+  finish: PlateFinish;
+  orders: number;
+  plates: number;
+  grossCents: number;
+  netCents: number;
+  buyCents: number;
+  /** Versand des Lieferanten (nur gepflegte Werte) */
+  shippingCents: number;
+  /** Zahlungsgebühren anteilig nach Anteil der Schilder am Auftragsbetrag (nur bekannte Gebühren) */
+  feeCents: number;
+  /** Aufträge mit vollständig bekannten Kosten – nur diese gehen in den Deckungsbeitrag ein */
+  completeOrders: number;
+  completeNetCents: number;
+  contributionCents: number;
+}
+
+/**
+ * Schilder je Ausführung: Netto-Erlös, direkte Kosten (Einkauf, Versand Lieferant, anteilige Zahlungsgebühr) und
+ * Deckungsbeitrag. Unbekannte Kosten werden nicht geschätzt – solche Aufträge zählen nur als „unvollständig“.
+ */
+export async function plateReport(filter: { from?: string; to?: string } = {}): Promise<{ rows: PlateReportRow[]; bundleOrders: number }> {
+  const db = await getDb();
+  const company = await getCompany();
+  const history = await platePriceHistory();
+  const where = ["o.status != 'storniert'"];
+  const params: string[] = [];
+  if (filter.from) {
+    where.push('o.created_at >= ?');
+    params.push(filter.from);
+  }
+  if (filter.to) {
+    where.push('o.created_at < ?');
+    params.push(filter.to);
+  }
+  const orders = await db.all<{ created_at: string; data_json: string; price_json: string; total_cents: number; payment_status: string; fee: number | null; fees_known: number; pays: number }>(
+    `SELECT o.created_at, o.data_json, o.price_json, o.total_cents, o.payment_status,
+       (SELECT SUM(p.fee_cents) FROM payments p WHERE p.order_id = o.id AND p.fee_cents IS NOT NULL) AS fee,
+       (SELECT COUNT(*) FROM payments p WHERE p.order_id = o.id AND p.kind = 'zahlung' AND p.status = 'bezahlt' AND p.fee_cents IS NOT NULL) AS fees_known,
+       (SELECT COUNT(*) FROM payments p WHERE p.order_id = o.id AND p.kind = 'zahlung' AND p.status = 'bezahlt') AS pays
+     FROM orders o WHERE ${where.join(' AND ')} ORDER BY o.created_at DESC LIMIT 10000`,
+    ...params,
+  );
+  const empty = (f: PlateFinish): PlateReportRow => ({ finish: f, orders: 0, plates: 0, grossCents: 0, netCents: 0, buyCents: 0, shippingCents: 0, feeCents: 0, completeOrders: 0, completeNetCents: 0, contributionCents: 0 });
+  const acc = Object.fromEntries(PLATE_FINISHES.map((f) => [f, empty(f)])) as Record<PlateFinish, PlateReportRow>;
+  let bundleOrders = 0;
+  for (const o of orders) {
+    const p = plateFacts(o.data_json, o.price_json, o.created_at, history);
+    if (!p) continue;
+    const a = acc[p.finish];
+    const { net } = splitGross(p.grossCents, company);
+    // Gebühr wie beim Deckungsbeitrag je Auftrag: bekannt, oder 0 solange nichts bezahlt wurde
+    const orderFee = o.fee ?? (o.pays === 0 && o.payment_status !== 'bezahlt' ? 0 : null);
+    const feeKnown = orderFee !== null && (o.pays === 0 || o.fees_known === o.pays);
+    const feeShare = feeKnown && o.total_cents > 0 ? Math.round(((orderFee as number) * p.grossCents) / o.total_cents) : 0;
+    a.orders += 1;
+    a.plates += p.qty;
+    a.grossCents += p.grossCents;
+    a.netCents += net;
+    a.buyCents += p.buyCents;
+    a.shippingCents += p.supplierShippingCents ?? 0;
+    a.feeCents += feeShare;
+    if (feeKnown && p.supplierShippingCents !== null) {
+      a.completeOrders += 1;
+      a.completeNetCents += net;
+      a.contributionCents += net - p.buyCents - p.supplierShippingCents - feeShare;
+    }
+    try {
+      if ((JSON.parse(o.price_json) as PriceBreakdown).bundleSaving > 0) bundleOrders += 1;
+    } catch {
+      /* ältere Preisaufstellung */
+    }
+  }
+  return { rows: PLATE_FINISHES.map((f) => acc[f]), bundleOrders };
 }
 
 /* ---------- Kennzahlen nach Zeitraum ---------- */

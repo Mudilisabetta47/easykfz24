@@ -1,16 +1,19 @@
 import Link from 'next/link';
-import { SITE } from '../lib/site.ts';
+import { BRAND_NOTE } from '../lib/site.ts';
+import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../lib/withdrawal.ts';
+import { withdrawalMode } from '../server/withdrawal.ts';
 import { Logo } from './Logo.tsx';
-import { Ph } from './Ph.tsx';
 import { CarrierMarks, PaymentMarks } from './Brands.tsx';
 
 export function SiteFooter() {
+  // Widerrufsfunktion (§ 356a BGB) auf jeder Seite erreichbar – erst nach Freischaltung (WIDERRUF_AKTIV=1) bzw. lokal als Vorschau
+  const withdrawal = withdrawalMode() !== 'aus';
   return (
     <footer className="site-footer on-dark">
       <div className="shell">
         <div className="site-footer__grid">
           <div className="site-footer__brand">
-            <Logo />
+            <Logo id="logo-fuss" />
             <p>
               Digitaler Kfz-Zulassungsservice. Wir übernehmen mit Ihrer Vollmacht Zulassung, Ummeldung,
               Wiederzulassung und Abmeldung. EasyKFZ24 ist keine Behörde.
@@ -41,6 +44,8 @@ export function SiteFooter() {
               <li><Link href="/impressum">Impressum</Link></li>
               <li><Link href="/datenschutz">Datenschutz</Link></li>
               <li><Link href="/kfz-anmelden/vollmacht">Vollmacht (Vorlage)</Link></li>
+              {withdrawal ? <li><Link href={NOTICE_PATH}>Widerrufsbelehrung</Link></li> : null}
+              {withdrawal ? <li><Link href={WITHDRAW_PATH}>{WITHDRAW_LABEL}</Link></li> : null}
             </ul>
           </div>
         </div>
@@ -49,9 +54,7 @@ export function SiteFooter() {
           <CarrierMarks />
         </div>
         <div className="site-footer__bottom">
-          <span>
-            Ein Service der <Ph>{SITE.company}</Ph>
-          </span>
+          <span>{BRAND_NOTE}</span>
           <span>Alle Fahrzeug- und Kennzeichendarstellungen sind schematisch.</span>
         </div>
       </div>

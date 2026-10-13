@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Ph } from '../../../components/Ph.tsx';
-import { SITE } from '../../../lib/site.ts';
+import { BRAND_NOTE, PROVIDER, SITE } from '../../../lib/site.ts';
 
 export const metadata: Metadata = { title: 'Datenschutz', robots: { index: false, follow: true } };
 
@@ -19,10 +19,11 @@ export default function DatenschutzPage() {
       <div className="shell section-pad prose">
         <h2>1. Verantwortlicher</h2>
         <p>
-          <Ph>{SITE.company}</Ph>, <Ph>{SITE.street}</Ph>, <Ph>{SITE.city}</Ph>, E-Mail: <Ph>{SITE.email}</Ph>
+          <Ph>{SITE.company}</Ph>, vertreten durch den Geschäftsführer {PROVIDER.managingDirector}, <Ph>{SITE.street}</Ph>, <Ph>{SITE.city}</Ph>
+          {PROVIDER.phone ? `, Telefon: ${PROVIDER.phone}` : ''}, E-Mail: <Ph>{SITE.email}</Ph>
         </p>
         <p>
-          Datenschutzkontakt: <Ph>{SITE.privacyContact}</Ph>
+          Datenschutzanfragen richten Sie bitte an: <Ph>{SITE.privacyContact}</Ph>. {BRAND_NOTE}
         </p>
 
         <h2>2. Welche Daten wir verarbeiten</h2>

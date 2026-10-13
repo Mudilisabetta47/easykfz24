@@ -523,7 +523,7 @@ export async function getKfzOrderInfo(orderId: number): Promise<KfzOrderInfo | n
 
 /* ---------- Lesende API-Aufrufe ---------- */
 
-function apiAuth(): { base: string; header: string } | null {
+export function apiAuth(): { base: string; header: string } | null {
   if (!kfzApiConfigured()) return null;
   const base = (process.env.KFZ_API_BASE_URL as string).replace(/\/$/, '');
   const header = `Basic ${Buffer.from(`${process.env.KFZ_API_LOGIN}:${process.env.KFZ_API_PASSWORD}`).toString('base64')}`;

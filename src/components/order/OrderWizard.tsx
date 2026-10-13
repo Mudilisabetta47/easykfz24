@@ -15,7 +15,9 @@ import {
   type FieldErrors,
   type OrderInput,
 } from '../../lib/order.ts';
-import { calculatePrice, isPromoActive, plateSignCount, servicePrice } from '../../lib/pricing.ts';
+import { calculatePrice, isPromoActive, plateSignCount, servicePrice, withExpressOffer, withPlateOffer } from '../../lib/pricing.ts';
+import { PLATE_FINISH, PLATE_FINISHES, type PlateOffer } from '../../lib/plates.ts';
+import { EXPRESS_FOOTNOTE, EXPRESS_HEADLINE, NO_EXPRESS, PROCESSING, PROCESSING_LEVELS, type ExpressOffer, type ProcessingLevel } from '../../lib/express.ts';
 import { BUNDLE_NAMES, NEW_CUSTOMER_PROMO, OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_ARE_EXAMPLE_VALUES, PRICES_FINAL } from '../../lib/pricing.config.ts';
 
 const PROMO_ON = PRICES_FINAL && isPromoActive();
@@ -36,7 +38,9 @@ import { checkFin, checkIban, checkPlate, formatIban } from '../../lib/validatio
 import { plateFormatFor, splitPlate } from '../../lib/plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
-import { PlateInput } from '../plate/PlateInput.tsx';
+import { PlateInput, placeText, type PlacePick } from '../plate/PlateInput.tsx';
+import { BRAND, BRAND_NOTE, PROVIDER_ADDRESS, PROVIDER_CONTACT, PROVIDER_NAME } from '../../lib/site.ts';
+import { NOTICE_PATH } from '../../lib/withdrawal.ts';
 import { normalizeWish, parseWishText, type WishInput } from '../../lib/wish-plate.ts';
 import { ArrowRight, Check, Close, Doc } from '../icons.tsx';
 import { CarrierMark, PaymentMarks } from '../Brands.tsx';
@@ -44,11 +48,11 @@ import { CARRIER_IDS, CARRIERS, isCarrierId } from '../../lib/shipping.ts';
 
 /** Schritte und die Fehlerschlüssel (Präfixe), die zu ihnen gehören. */
 const STEPS = [
-  { key: 'start', keys: ['service', 'plate.wahl', 'plate.wunschkennzeichen', 'plate.schilder'], title: 'Leistung & Kennzeichen' },
+  { key: 'start', keys: ['service', 'plate.wahl', 'plate.wunschkennzeichen', 'plate.schilder', 'plate.ausfuehrung'], title: 'Leistung & Kennzeichen' },
   { key: 'vehicle', keys: ['vehicle.'], title: 'Fahrzeug' },
   { key: 'holder', keys: ['holder.'], title: 'Halter' },
   { key: 'documents', keys: ['documents.'], title: 'Unterlagen' },
-  { key: 'delivery', keys: ['plate.zustellung', 'plate.versanddienst'], title: 'Zustellung' },
+  { key: 'delivery', keys: ['plate.zustellung', 'plate.versanddienst', 'bearbeitung'], title: 'Zustellung & Bearbeitung' },
   { key: 'finish', keys: ['finish.'], title: 'Abschluss' },
   { key: 'review', keys: [], title: 'Prüfen' },
 ] as const;
@@ -89,6 +93,11 @@ export function OrderWizard({
   wish = '',
   payOnline = false,
   bundle = false,
+  plateOffer,
+  expressOffer,
+  wishPlace = null,
+  withdrawalInfo = false,
+  birthPlace = false,
 }: {
   initial: string;
   /** Bisheriges Kennzeichen (z. B. von der Startseite bei Abmeldung) */
@@ -100,7 +109,21 @@ export function OrderWizard({
   wish?: string;
   payOnline?: boolean;
   bundle?: boolean;
+  /** Schilderpreise aus dem Finanzcenter (Carbon null = nicht im Angebot) */
+  plateOffer?: PlateOffer;
+  /** Express-Aufpreise aus dem Finanzcenter (null = Stufe nicht im Angebot) */
+  expressOffer?: ExpressOffer;
+  /** Im Konfigurator gewählter Ort (aus der URL, serverseitig gegen die verifizierten Daten geprüft) */
+  wishPlace?: PlacePick | null;
+  /** Widerrufsbelehrung im Prüfschritt verlinken (erst nach Freischaltung der Widerrufsstrecke) */
+  withdrawalInfo?: boolean;
+  /** Digitale Vollmacht aktiv: Geburtsort abfragen (Pflicht für Privatpersonen, außer Abmeldung) */
+  birthPlace?: boolean;
 }) {
+  const offer: PlateOffer = plateOffer ?? { standard: PRICE_CONFIG.plateSignCents, carbon: null };
+  const xOffer: ExpressOffer = expressOffer ?? NO_EXPRESS;
+  const priceCfg = withExpressOffer(withPlateOffer(PRICE_CONFIG, offer), xOffer);
+  const expressLevels = PROCESSING_LEVELS.filter((l) => l === 'standard' || xOffer[l] !== null);
   const router = useRouter();
   const [draft, setDraft] = useState<OrderInput>(() => {
     const d = withBundle(withWish(emptyDraft(isServiceId(initial) ? initial : ''), wish), bundle);
@@ -109,8 +132,11 @@ export function OrderWizard({
     if (isVehicleTypeId(vehicleType)) v.art = vehicleType;
     if (plateKind === 'e') Object.assign(v, { eKennzeichen: true, antrieb: v.antrieb || 'elektro' });
     if (plateKind === 'h') v.hKennzeichen = true;
+    // Gewählten Ort übernehmen: am Wunschkennzeichen speichern und als Wohnort vorschlagen
+    if (wishPlace) return { ...d, vehicle: v, plate: { ...d.plate, wunschort: wishPlace.ags }, holder: { ...d.holder, ort: d.holder.ort || wishPlace.name } };
     return { ...d, vehicle: v };
   });
+  const [place, setPlace] = useState<PlacePick | null>(wishPlace);
   const [files, setFiles] = useState<Files>({});
   // Immer im ersten Schritt beginnen – dort stehen neben der Leistung auch Kennzeichen und Schilder.
   const [step, setStep] = useState(0);
@@ -128,6 +154,15 @@ export function OrderWizard({
   const docOpts = { hKennzeichen: draft.vehicle.hKennzeichen };
   const def = service ? SERVICES[service] : null;
   const wahl = (def?.plateChoices.includes(draft.plate.wahl as PlateChoice) ? draft.plate.wahl : null) as PlateChoice | null;
+  // Leistung, Wunschkennzeichen und Ort in der Adresse halten: Neuladen verliert die Auswahl nicht (keine personenbezogenen Daten)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const put = (k: string, v: string) => (v ? url.searchParams.set(k, v) : url.searchParams.delete(k));
+    put('leistung', draft.service);
+    put('wunsch', wahl === 'wunsch' ? draft.plate.wunschkennzeichen : '');
+    put('ort', wahl === 'wunsch' && place ? place.ags : '');
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+  }, [draft.service, wahl, draft.plate.wunschkennzeichen, place]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -145,6 +180,13 @@ export function OrderWizard({
     if (errors[path]) setErrors(({ [path]: _, ...rest }) => rest);
   };
 
+  /** Ort wählen bzw. lösen; ein automatisch übernommener Wohnort folgt dem neuen Ort, eigene Eingaben bleiben */
+  const choosePlace = (p: PlacePick | null) => {
+    setPlace(p);
+    update('plate', 'wunschort', p?.ags ?? '');
+    if (p && (!draft.holder.ort.trim() || draft.holder.ort === place?.name)) update('holder', 'ort', p.name);
+  };
+
   const chooseService = (id: ServiceId) => {
     setDirty(true);
     setDraft((d) => withBundle(withWish(applyServiceDefaults({ ...d, plate: { ...d.plate } }, id), wish), bundle));
@@ -160,7 +202,7 @@ export function OrderWizard({
     const st = STEPS[i];
     if (st.key === 'review') return {};
     if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
-    const res = validateOrder(draft);
+    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace });
     const errs: FieldErrors = {};
     if (!res.ok) {
       if (i > 0 && res.errors.service) return {};
@@ -288,8 +330,11 @@ export function OrderWizard({
         plateSigns: draft.plate.schilder,
         delivery: (draft.plate.zustellung as 'versand' | 'abholung' | '') || '',
         carrier: draft.plate.versanddienst,
-      })
+        plateFinish: draft.plate.ausfuehrung === 'carbon' && offer.carbon !== null ? 'carbon' : 'standard',
+        processing: (draft.bearbeitung as ProcessingLevel) || 'standard',
+      }, priceCfg)
     : null;
+  const finish = draft.plate.ausfuehrung === 'carbon' && offer.carbon !== null ? 'carbon' : 'standard';
 
   const e = errors;
   const wishCheck = draft.plate.wunschkennzeichen ? checkPlate(draft.plate.wunschkennzeichen) : null;
@@ -410,11 +455,13 @@ export function OrderWizard({
                         bubble="Wunschkennzeichen eingeben"
                         invalid={e['plate.wunschkennzeichen'] ? 'all' : null}
                         describedBy="wiz-wish-hint"
+                        place={place}
+                        onPlace={choosePlace}
                       />
                       {e['plate.wunschkennzeichen'] ? <p className="field__error">{e['plate.wunschkennzeichen']}</p> : null}
                       <div className="wish-box__actions">
                         <p className="wish-box__hint" id="wiz-wish-hint">
-                          Das Ortskennzeichen muss zu Ihrem Wohnsitz gehören.
+                          Ort, PLZ oder Kürzel ins Schild tippen. Das Ortskennzeichen muss zu Ihrem Wohnsitz gehören.
                         </p>
                         <button type="button" className="btn btn--sm btn--ghost" onClick={() => setPickerOpen(true)}>
                           Freie Kombinationen vorschlagen
@@ -448,6 +495,7 @@ export function OrderWizard({
                                 format={plateFormat}
                                 size="100%"
                                 detail="lite"
+                                finish={finish}
                               />
                             ))}
                             {signParts ? null : <span className="signs-preview__tag">Beispiel</span>}
@@ -456,7 +504,9 @@ export function OrderWizard({
                           <span className="choice__text">Geprägt, passend zum Fahrzeug – kommen fertig zu Ihnen.</span>
                           {PRICES_FINAL ? (
                             <span className="choice__price">
-                              <strong>je {formatEuro(PRICE_CONFIG.plateSignCents)}</strong>
+                              <strong>
+                                {offer.carbon !== null ? 'ab ' : ''}je {formatEuro(priceCfg.plateSignCents)}
+                              </strong>
                               <span className="muted">
                                 {draft.vehicle.art ? `${plateSignCount(draft.vehicle.art)} Stück` : 'Pkw: 2 Stück'}
                               </span>
@@ -483,6 +533,46 @@ export function OrderWizard({
                         </label>
                       </div>
                       {e['plate.schilder'] ? <p className="field__error">{e['plate.schilder']}</p> : null}
+                      {signs === 'ja' && offer.carbon !== null ? (
+                        <>
+                          <h3 className="wizard__sub">Ausführung der Schilder</h3>
+                          <div className="choice-grid choice-grid--compact finish-grid" role="radiogroup" aria-label="Ausführung der Schilder" data-error-anchor="plate.ausfuehrung" tabIndex={-1}>
+                            {PLATE_FINISHES.map((f) => {
+                              const unit = f === 'carbon' ? (offer.carbon as number) : priceCfg.plateSignCents;
+                              return (
+                                <label key={f} className={`choice finish-choice finish-choice--${f}${finish === f ? ' is-selected' : ''}`}>
+                                  <input type="radio" name="ausfuehrung" checked={finish === f} onChange={() => update('plate', 'ausfuehrung', f)} />
+                                  {PLATE_FINISH[f].premium ? <span className="finish-choice__badge">Premium</span> : null}
+                                  <span className="finish-choice__preview" aria-hidden="true">
+                                    <GermanLicensePlate
+                                      id={`wiz-finish-${f}`}
+                                      cityCode={signParts?.cityCode ?? 'HB'}
+                                      letters={signParts?.letters ?? 'EZ'}
+                                      numbers={`${signParts?.numbers ?? '24'}${plateSuffix ?? ''}`}
+                                      format={plateFormat}
+                                      size="100%"
+                                      detail="lite"
+                                      finish={f}
+                                    />
+                                  </span>
+                                  <span className="choice__title">{PLATE_FINISH[f].label}</span>
+                                  <span className="choice__text">{PLATE_FINISH[f].text}</span>
+                                  {PRICES_FINAL ? (
+                                    <span className="choice__price">
+                                      <strong>je {formatEuro(unit)}</strong>
+                                      <span className="muted">
+                                        {f === 'carbon' ? `+ ${formatEuro(unit - priceCfg.plateSignCents)} je Schild` : `${signCount} Stück`}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <p className="wizard__note finish-note">Vorschau schematisch. Beide Ausführungen: weißes, reflektierendes Schildfeld mit schwarzer Prägung.</p>
+                          {e['plate.ausfuehrung'] ? <p className="field__error">{e['plate.ausfuehrung']}</p> : null}
+                        </>
+                      ) : null}
                     </>
                   ) : null}
 
@@ -513,9 +603,11 @@ export function OrderWizard({
               {pickerOpen ? (
                 <PlateConfigurator
                   initial={wishInput.cityCode ? wishInput : undefined}
+                  initialPlace={place}
                   onClose={() => setPickerOpen(false)}
-                  onPick={(plate) => {
+                  onPick={(plate, pl) => {
                     update('plate', 'wunschkennzeichen', plate);
+                    choosePlace(pl);
                     setPickerOpen(false);
                   }}
                 />
@@ -679,6 +771,11 @@ export function OrderWizard({
                     <Field path="holder.geburtsdatum" label="Geburtsdatum" error={e['holder.geburtsdatum']}>
                       <input id={fieldId('holder.geburtsdatum')} type="date" autoComplete="bday" value={draft.holder.geburtsdatum} onChange={(ev) => update('holder', 'geburtsdatum', ev.target.value)} aria-invalid={!!e['holder.geburtsdatum']} aria-describedby={describedBy('holder.geburtsdatum', e['holder.geburtsdatum'])} />
                     </Field>
+                    {birthPlace && service !== 'abmeldung' ? (
+                      <Field path="holder.geburtsort" label="Geburtsort" error={e['holder.geburtsort']} hint="Wie im Personalausweis – für die digitale Vollmacht.">
+                        <input id={fieldId('holder.geburtsort')} maxLength={105} value={draft.holder.geburtsort} onChange={(ev) => update('holder', 'geburtsort', ev.target.value)} aria-invalid={!!e['holder.geburtsort']} aria-describedby={describedBy('holder.geburtsort', e['holder.geburtsort'], true)} />
+                      </Field>
+                    ) : null}
                   </>
                 ) : null}
                 {draft.holder.typ ? (
@@ -695,7 +792,16 @@ export function OrderWizard({
                       <Field path="holder.plz" label="PLZ" error={e['holder.plz']}>
                         <input id={fieldId('holder.plz')} inputMode="numeric" autoComplete="postal-code" maxLength={5} value={draft.holder.plz} onChange={(ev) => update('holder', 'plz', ev.target.value.replace(/\D/g, ''))} aria-invalid={!!e['holder.plz']} aria-describedby={describedBy('holder.plz', e['holder.plz'])} />
                       </Field>
-                      <Field path="holder.ort" label="Ort" error={e['holder.ort']}>
+                      <Field
+                        path="holder.ort"
+                        label="Ort"
+                        error={e['holder.ort']}
+                        hint={
+                          wahl === 'wunsch' && place && draft.holder.ort.trim() && draft.holder.ort.trim().toLowerCase() !== place.name.toLowerCase()
+                            ? `Ihr Wunschkennzeichen ist für ${placeText(place)} gewählt. Das Ortskennzeichen muss zum Wohnsitz passen – wir prüfen das vor der Reservierung.`
+                            : undefined
+                        }
+                      >
                         <input id={fieldId('holder.ort')} autoComplete="address-level2" value={draft.holder.ort} onChange={(ev) => update('holder', 'ort', ev.target.value)} aria-invalid={!!e['holder.ort']} aria-describedby={describedBy('holder.ort', e['holder.ort'])} />
                       </Field>
                     </div>
@@ -833,6 +939,68 @@ export function OrderWizard({
                   {e['plate.versanddienst'] ? <p className="field__error">{e['plate.versanddienst']}</p> : null}
                 </>
               ) : null}
+
+              {expressLevels.length > 1 ? (
+                <div className="express" data-error-anchor="bearbeitung" tabIndex={-1}>
+                  <div className="express__head">
+                    <span className="express__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="13" r="8" />
+                        <path d="M12 9v4l2.5 2.5M10 2h4M12 2v3" />
+                      </svg>
+                    </span>
+                    <div>
+                      <p className="express__kicker">Premium-Service</p>
+                      <h3 className="express__title">{EXPRESS_HEADLINE}</h3>
+                    </div>
+                  </div>
+                  <p className="express__fine">{EXPRESS_FOOTNOTE}</p>
+                  <ol className="express__steps" aria-label="So läuft die bevorzugte Bearbeitung">
+                    <li>Zahlung bestätigt</li>
+                    <li>Unterlagen vollständig</li>
+                    <li>Bevorzugte Prüfung</li>
+                    <li>Bevorzugte Einreichung</li>
+                    <li>Entscheidung der Behörde</li>
+                  </ol>
+                  <div className="choice-grid choice-grid--compact express__grid" role="radiogroup" aria-label="Bearbeitung">
+                    {expressLevels.map((l) => {
+                      const sel = (draft.bearbeitung || 'standard') === l;
+                      const price = l === 'standard' ? 0 : (xOffer[l] as number);
+                      return (
+                        <label key={l} className={`choice express-choice express-choice--${l}${sel ? ' is-selected' : ''}`}>
+                          <input
+                            type="radio"
+                            name="bearbeitung"
+                            checked={sel}
+                            onChange={() => {
+                              setDirty(true);
+                              setDraft((d) => ({ ...d, bearbeitung: l }));
+                              if (errors.bearbeitung) setErrors(({ bearbeitung: _, ...rest }) => rest);
+                            }}
+                          />
+                          {l !== 'standard' ? <span className="express-choice__badge">{l === 'express_plus' ? 'Premium Plus' : 'Premium'}</span> : null}
+                          <span className="choice__title">{PROCESSING[l].label}</span>
+                          <span className="choice__text">{PROCESSING[l].text}</span>
+                          {l === 'express_plus' && xOffer.plusServices.length ? (
+                            <ul className="express-choice__list">
+                              {xOffer.plusServices.map((x) => (
+                                <li key={x}>{x}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {PRICES_FINAL ? (
+                            <span className="choice__price">
+                              <strong>{l === 'standard' ? 'ohne Aufpreis' : `+ ${formatEuro(price)}`}</strong>
+                              {l !== 'standard' ? <span className="muted">inkl. MwSt., zusätzlich zur Servicepauschale</span> : null}
+                            </span>
+                          ) : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {e.bearbeitung ? <p className="field__error">{e.bearbeitung}</p> : null}
+                </div>
+              ) : null}
             </section>
           )}
 
@@ -888,7 +1056,8 @@ export function OrderWizard({
                         <input id={fieldId('finish.sepaMandat')} type="checkbox" checked={draft.finish.sepaMandat} onChange={(ev) => update('finish', 'sepaMandat', ev.target.checked)} aria-invalid={!!e['finish.sepaMandat']} />
                         <span>
                           Ich ermächtige die für die Kraftfahrzeugsteuer zuständige Stelle der Bundeszollverwaltung, die Kfz-Steuer für dieses Fahrzeug
-                          von dem angegebenen Konto per SEPA-Lastschrift einzuziehen. EasyKFZ24 übermittelt das Mandat im Rahmen der Zulassung.
+                          von dem angegebenen Konto per SEPA-Lastschrift einzuziehen. Die {PROVIDER_NAME} ({BRAND}) übermittelt das Mandat im Rahmen
+                          der Zulassung.
                         </span>
                       </label>
                       {e['finish.sepaMandat'] ? <p className="field__error form-grid__full">{e['finish.sepaMandat']}</p> : null}
@@ -898,7 +1067,8 @@ export function OrderWizard({
                 <label className={`check form-grid__full${e['finish.vollmacht'] ? ' check--error' : ''}`}>
                   <input id={fieldId('finish.vollmacht')} type="checkbox" checked={draft.finish.vollmacht} onChange={(ev) => update('finish', 'vollmacht', ev.target.checked)} aria-invalid={!!e['finish.vollmacht']} />
                   <span>
-                    Ich bevollmächtige EasyKFZ24, den Vorgang „{def.title}“ für mich bei der zuständigen Zulassungsbehörde zu beantragen. Mir ist bekannt,
+                    Ich bevollmächtige die {PROVIDER_NAME} (Marke „{BRAND}“), den Vorgang „{def.title}“ für mich bei der zuständigen
+                    Zulassungsbehörde zu beantragen. Mir ist bekannt,
                     dass ich die unterschriebene{' '}
                     <Link href="/kfz-anmelden/vollmacht" target="_blank">
                       Vollmacht
@@ -957,6 +1127,7 @@ export function OrderWizard({
                 rows={[
                   ['Name', draft.holder.typ === 'firma' ? `${draft.holder.firmenname} (Ansprechperson: ${draft.holder.ansprechpartner})` : `${draft.holder.vorname} ${draft.holder.nachname}`],
                   ...(draft.holder.typ === 'privat' ? [['Geburtsdatum', formatIsoDay(draft.holder.geburtsdatum)] as [string, string]] : []),
+                  ...(draft.holder.typ === 'privat' && draft.holder.geburtsort ? [['Geburtsort', draft.holder.geburtsort] as [string, string]] : []),
                   ['Anschrift', `${draft.holder.strasse} ${draft.holder.hausnummer}, ${draft.holder.plz} ${draft.holder.ort}`],
                   ['Kontakt', `${draft.holder.email} · ${draft.holder.telefon}`],
                 ]}
@@ -971,7 +1142,11 @@ export function OrderWizard({
                 onEdit={() => goTo(0)}
                 rows={[
                   ...(wahl ? [['Kennzeichen', wahl === 'wunsch' ? `Wunsch: ${draft.plate.wunschkennzeichen}` : PLATE_CHOICES[wahl].label] as [string, string]] : []),
-                  ...(isPlateChange(service, wahl) ? [['Schilder', draft.plate.schilder ? 'werden mitgeliefert' : 'besorge ich selbst'] as [string, string]] : []),
+                  ...(wahl === 'wunsch' && place ? [['Kennzeichen-Ort', placeText(place)] as [string, string]] : []),
+                  ...(isPlateChange(service, wahl)
+                    ? [['Schilder', draft.plate.schilder ? `werden mitgeliefert – ${PLATE_FINISH[finish].label}` : 'besorge ich selbst'] as [string, string]]
+                    : []),
+                  ...(expressLevels.length > 1 ? [['Bearbeitung', PROCESSING[(draft.bearbeitung as ProcessingLevel) || 'standard'].label] as [string, string]] : []),
                 ]}
               />
               <Summary
@@ -1004,6 +1179,22 @@ export function OrderWizard({
                 </p>
                 <PaymentMarks label="Möglich mit" />
               </div>
+              {/* Identität und Anschrift des Unternehmers vor Vertragsschluss (Art. 246a § 1 EGBGB) */}
+              <p className="wizard__note">
+                Ihr Vertragspartner: <strong>{PROVIDER_NAME}</strong>, {PROVIDER_ADDRESS}, {PROVIDER_CONTACT}. {BRAND_NOTE}{' '}
+                <Link href="/impressum" target="_blank">
+                  Impressum
+                </Link>
+              </p>
+              {withdrawalInfo ? (
+                <p className="wizard__note">
+                  Ihnen steht ein gesetzliches Widerrufsrecht zu. Einzelheiten und das Muster-Widerrufsformular finden Sie in der{' '}
+                  <Link href={NOTICE_PATH} target="_blank">
+                    Widerrufsbelehrung
+                  </Link>
+                  .
+                </p>
+              ) : null}
               {submitError ? (
                 <div className="alert alert--error" role="alert">
                   {submitError}
@@ -1026,7 +1217,8 @@ export function OrderWizard({
               </button>
             ) : (
               <button type="submit" className="btn btn--lg" disabled={busy} aria-busy={busy}>
-                {busy ? 'Wird übermittelt …' : 'Auftrag verbindlich absenden'}
+                {/* § 312j Abs. 3 BGB: Schaltfläche muss die Zahlungspflicht eindeutig benennen */}
+                {busy ? 'Wird übermittelt …' : 'Zahlungspflichtig beauftragen'}
                 {!busy ? <ArrowRight className="btn__icon" /> : null}
               </button>
             )}

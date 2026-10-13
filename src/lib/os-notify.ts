@@ -18,6 +18,8 @@ export const NOTIFY_KINDS = [
   'mail_fehler',
   'nachricht',
   'system',
+  'widerruf',
+  'vollmacht',
 ] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
@@ -40,6 +42,8 @@ export const NOTIFY_META: Record<NotifyKind, { label: string; priority: NotifyPr
   mail_fehler: { label: 'E-Mail nicht versendet', priority: 'wichtig', permission: 'orders.read', group: 'system' },
   nachricht: { label: 'Kundennachricht vorbereitet', priority: 'info', permission: 'orders.read', group: 'team' },
   system: { label: 'System', priority: 'info', permission: 'settings.manage', group: 'system' },
+  widerruf: { label: 'Widerruf eingegangen', priority: 'kritisch', permission: 'orders.read', group: 'auftraege' },
+  vollmacht: { label: 'Digitale Vollmacht: neuer Stand', priority: 'normal', permission: 'orders.read', group: 'auftraege' },
 };
 
 export interface NotifyPrefs {

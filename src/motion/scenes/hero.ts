@@ -50,7 +50,7 @@ export function initHero(root: HTMLElement): () => void {
   const rig = plate ? plateRig(plate) : null;
   const segs = qa('[data-seg]');
   const wheels = Array.from(root.querySelectorAll<SVGGElement>('[data-wheel]'));
-  const sweep = root.querySelector<SVGGElement>('[data-sweep]');
+  const sweep = root.querySelector<HTMLElement | SVGGElement>('[data-sweep]');
 
   let vw = 1;
   let vh = 1;
@@ -58,8 +58,14 @@ export function initHero(root: HTMLElement): () => void {
   let small = false;
   let radius = -1;
   let introGone = false;
+  // Während im Schnellstart getippt wird, steht die Bühne still: Scrollt der Browser (z. B. weil die Bildschirmtastatur
+  // aufgeht oder die Ortsliste sichtbar werden soll), darf der Schnellstart nicht ausgeblendet und gesperrt werden.
+  let frozen: number | null = null;
+  let lastP = 0;
 
-  const render = (p: number) => {
+  const render = (raw: number) => {
+    lastP = raw;
+    const p = frozen ?? raw;
     // Intro (Headline + CTAs) gibt die Bühne frei
     const introOut = ease.inOutCubic(win(p, 0.015, 0.09));
     pose(intro, { y: -introOut * vh * 0.08, opacity: 1 - introOut, blur: introOut * 6 });
@@ -109,7 +115,9 @@ export function initHero(root: HTMLElement): () => void {
 
     // Lichtkante über die Karosserie: einmal in Akt 1, einmal in Akt 5
     const sweepT = p < 0.6 ? win(p, 0.08, 0.27) : win(p, 0.84, 0.99);
-    if (sweep) pose(sweep, { x: lerp(-40, 1640, ease.inOutSine(sweepT)) });
+    // SVG-Fahrzeug: Einheiten der viewBox; Bild-Fahrzeug: Breite des Fahrzeugs in Pixeln
+    const sweepS = ease.inOutSine(sweepT);
+    if (sweep) pose(sweep, { x: sweep instanceof SVGElement ? lerp(-40, 1640, sweepS) : lerp(-0.25, 1.1, sweepS) * carW });
 
     // Akt 2: Datenscan und Fahrzeugdaten
     const scanT = win(p, 0.29, 0.44);
@@ -175,7 +183,18 @@ export function initHero(root: HTMLElement): () => void {
     }
   };
 
-  return track(trackEl, {
+  const onFocusIn = () => {
+    if (frozen === null && !introGone) frozen = lastP;
+  };
+  const onFocusOut = (e: FocusEvent) => {
+    if (e.relatedTarget instanceof Node && intro?.contains(e.relatedTarget)) return;
+    frozen = null;
+    render(lastP);
+  };
+  intro?.addEventListener('focusin', onFocusIn);
+  intro?.addEventListener('focusout', onFocusOut);
+
+  const stop = track(trackEl, {
     start: 'top top',
     end: 'bottom bottom',
     onRefresh: () => {
@@ -186,4 +205,9 @@ export function initHero(root: HTMLElement): () => void {
     },
     onUpdate: render,
   });
+  return () => {
+    intro?.removeEventListener('focusin', onFocusIn);
+    intro?.removeEventListener('focusout', onFocusOut);
+    stop();
+  };
 }

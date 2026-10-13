@@ -8,6 +8,8 @@ import { useEffect, useState } from 'react';
 import { PRICE_CONFIG } from '../../../lib/pricing.config.ts';
 import { PAYMENT_STATUS_LABEL } from '../../../lib/payment.ts';
 import { SERVICES, type ServiceId } from '../../../lib/services.ts';
+import { PLATE_FINISH, PLATE_FINISHES, type CarbonChecks, type PlateFinish, type PlatePriceVersion, type PlatePrices } from '../../../lib/plates.ts';
+import { EXPRESS_LEVELS, PROCESSING, type ExpressLevel, type ExpressVersion, type ProcessingLevel } from '../../../lib/express.ts';
 import { dateTime, euro, osFetch, useOsData } from '../api.ts';
 import { ColumnChart } from '../charts.tsx';
 import { useOs } from '../context.ts';
@@ -32,7 +34,7 @@ interface FinanceData {
   canWrite: boolean;
 }
 
-type Tab = 'uebersicht' | 'deckung' | 'rechnungen' | 'offen' | 'zahlungen' | 'preise' | 'steuer';
+type Tab = 'uebersicht' | 'deckung' | 'express' | 'rechnungen' | 'offen' | 'zahlungen' | 'preise' | 'steuer';
 const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const monthLabel = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
 const short = (c: number) => euro(c).replace(/,00\s€/, ' €');
@@ -62,6 +64,7 @@ export function FinanceApp({ params, nonce }: { params?: Record<string, unknown>
             { id: 'offen', label: 'Offene Posten' },
             { id: 'zahlungen', label: 'Zahlungen & Abgleich' },
             { id: 'preise', label: 'Preise, Gutscheine, Kosten' },
+            { id: 'express', label: 'Express' },
             { id: 'steuer', label: 'Umsatzsteuer' },
           ]}
         />
@@ -77,6 +80,7 @@ export function FinanceApp({ params, nonce }: { params?: Record<string, unknown>
         ) : null}
         {tab === 'uebersicht' ? <Overview data={data} /> : null}
         {tab === 'deckung' ? <Contribution /> : null}
+        {tab === 'express' ? <ExpressTab /> : null}
         {tab === 'rechnungen' ? <Invoices canWrite={data.canWrite} /> : null}
         {tab === 'offen' ? <OpenItems /> : null}
         {tab === 'zahlungen' ? <Payments canWrite={data.canWrite} /> : null}
@@ -187,11 +191,13 @@ function Contribution() {
   const [to, setTo] = useState('');
   const qs = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString();
   const { data, loading } = useOsData<
-    { orderId: number; number: string; holder: string; service: ServiceId; paymentStatus: string; createdAt: string; grossCents: number; netCents: number; vatCents: number; costCents: number | null; feeCents: number | null; feeIsActual: boolean; contributionCents: number | null }[]
+    { orderId: number; number: string; holder: string; service: ServiceId; paymentStatus: string; createdAt: string; grossCents: number; netCents: number; vatCents: number; costCents: number | null; feeCents: number | null; feeIsActual: boolean; plateFinish: PlateFinish | ''; plateCount: number; plateBuyCents: number; plateShippingCents: number | null; plateCostCents: number; platePriceVersion: number | null; contributionCents: number | null }[]
   >(`finance/contributions${qs ? `?${qs}` : ''}`);
   const sum = (k: 'grossCents' | 'netCents' | 'vatCents') => (data ?? []).reduce((a, r) => a + r[k], 0);
   return (
-    <Panel
+    <>
+      <PlateReport qs={qs} />
+      <Panel
       title="Deckungsbeitrag je Auftrag"
       actions={
         <span className="os-row">
@@ -207,7 +213,10 @@ function Contribution() {
         </span>
       }
     >
-      <p className="os-muted os-small">Verkaufspreis netto − Einkaufskosten − Zahlungsgebühren − weitere direkte Kosten = Deckungsbeitrag. Ohne bekannte Kosten bzw. Gebühren wird nichts geschätzt.</p>
+      <p className="os-muted os-small">
+        Verkaufspreis netto − Einkaufskosten je Vorgang − Einkauf Kennzeichenschilder − Zahlungsgebühren = Deckungsbeitrag. Ohne bekannte Kosten bzw. Gebühren wird nichts
+        geschätzt.
+      </p>
       {loading && !data ? (
         <Loading />
       ) : data?.length ? (
@@ -228,6 +237,7 @@ function Contribution() {
                 <th scope="col" className="num">
                   Einkauf
                 </th>
+                <th scope="col">Schilder</th>
                 <th scope="col" className="num">
                   Gebühr
                 </th>
@@ -246,6 +256,11 @@ function Contribution() {
                   <td className="num">{euro(r.grossCents)}</td>
                   <td className="num">{euro(r.netCents)}</td>
                   <td className="num">{r.costCents === null ? '–' : euro(r.costCents)}</td>
+                  <td>
+                    {r.plateFinish
+                      ? `${r.plateCount} × ${PLATE_FINISH[r.plateFinish].short} · EK ${euro(r.plateBuyCents)} + Versand ${r.plateShippingCents === null ? 'offen' : euro(r.plateShippingCents)} (V${r.platePriceVersion})`
+                      : '–'}
+                  </td>
                   <td className="num">{r.feeCents === null ? '–' : `${euro(r.feeCents)}${r.feeIsActual ? '' : '*'}`}</td>
                   <td className={`num${r.contributionCents !== null && r.contributionCents < 0 ? ' is-neg' : ''}`}>{r.contributionCents === null ? '–' : euro(r.contributionCents)}</td>
                 </tr>
@@ -256,7 +271,7 @@ function Contribution() {
                 <th colSpan={4}>Summe</th>
                 <th className="num">{euro(sum('grossCents'))}</th>
                 <th className="num">{euro(sum('netCents'))}</th>
-                <th colSpan={3} />
+                <th colSpan={4} />
               </tr>
             </tfoot>
           </table>
@@ -264,6 +279,249 @@ function Contribution() {
       ) : (
         <Empty title="Keine Aufträge im Zeitraum" />
       )}
+      </Panel>
+    </>
+  );
+}
+
+interface PlateData {
+  current: PlatePriceVersion;
+  prices: PlatePrices;
+  history: PlatePriceVersion[];
+  report: {
+    rows: {
+      finish: PlateFinish;
+      orders: number;
+      plates: number;
+      grossCents: number;
+      netCents: number;
+      buyCents: number;
+      shippingCents: number;
+      feeCents: number;
+      completeOrders: number;
+      completeNetCents: number;
+      contributionCents: number;
+    }[];
+    bundleOrders: number;
+  };
+  canWrite: boolean;
+}
+
+/** Kennzeichenschilder getrennt nach Standard und Carbon-Optik: Verkauf, Einkauf, Deckungsbeitrag. */
+function PlateReport({ qs }: { qs: string }) {
+  const { data } = useOsData<PlateData>(`finance/plates${qs ? `?${qs}` : ''}`);
+  const rows = data?.report.rows ?? [];
+  const cols = ['Aufträge', 'Schilder', 'Verkauf netto', 'Einkauf', 'Versand Lieferant', 'Zahlungsgebühr (anteilig)', 'Deckungsbeitrag', 'Marge'];
+  return (
+    <Panel title="Kennzeichenschilder nach Ausführung">
+      <div className="os-tablewrap">
+        <table className="os-table os-table--compact">
+          <thead>
+            <tr>
+              <th scope="col">Ausführung</th>
+              {cols.map((c) => (
+                <th key={c} scope="col" className="num">
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.finish}>
+                <th scope="row">
+                  {PLATE_FINISH[r.finish].label} {PLATE_FINISH[r.finish].premium ? <Badge tone="carbon">Premium</Badge> : null}
+                </th>
+                <td className="num">{r.orders}</td>
+                <td className="num">{r.plates}</td>
+                <td className="num">{euro(r.netCents)}</td>
+                <td className="num">{euro(r.buyCents)}</td>
+                <td className="num">{euro(r.shippingCents)}</td>
+                <td className="num">{euro(r.feeCents)}</td>
+                <td className={`num${r.contributionCents < 0 ? ' is-neg' : ''}`}>
+                  {r.completeOrders ? euro(r.contributionCents) : '–'}
+                  {r.completeOrders < r.orders ? (
+                    <span className="os-muted os-small">
+                      {' '}
+                      ({r.completeOrders} von {r.orders} vollständig)
+                    </span>
+                  ) : null}
+                </td>
+                <td className="num">{r.completeNetCents ? `${Math.round((r.contributionCents / r.completeNetCents) * 100)} %` : '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="os-muted os-small">
+        Netto-Erlös laut Preisposition (bei Komplett-Paketen vor Paketvorteil; {data?.report.bundleOrders ?? 0} Paket-Aufträge) − Einkauf − Versand des Lieferanten −
+        Zahlungsgebühr (anteilig nach Anteil der Schilder am Auftrag) = Deckungsbeitrag. Die Kosten stammen aus der Preisversion, die beim Bestellen im Auftrag gespeichert
+        wurde. Fehlt eine Angabe (z. B. Versand des Lieferanten nicht gepflegt, Gebühr unbekannt), geht der Auftrag nicht in den Deckungsbeitrag ein. Ohne stornierte
+        Aufträge.
+      </p>
+    </Panel>
+  );
+}
+
+const centsText = (c: number | null) => (c === null ? '' : (c / 100).toFixed(2).replace('.', ','));
+const parseCents = (t: string): number | null => {
+  const v = t.trim().replace(/\./g, '').replace(',', '.');
+  if (!v) return null;
+  const n = Math.round(Number(v) * 100);
+  return Number.isFinite(n) ? n : NaN;
+};
+
+/** Preise je Ausführung pflegen – jede Speicherung ist eine neue Preisversion; Aufträge behalten die Version ihres Bestelltags. */
+function PlatePricesPanel() {
+  const { data, reload } = useOsData<PlateData>('finance/plates');
+  const flash = useFlash();
+  type Row = { sell: string; buy: string; active: boolean };
+  const [form, setForm] = useState<{ rows: Record<PlateFinish, Row>; shipping: string; checks: CarbonChecks } | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    const v = data.current;
+    setForm({
+      rows: Object.fromEntries(PLATE_FINISHES.map((f) => [f, { sell: centsText(v.prices[f].sellCents), buy: centsText(v.prices[f].buyCents), active: v.prices[f].active }])) as Record<
+        PlateFinish,
+        Row
+      >,
+      shipping: centsText(v.supplierShippingCents),
+      checks: { ...v.carbonChecks },
+    });
+  }, [data]);
+  if (!data || !form) {
+    return (
+      <Panel title="Kennzeichenschilder: Preise je Ausführung">
+        <Loading />
+      </Panel>
+    );
+  }
+  const setRow = (f: PlateFinish, patch: Partial<Row>) => setForm({ ...form, rows: { ...form.rows, [f]: { ...form.rows[f], ...patch } } });
+  const save = async () => {
+    const prices: Record<string, { sellCents: number | null; buyCents: number; active: boolean }> = {};
+    for (const f of PLATE_FINISHES) {
+      const sell = parseCents(form.rows[f].sell);
+      const buy = parseCents(form.rows[f].buy);
+      if (Number.isNaN(sell) || Number.isNaN(buy) || buy === null) return flash.show(false, `${PLATE_FINISH[f].label}: Preise bitte als Betrag in Euro eingeben`);
+      prices[f] = { sellCents: sell, buyCents: buy, active: f === 'standard' ? true : form.rows[f].active };
+    }
+    const shipping = parseCents(form.shipping);
+    if (Number.isNaN(shipping)) return flash.show(false, 'Versand des Lieferanten bitte als Betrag in Euro eingeben (leer = nicht gepflegt)');
+    try {
+      await osFetch('finance/plates', { method: 'POST', body: { prices, supplierShippingCents: shipping, carbonChecks: form.checks } });
+      flash.show(true, 'Neue Preisversion gespeichert – gilt ab sofort für Website und neue Aufträge');
+      reload(true);
+    } catch (e) {
+      flash.show(false, (e as Error).message);
+    }
+  };
+  const v = data.current;
+  return (
+    <Panel title="Kennzeichenschilder: Preise je Ausführung" actions={<Badge tone="slate">{v.version ? `Version ${v.version} vom ${dateTime(v.from)}` : 'Ausgangswerte'}</Badge>}>
+      {flash.node}
+      <div className="os-tablewrap">
+        <table className="os-table os-table--compact">
+          <thead>
+            <tr>
+              <th scope="col">Ausführung</th>
+              <th scope="col">Im Angebot</th>
+              <th scope="col">Verkauf je Schild (brutto)</th>
+              <th scope="col">Einkauf je Schild (netto)</th>
+              <th scope="col" className="num">
+                DB je Schild (ohne Versand/Gebühr)
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {PLATE_FINISHES.map((f) => {
+              const sell = parseCents(form.rows[f].sell);
+              const buy = parseCents(form.rows[f].buy);
+              const net = sell !== null && !Number.isNaN(sell) ? Math.round(sell / 1.19) : null;
+              const db = net !== null && buy !== null && !Number.isNaN(buy) ? net - buy : null;
+              return (
+                <tr key={f}>
+                  <th scope="row">
+                    {PLATE_FINISH[f].label} {PLATE_FINISH[f].premium ? <Badge tone="carbon">Premium</Badge> : null}
+                  </th>
+                  <td>
+                    {f === 'standard' ? (
+                      'immer'
+                    ) : (
+                      <label className="os-check-field">
+                        <input type="checkbox" checked={form.rows[f].active} disabled={!data.canWrite} onChange={(e) => setRow(f, { active: e.target.checked })} /> anbieten
+                      </label>
+                    )}
+                  </td>
+                  <td>
+                    <span className="os-money">
+                      <input
+                        inputMode="decimal"
+                        value={form.rows[f].sell}
+                        placeholder="nicht festgelegt"
+                        disabled={!data.canWrite}
+                        onChange={(e) => setRow(f, { sell: e.target.value })}
+                        aria-label={`Verkaufspreis ${PLATE_FINISH[f].label}`}
+                      />
+                      <span>€</span>
+                    </span>
+                  </td>
+                  <td>
+                    <span className="os-money">
+                      <input inputMode="decimal" value={form.rows[f].buy} disabled={!data.canWrite} onChange={(e) => setRow(f, { buy: e.target.value })} aria-label={`Einkaufspreis ${PLATE_FINISH[f].label}`} />
+                      <span>€</span>
+                    </span>
+                  </td>
+                  <td className={`num${db !== null && db < 0 ? ' is-neg' : ''}`}>{db === null ? '–' : euro(db)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="os-fields">
+        <label className="os-field">
+          <span className="os-field__label">Versand des Lieferanten je Schilder-Sendung (netto)</span>
+          <span className="os-money">
+            <input inputMode="decimal" value={form.shipping} placeholder="nicht gepflegt" disabled={!data.canWrite} onChange={(e) => setForm({ ...form, shipping: e.target.value })} />
+            <span>€</span>
+          </span>
+        </label>
+        <fieldset className="os-field">
+          <legend className="os-field__label">Carbon-Optik freigeben (beides nötig, um sie anzubieten)</legend>
+          <label className="os-check-field">
+            <input type="checkbox" checked={form.checks.deliverable} disabled={!data.canWrite} onChange={(e) => setForm({ ...form, checks: { ...form.checks, deliverable: e.target.checked } })} /> beim
+            Lieferanten (kfz-api.de) bestellbar und lieferbar – geprüft
+          </label>
+          <label className="os-check-field">
+            <input type="checkbox" checked={form.checks.permitted} disabled={!data.canWrite} onChange={(e) => setForm({ ...form, checks: { ...form.checks, permitted: e.target.checked } })} /> für den
+            Straßenverkehr zulässig (DIN-zertifiziert, Schildfeld weiß reflektierend) – geprüft
+          </label>
+        </fieldset>
+      </div>
+      <p className="os-muted os-small">
+        Einkauf laut kfz-api.de (netto je Schild): Standard 4,05 € (öffentliche Preisliste, „zzgl. Versand“), Carbon-Optik 5,30 € (B2B-Dashboard). Die Versandkosten des
+        Lieferanten sind öffentlich nicht beziffert – bitte aus dem Dashboard bzw. der Abrechnung übernehmen; solange sie fehlen, wird für Schilder-Aufträge kein
+        Deckungsbeitrag berechnet. Jede Speicherung ist eine neue Preisversion; bestehende Aufträge behalten Preise und Kosten ihres Bestelltags.
+      </p>
+      {data.canWrite ? (
+        <button type="button" className="os-btn os-btn--sm" onClick={() => void save()}>
+          Als neue Preisversion speichern
+        </button>
+      ) : null}
+      {data.history.length ? (
+        <details className="os-details">
+          <summary>Preisverlauf ({data.history.length})</summary>
+          <ul className="os-list-plain">
+            {data.history.map((h) => (
+              <li key={h.version}>
+                V{h.version} · {dateTime(h.from)} · {h.by}: Standard {euro(h.prices.standard.sellCents ?? 0)} / EK {euro(h.prices.standard.buyCents)} · Carbon{' '}
+                {h.prices.carbon.active && h.prices.carbon.sellCents !== null ? `${euro(h.prices.carbon.sellCents)} / EK ${euro(h.prices.carbon.buyCents)}` : 'nicht im Angebot'} · Versand{' '}
+                {h.supplierShippingCents === null ? 'offen' : euro(h.supplierShippingCents)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </Panel>
   );
 }
@@ -579,9 +837,10 @@ function Prices({ data, onSaved }: { data: FinanceData; onSaved: () => void }) {
                 <td />
               </tr>
               <tr>
-                <td>Kennzeichenschild (je Stück)</td>
-                <td className="num">{euro(PRICE_CONFIG.plateSignCents)}</td>
-                <td />
+                <td>Kennzeichenschilder</td>
+                <td className="num" colSpan={2}>
+                  siehe „Kennzeichenschilder: Preise je Ausführung“
+                </td>
               </tr>
               <tr>
                 <td>Versand</td>
@@ -629,6 +888,7 @@ function Prices({ data, onSaved }: { data: FinanceData; onSaved: () => void }) {
           ) : null}
         </Panel>
       </div>
+      <PlatePricesPanel />
       <Panel title="Gutscheine und Rabattaktionen">
         {vouchers.data?.length ? (
           <table className="os-table os-table--compact">
@@ -794,6 +1054,242 @@ function Tax() {
       ) : (
         <Empty title="Keine Rechnungen im Jahr" />
       )}
+    </Panel>
+  );
+}
+
+/* ---------- Express: Einstellungen, Wirtschaftlichkeit, tatsächliche Bearbeitungszeiten ---------- */
+
+interface ExpressData {
+  current: ExpressVersion;
+  history: ExpressVersion[];
+  steps: { key: string; label: string }[];
+  report: {
+    level: ProcessingLevel;
+    orders: number;
+    paid: number;
+    completed: number;
+    surchargeGrossCents: number;
+    surchargeNetCents: number;
+    internalCostCents: number;
+    feeCents: number;
+    contributionCents: number;
+    durations: Record<string, { n: number; avgHours: number | null; medianHours: number | null }>;
+    internalTarget: { met: number; missed: number; open: number } | null;
+  }[];
+  canWrite: boolean;
+}
+
+const hoursText = (h: number | null) => (h === null ? '–' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${h.toFixed(1).replace('.', ',')} h` : `${(h / 24).toFixed(1).replace('.', ',')} Tage`);
+
+function ExpressTab() {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const qs = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString();
+  const { data, reload } = useOsData<ExpressData>(`finance/express${qs ? `?${qs}` : ''}`);
+  if (!data) return <Loading />;
+  return (
+    <>
+      <ExpressSettings data={data} onSaved={() => reload(true)} />
+      <Panel
+        title="Standard und Express im Vergleich"
+        actions={
+          <span className="os-row">
+            <label className="os-field os-field--inline">
+              <span className="os-field__label">von</span>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label className="os-field os-field--inline">
+              <span className="os-field__label">bis</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+          </span>
+        }
+      >
+        <div className="os-tablewrap">
+          <table className="os-table os-table--compact">
+            <thead>
+              <tr>
+                <th scope="col">Bearbeitung</th>
+                <th scope="col" className="num">
+                  Aufträge
+                </th>
+                <th scope="col" className="num">
+                  bezahlt
+                </th>
+                <th scope="col" className="num">
+                  abgeschlossen
+                </th>
+                <th scope="col" className="num">
+                  Aufpreis netto
+                </th>
+                <th scope="col" className="num">
+                  Zusatzkosten
+                </th>
+                <th scope="col" className="num">
+                  Zahlungsgebühr (anteilig)
+                </th>
+                <th scope="col" className="num">
+                  DB Aufpreis
+                </th>
+                <th scope="col">Interne Frist eingehalten</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.report.map((r) => (
+                <tr key={r.level}>
+                  <th scope="row">{PROCESSING[r.level].label}</th>
+                  <td className="num">{r.orders}</td>
+                  <td className="num">{r.paid}</td>
+                  <td className="num">{r.completed}</td>
+                  <td className="num">{r.level === 'standard' ? '–' : euro(r.surchargeNetCents)}</td>
+                  <td className="num">{r.level === 'standard' ? '–' : euro(r.internalCostCents)}</td>
+                  <td className="num">{r.level === 'standard' ? '–' : euro(r.feeCents)}</td>
+                  <td className={`num${r.contributionCents < 0 ? ' is-neg' : ''}`}>{r.level === 'standard' ? '–' : euro(r.contributionCents)}</td>
+                  <td>{r.internalTarget ? `${r.internalTarget.met} ja · ${r.internalTarget.missed} nein · ${r.internalTarget.open} offen` : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="os-muted os-small">
+          DB Aufpreis = Aufpreis netto − zusätzliche Bearbeitungskosten (laut Einstellung zum Bestellzeitpunkt) − Zahlungsgebühr anteilig. Der Deckungsbeitrag des
+          Gesamtauftrags steht unter „Deckungsbeitrag“. „Abgeschlossen“ = Zulassung erfolgreich laut Behörde bzw. Status.
+        </p>
+      </Panel>
+      <Panel title="Tatsächliche Bearbeitungsdauer (Median · Durchschnitt · Anzahl)">
+        <div className="os-tablewrap">
+          <table className="os-table os-table--compact">
+            <thead>
+              <tr>
+                <th scope="col">Abschnitt</th>
+                {data.report.map((r) => (
+                  <th key={r.level} scope="col">
+                    {PROCESSING[r.level].label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.steps.map((s) => (
+                <tr key={s.key}>
+                  <th scope="row">{s.label}</th>
+                  {data.report.map((r) => {
+                    const d = r.durations[s.key];
+                    return <td key={r.level}>{d && d.n ? `${hoursText(d.medianHours)} · ${hoursText(d.avgHours)} · ${d.n}` : '–'}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="os-muted os-small">
+          Gemessen aus echten Zeitpunkten (Zahlungseingang, erste Uploads der Pflichtunterlagen, Freigabe, Statuswechsel, Meldungen von kfz-api.de). Ohne
+          ausreichende Fallzahl keine Aussage über typische Dauern – erst recht keine Zusage an Kunden.
+        </p>
+      </Panel>
+    </>
+  );
+}
+
+function ExpressSettings({ data, onSaved }: { data: ExpressData; onSaved: () => void }) {
+  const flash = useFlash();
+  type Row = { sell: string; active: boolean; cost: string; hours: string };
+  const init = () => ({
+    rows: Object.fromEntries(
+      EXPRESS_LEVELS.map((l) => [
+        l,
+        { sell: centsText(data.current.levels[l].sellCents), active: data.current.levels[l].active, cost: centsText(data.current.levels[l].internalCostCents), hours: String(data.current.levels[l].internalHours) },
+      ]),
+    ) as Record<ExpressLevel, Row>,
+    plus: data.current.plusServices.join('\n'),
+  });
+  const [form, setForm] = useState(init);
+  useEffect(() => setForm(init()), [data.current.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setRow = (l: ExpressLevel, patch: Partial<Row>) => setForm({ ...form, rows: { ...form.rows, [l]: { ...form.rows[l], ...patch } } });
+  const save = async () => {
+    const levels: Record<string, unknown> = {};
+    for (const l of EXPRESS_LEVELS) {
+      const sell = parseCents(form.rows[l].sell);
+      const cost = parseCents(form.rows[l].cost) ?? 0;
+      const hours = Math.round(Number(form.rows[l].hours));
+      if (Number.isNaN(sell) || Number.isNaN(cost)) return flash.show(false, `${PROCESSING[l].label}: Beträge bitte in Euro eingeben`);
+      levels[l] = { sellCents: sell, active: form.rows[l].active, internalCostCents: cost, internalHours: hours };
+    }
+    try {
+      await osFetch('finance/express', {
+        method: 'POST',
+        body: {
+          levels,
+          plusServices: form.plus
+            .split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean),
+        },
+      });
+      flash.show(true, 'Express-Einstellungen gespeichert (neue Version) – gelten ab sofort für Website und neue Aufträge');
+      onSaved();
+    } catch (e) {
+      flash.show(false, (e as Error).message);
+    }
+  };
+  const v = data.current;
+  return (
+    <Panel title="Express-Einstellungen" actions={<Badge tone="slate">{v.version ? `Version ${v.version} vom ${dateTime(v.from)}` : 'Ausgangswerte (nicht im Angebot)'}</Badge>}>
+      {flash.node}
+      <div className="os-tablewrap">
+        <table className="os-table os-table--compact">
+          <thead>
+            <tr>
+              <th scope="col">Stufe</th>
+              <th scope="col">Im Angebot</th>
+              <th scope="col">Aufpreis (brutto)</th>
+              <th scope="col">Zusätzliche Bearbeitungskosten (netto)</th>
+              <th scope="col">Interne Frist ab Zahlung (Std.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {EXPRESS_LEVELS.map((l) => (
+              <tr key={l}>
+                <th scope="row">{PROCESSING[l].label}</th>
+                <td>
+                  <label className="os-check-field">
+                    <input type="checkbox" checked={form.rows[l].active} disabled={!data.canWrite} onChange={(e) => setRow(l, { active: e.target.checked })} /> anbieten
+                  </label>
+                </td>
+                <td>
+                  <span className="os-money">
+                    <input inputMode="decimal" value={form.rows[l].sell} disabled={!data.canWrite} onChange={(e) => setRow(l, { sell: e.target.value })} aria-label={`Aufpreis ${PROCESSING[l].label}`} />
+                    <span>€</span>
+                  </span>
+                </td>
+                <td>
+                  <span className="os-money">
+                    <input inputMode="decimal" value={form.rows[l].cost} disabled={!data.canWrite} onChange={(e) => setRow(l, { cost: e.target.value })} aria-label={`Zusatzkosten ${PROCESSING[l].label}`} />
+                    <span>€</span>
+                  </span>
+                </td>
+                <td>
+                  <input className="os-input--narrow" inputMode="numeric" value={form.rows[l].hours} disabled={!data.canWrite} onChange={(e) => setRow(l, { hours: e.target.value })} aria-label={`Interne Frist ${PROCESSING[l].label}`} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <label className="os-field os-field--wide">
+        <span className="os-field__label">Leistungen von Express Plus (je Zeile eine – werden dem Kunden genau so angezeigt; nur zusagen, was sicher erbracht wird)</span>
+        <textarea rows={3} value={form.plus} disabled={!data.canWrite} onChange={(e) => setForm({ ...form, plus: e.target.value })} />
+      </label>
+      <p className="os-muted os-small">
+        Express bedeutet Vorrang in unserer Bearbeitung: Nach Zahlung setzt die Automatisierung Priorität und interne Frist; die Express-Warteschlange im
+        Auftragscenter zeigt die Reihenfolge. Die interne Frist wird Kunden nie angezeigt. Über die Dauer bei der Behörde gibt es keine Zusage.
+      </p>
+      {data.canWrite ? (
+        <button type="button" className="os-btn os-btn--sm" onClick={() => void save()}>
+          Als neue Version speichern
+        </button>
+      ) : null}
     </Panel>
   );
 }

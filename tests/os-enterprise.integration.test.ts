@@ -31,7 +31,7 @@ function draft(email = 'max@example.de', fin = 'WVWZZZ1KZAW000001') {
   const d = emptyDraft('halterwechsel');
   d.vehicle = { art: 'pkw', hersteller: 'VW', modell: 'Golf', fin, bisherigesKennzeichen: 'HB-AB 12', antrieb: 'benzin', eKennzeichen: false, hKennzeichen: false };
   d.holder = { ...d.holder, typ: 'privat', vorname: 'Max', nachname: 'Muster', geburtsdatum: '1980-01-01', strasse: 'Weg', hausnummer: '2', plz: '28195', ort: 'Bremen', email, telefon: '0421 999888' };
-  d.plate = { wahl: 'behalten', wunschkennzeichen: '', schilder: false, zustellung: 'abholung', versanddienst: '' };
+  d.plate = { wahl: 'behalten', wunschkennzeichen: '', wunschort: '', schilder: false, ausfuehrung: 'standard', zustellung: 'abholung', versanddienst: '' };
   d.finish = { evb: 'a1b2c3d', kontoinhaber: 'Max Muster', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, hinweise: '' };
   return d;
 }

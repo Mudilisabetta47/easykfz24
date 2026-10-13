@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 import '../../../../styles/info.css';
 import { PrintButton } from '../../../../components/PrintButton.tsx';
-import { Ph } from '../../../../components/Ph.tsx';
 import { normalizeOrderNumber } from '../../../../lib/order-number.ts';
-import { SITE } from '../../../../lib/site.ts';
+import { BRAND, PROVIDER, PROVIDER_ADDRESS, PROVIDER_NAME } from '../../../../lib/site.ts';
 
 export const metadata: Metadata = { title: 'Vollmacht (Vorlage)', robots: { index: false } };
 
@@ -34,7 +33,8 @@ export default async function VollmachtPage({ searchParams }: { searchParams: Pr
         </dl>
         <h2>Bevollmächtigter</h2>
         <p>
-          <Ph>{SITE.company}</Ph>, <Ph>{SITE.street}</Ph>, <Ph>{SITE.city}</Ph> sowie deren Mitarbeiterinnen und Mitarbeiter.
+          {PROVIDER_NAME} (Marke „{BRAND}“), vertreten durch den Geschäftsführer {PROVIDER.managingDirector}, {PROVIDER_ADDRESS}, sowie deren
+          Mitarbeiterinnen und Mitarbeiter.
         </p>
         <h2>Umfang</h2>
         <p>

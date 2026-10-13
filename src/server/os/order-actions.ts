@@ -12,6 +12,9 @@ import { addNote, changeStatus, createOrder, getOrder, setAssignedPlate, setChec
 import { emitSafe } from './events.ts';
 import { linkOrderToCustomer } from './customers.ts';
 import { recordManualPayment } from './finance.ts';
+import { getPlateOffer } from '../plates.ts';
+import { getExpressOffer } from '../express.ts';
+import { placeByAgs, wishCodeCheck } from '../regions.ts';
 
 export interface Actor {
   id: number;
@@ -64,6 +67,7 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
     regChecks,
     sameFinOpen: o.fin ? same : [],
     totalCents: extra?.total_cents,
+    wishCode: wishCodeCheck(o.data),
     // Ohne gebuchte Zahlung (z. B. Altaufträge vor dem Zahlungsjournal) kein Betragsabgleich
     paidCents: paid?.n ? (paid.sum ?? 0) : null,
   };
@@ -232,7 +236,8 @@ export async function actRelease(id: number, release: boolean, actor: Actor): Pr
 
 /** Auftrag in der Verwaltung anlegen (gleiche Prüfung wie auf der Website). Dokumente danach im Dokumentenmanager. */
 export async function createOrderAdmin(raw: unknown, actor: Actor): Promise<{ ok: true; id: number; number: string; warnings: string[] } | { ok: false; error: string; fields?: Record<string, string> }> {
-  const v = validateOrder(raw);
+  // In der Verwaltung bleibt der Geburtsort freiwillig (Nachtrag aus Ausweis möglich); Pflicht nur im Kundenauftrag
+  const v = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs });
   if (!v.ok) return { ok: false, error: 'Bitte die markierten Felder prüfen', fields: v.errors };
   const order: ValidatedOrder = v.order;
   const db = await getDb();

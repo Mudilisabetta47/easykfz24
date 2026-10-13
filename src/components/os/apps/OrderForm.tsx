@@ -8,7 +8,9 @@ import { DRIVE_TYPES, VEHICLE_TYPES } from '../../../lib/catalog.ts';
 import { emptyDraft, applyServiceDefaults, type OrderInput } from '../../../lib/order.ts';
 import { PLATE_CHOICES, SERVICE_IDS, SERVICES, type ServiceId } from '../../../lib/services.ts';
 import { CARRIER_IDS, CARRIERS } from '../../../lib/shipping.ts';
-import { OsError, osFetch } from '../api.ts';
+import { OsError, osFetch, useOsData } from '../api.ts';
+import { PLATE_FINISH, PLATE_FINISHES, type PlateOffer } from '../../../lib/plates.ts';
+import { PROCESSING, PROCESSING_LEVELS, type ExpressOffer } from '../../../lib/express.ts';
 import { Dialog } from '../shared.tsx';
 
 export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<string, unknown> | null; onClose: () => void; onCreated: (id: number, number: string, warnings: string[]) => void }) {
@@ -22,6 +24,11 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const svc = SERVICES[d.service as ServiceId];
+  // Angebotene Schilder-Ausführungen (Carbon nur mit freigegebenem Preis im Finanzcenter)
+  const offers = useOsData<{ plateOffer: PlateOffer; expressOffer: ExpressOffer }>('settings').data;
+  const offer = offers?.plateOffer;
+  const xOffer = offers?.expressOffer;
+  const levels = PROCESSING_LEVELS.filter((l) => l === 'standard' || (xOffer && xOffer[l] !== null));
 
   const set = <S extends 'vehicle' | 'holder' | 'plate' | 'finish'>(section: S, key: keyof OrderInput[S], value: unknown) =>
     setD((x) => ({ ...x, [section]: { ...x[section], [key]: value } }));
@@ -92,6 +99,19 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
             ))}
           </div>
           {err('service')}
+          {levels.length > 1 ? (
+            <label className="os-field">
+              <span className="os-field__label">Bearbeitung</span>
+              <select className="os-select" value={d.bearbeitung || 'standard'} onChange={(e) => setD((x) => ({ ...x, bearbeitung: e.target.value }))}>
+                {levels.map((l) => (
+                  <option key={l} value={l}>
+                    {PROCESSING[l].label}
+                  </option>
+                ))}
+              </select>
+              {err('bearbeitung')}
+            </label>
+          ) : null}
         </fieldset>
 
         <fieldset>
@@ -155,6 +175,7 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
                 {text('holder', 'vorname', 'Vorname')}
                 {text('holder', 'nachname', 'Nachname')}
                 {text('holder', 'geburtsdatum', 'Geburtsdatum', { type: 'date' })}
+                {text('holder', 'geburtsort', 'Geburtsort (wie im Ausweis)')}
               </>
             )}
             {text('holder', 'strasse', 'Straße')}
@@ -186,6 +207,20 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
             {svc?.plateChoices.length ? (
               <label className="os-check-field">
                 <input type="checkbox" checked={!!d.plate.schilder} onChange={(e) => set('plate', 'schilder', e.target.checked)} /> Schilder mitbestellen
+              </label>
+            ) : null}
+            {svc?.plateChoices.length && d.plate.schilder && offer?.carbon != null ? (
+              <label className="os-field">
+                <span className="os-field__label">Ausführung der Schilder</span>
+                <select className="os-select" value={d.plate.ausfuehrung || 'standard'} onChange={(e) => set('plate', 'ausfuehrung', e.target.value)}>
+                  {PLATE_FINISHES.map((f) => (
+                    <option key={f} value={f}>
+                      {PLATE_FINISH[f].label}
+                      {PLATE_FINISH[f].premium ? ' (Premium)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {err('plate.ausfuehrung')}
               </label>
             ) : null}
             <label className="os-field">

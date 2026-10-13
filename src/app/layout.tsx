@@ -13,7 +13,13 @@ export const metadata: Metadata = {
   },
   description:
     'Zulassen, ummelden, wiederzulassen oder abmelden: Vorgang online starten, Unterlagen hochladen, Status jederzeit abrufen. EasyKFZ24 ist ein privater Zulassungsservice.',
-  icons: { icon: '/favicon.svg' },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/logo/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export const viewport: Viewport = {

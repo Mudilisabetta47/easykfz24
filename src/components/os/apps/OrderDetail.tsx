@@ -12,7 +12,9 @@ import { STATUSES, statusLabel, type StatusId } from '../../../lib/status.ts';
 import { SECURITY_CODES, type Issue, type Stage } from '../../../lib/workflow.ts';
 import type { ChecklistItem, ChecklistState } from '../../../lib/checklist.ts';
 import type { ValidatedOrder } from '../../../lib/order.ts';
-import type { PriceBreakdown } from '../../../lib/pricing.ts';
+import { plateSignCount, type PriceBreakdown } from '../../../lib/pricing.ts';
+import { plateFinishOf, plateSummary } from '../../../lib/plates.ts';
+import { PROCESSING, type Milestone, type ProcessingLevel } from '../../../lib/express.ts';
 import { dateTime, euro, osFetch, useOsData } from '../api.ts';
 import { useOs } from '../context.ts';
 import { IChevron, IExternal } from '../icons.tsx';
@@ -31,6 +33,7 @@ import {
   useStaff,
 } from '../shared.tsx';
 import { Badge, Empty, ErrorBox, KfzState, Loading, Panel, StatusBadge, Tabs, useFlash } from '../ui.tsx';
+import type { PoaView } from '../../../server/power-of-attorney.ts';
 import { Preview } from './Preview.tsx';
 
 interface Transition {
@@ -91,6 +94,11 @@ export interface OrderBundle {
   payments: { id: number; at: string; provider: string; provider_ref: string; kind: string; status: string; amount_cents: number; fee_cents: number | null; method: string; note: string; created_by: string }[];
   osEvents: { id: number; at: string; type: string; actor: string; payload: Record<string, unknown> }[];
   insights: { issues: Issue[]; stage: Stage; releaseBlockers: string[]; codes: (keyof typeof SECURITY_CODES)[]; fin: { ok: boolean; error?: string; checkDigit: string; wmi?: string }; regChecks: Record<string, boolean> };
+  processing: ProcessingLevel;
+  milestones: Milestone[] | null;
+  wishPlace: { ags: string; name: string; kreis: string; land: string; codes: string[]; fits: boolean } | null;
+  poas: PoaView[];
+  poaEnabled: boolean;
   transitions: Transition[];
   checklistProgress: { done: number; total: number };
   canWrite: boolean;
@@ -212,12 +220,24 @@ export function OrderDetailView({ id, initialTab, onBack, onChanged, onDuplicate
         ]}
       />
       <div className="os-detail__body os-scroll">
-        {tab === 'uebersicht' ? <OverviewTab data={data} busy={busy} act={act} onFix={(i) => i.fix && setTab(FIX_TAB[i.fix] ?? 'uebersicht')} /> : null}
+        {tab === 'uebersicht' ? (
+          <OverviewTab
+            data={data}
+            busy={busy}
+            act={act}
+            onFix={(i) => i.fix && setTab(FIX_TAB[i.fix] ?? 'uebersicht')}
+            poaDone={async (ok, text) => {
+              flash.show(ok, text);
+              await reload(true);
+              onChanged();
+            }}
+          />
+        ) : null}
         {tab === 'freigabe' ? <ReleaseTab data={data} busy={busy} act={act} /> : null}
         {tab === 'unterlagen' ? <DocsTab data={data} busy={busy} act={act} reload={() => void reload(true)} flash={flash.show} /> : null}
         {tab === 'angaben' ? (
           <div className="os-facts">
-            <OrderFacts order={o as never} />
+            <OrderFacts order={o as never} wishPlace={data.wishPlace} />
           </div>
         ) : null}
         {tab === 'zahlung' ? <PaymentTab data={data} busy={busy} act={act} reload={() => void reload(true)} flash={flash.show} /> : null}
@@ -232,7 +252,7 @@ export function OrderDetailView({ id, initialTab, onBack, onChanged, onDuplicate
 
 /* ---------- Übersicht ---------- */
 
-function OverviewTab({ data, busy, act, onFix }: { data: OrderBundle; busy: boolean; act: Act; onFix: (i: Issue) => void }) {
+function OverviewTab({ data, busy, act, onFix, poaDone }: { data: OrderBundle; busy: boolean; act: Act; onFix: (i: Issue) => void; poaDone: (ok: boolean, text: string) => Promise<void> }) {
   const o = data.order;
   const staff = useStaff();
   const forward = data.transitions.filter((t) => t.to !== 'storniert');
@@ -336,6 +356,29 @@ function OverviewTab({ data, busy, act, onFix }: { data: OrderBundle; busy: bool
         </Panel>
       </div>
       <div className="os-stack">
+        <Panel
+          title="Bearbeitung & Zeitstempel"
+          actions={data.processing !== 'standard' ? <Badge tone={data.processing === 'express_plus' ? 'red' : 'amber'}>{PROCESSING[data.processing].label}</Badge> : <Badge tone="slate">Standard</Badge>}
+        >
+          {data.milestones ? (
+            <ol className="os-milestones" role="list">
+              {data.milestones.map((m) => (
+                <li key={m.key} className={`${m.at ? 'is-done' : ''}${m.tone ? ` is-${m.tone}` : ''}`}>
+                  <span>{m.label}</span>
+                  <span className="os-small">{m.at ? dateTime(m.at) : '–'}</span>
+                  {m.note ? <span className="os-small os-muted">{m.note}</span> : null}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {data.processing !== 'standard' ? (
+            <p className="os-muted os-small">
+              {o.due_at ? `Interne Frist: ${dateTime(o.due_at)}${o.due_at < new Date().toISOString() ? ' – überschritten' : ''}. ` : ''}Express heißt Vorrang in unserer Bearbeitung – keine Fristzusage an den
+              Kunden.
+            </p>
+          ) : null}
+        </Panel>
+        <PoaPanel data={data} done={poaDone} />
         <Panel title="Planung">
           <div className="os-fields os-fields--2">
             <label className="os-field">
@@ -378,6 +421,19 @@ function OverviewTab({ data, busy, act, onFix }: { data: OrderBundle; busy: bool
             ) : null}
           </form>
           {o.data.plate.wunschkennzeichen ? <p className="os-muted os-small">Wunsch des Kunden: {o.data.plate.wunschkennzeichen}</p> : null}
+          {data.wishPlace ? (
+            <p className="os-small">
+              Kennzeichen-Ort: <strong>{data.wishPlace.name}</strong>
+              {data.wishPlace.kreis ? ` · ${data.wishPlace.kreis}, ${data.wishPlace.land}` : ''} – verifizierte Kürzel: {data.wishPlace.codes.join(', ') || 'keine'}{' '}
+              {data.wishPlace.fits ? <Badge tone="green">Kürzel passt</Badge> : <Badge tone="red">Kürzel passt nicht</Badge>}
+            </p>
+          ) : null}
+          {o.data.plate.schilder ? (
+            <p className="os-small">
+              Schilder: <strong>{plateSummary(o.data.plate, plateSignCount(o.data.vehicle.art))}</strong>{' '}
+              {plateFinishOf(o.data.plate) === 'carbon' ? <Badge tone="carbon">Premium</Badge> : null}
+            </p>
+          ) : null}
           {o.previous_plate ? <p className="os-muted os-small">Bisher: {o.previous_plate}</p> : null}
         </Panel>
         {o.delivery === 'versand' ? (
@@ -536,12 +592,193 @@ function ReleaseTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act
         </Panel>
         <Panel title="Übermittlung an kfz-api.de">
           <p className="os-muted os-small">
-            Gesperrt: Es wird nichts automatisch übermittelt. Anlage-Endpunkte sind nicht dokumentiert, KBA-Freischaltung und Produktivfreigabe fehlen. Nach der Freigabe
-            den Vorgang beim Zulassungspartner einreichen und hier „Bei Zulassungsstelle“ setzen (Registerkarte Übersicht). Statusmeldungen kommen über den Webhook.
+            Gesperrt: Es wird nichts automatisch übermittelt (keine Produktivfreigabe für kostenpflichtige Anträge). Nach der Freigabe den Vorgang beim
+            Zulassungspartner einreichen und hier „Bei Zulassungsstelle“ setzen (Registerkarte Übersicht). Statusmeldungen kommen über den Webhook.
           </p>
+          {o.data.plate.schilder ? (
+            <p className="os-small">
+              Schilder mitbestellen: <strong>{plateSummary(o.data.plate, plateSignCount(o.data.vehicle.art))}</strong> – beim Zulassungspartner genau diese
+              Ausführung wählen.
+            </p>
+          ) : null}
         </Panel>
       </div>
     </div>
+  );
+}
+
+/* ---------- Digitale Vollmacht (kfz-api.de / Nect) ---------- */
+
+const POA_TONE: Record<PoaView['state'], string> = {
+  erstellt: 'slate',
+  link_versendet: 'blue',
+  ausstehend: 'amber',
+  unterschrieben: 'green',
+  unvollstaendig: 'amber',
+  abgelehnt: 'red',
+  abgelaufen: 'red',
+  fehler: 'red',
+};
+const POA_SERVICE_IDS = ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung'];
+
+function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text: string) => Promise<void> }) {
+  const o = data.order;
+  const [busy, setBusy] = useState(false);
+  const [birthPlace, setBirthPlace] = useState('');
+  const poa = data.poas[0] ?? null;
+  const needed = POA_SERVICE_IDS.includes(o.service);
+  const canRequest = data.canWrite && data.poaEnabled && needed && (!poa || ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state));
+  const run = async (path: string, success: string, confirmText?: string) => {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(true);
+    try {
+      await osFetch(`orders/${o.id}/${path}`, { method: 'POST', body: {} });
+      await done(true, success);
+    } catch (e) {
+      await done(false, (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const steps: { label: string; on: boolean; tone?: string }[] = poa
+    ? [
+        { label: 'Vollmacht erstellt', on: !!poa.processId },
+        { label: poa.sendEmail ? 'Unterschriftslink versendet (durch Partner)' : 'Unterschriftslink bereit', on: !!poa.signatureUrl && !poa.note },
+        {
+          label: poa.state === 'abgelehnt' ? 'Vollmacht abgelehnt' : poa.state === 'abgelaufen' ? 'Vollmacht abgelaufen' : poa.state === 'fehler' ? 'Technischer Fehler' : 'Vollmacht unterschrieben',
+          on: ['unterschrieben', 'unvollstaendig', 'abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state),
+          tone: ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state) ? 'red' : undefined,
+        },
+      ]
+    : [];
+  return (
+    <Panel title="Digitale Vollmacht" actions={poa ? <Badge tone={POA_TONE[poa.state]}>{poa.label}</Badge> : <Badge tone="slate">{needed ? 'nicht angefordert' : 'nicht nötig'}</Badge>}>
+      {!poa ? (
+        <p className="os-muted os-small">
+          {needed
+            ? data.poaEnabled
+              ? 'Noch kein Vollmachtsvorgang. Die Anforderung legt beim Partner einen kostenpflichtigen Unterschriftsvorgang an (Online-Unterschrift mit Ausweis).'
+              : 'Die digitale Vollmacht ist noch nicht freigeschaltet. Bis dahin gilt die Vollmacht im Original.'
+            : 'Für diese Leistung ist keine Vollmacht nötig.'}
+        </p>
+      ) : (
+        <>
+          <ol className="os-milestones" role="list">
+            {steps.map((s) => (
+              <li key={s.label} className={`${s.on ? 'is-done' : ''}${s.tone ? ` is-${s.tone}` : ''}`}>
+                <span>{s.label}</span>
+              </li>
+            ))}
+          </ol>
+          <dl className="os-dl os-small">
+            <>
+              <dt>Vorgang beim Partner</dt>
+              <dd>
+                {poa.processId ? `Nr. ${poa.processId}` : '–'} · Versuch {poa.attempt} · {poa.externalOrderId}
+              </dd>
+            </>
+            <>
+              <dt>Letzte bestätigte Änderung</dt>
+              <dd>{poa.statusChangedAt ? dateTime(poa.statusChangedAt) : '–'}</dd>
+            </>
+            <>
+              <dt>Zuletzt abgefragt</dt>
+              <dd>
+                {poa.checkedAt ? dateTime(poa.checkedAt) : '–'}
+                {poa.checkError ? ` – ${poa.checkError}` : ''}
+              </dd>
+            </>
+            {poa.validUntil ? (
+              <>
+                <dt>Unterschrift möglich bis</dt>
+                <dd>{dateTime(poa.validUntil)}</dd>
+              </>
+            ) : null}
+            <>
+              <dt>SEPA-Mandat</dt>
+              <dd>{poa.withSepa ? 'im selben Vorgang mit unterschrieben' : 'nicht enthalten (Kontoinhaber ≠ Halter oder kein Mandat) – separat einholen'}</dd>
+            </>
+          </dl>
+          {poa.note ? <p className="os-flash is-warn">Hinweis des Partners: {poa.note}</p> : null}
+          {poa.missingFields.length && poa.status === 'signiert' ? (
+            <p className="os-flash is-warn">Nicht festgestellte Halterfelder: {poa.missingFields.join(', ')} – z. B. Ausweis ohne Anschrift (Reisepass); Meldebescheinigung prüfen.</p>
+          ) : null}
+          {poa.blockingIssues.length ? <p className="os-flash is-error">Mängel am Vorgang: {poa.blockingIssues.join(', ')}</p> : null}
+          {poa.createError ? <p className="os-flash is-error">Anforderung: {poa.createError}</p> : null}
+          {poa.signatureUrl && ['ausstehend', 'link_versendet', 'erstellt'].includes(poa.state) ? (
+            <p className="os-small">
+              Unterschriftslink:{' '}
+              <button type="button" className="os-linkbtn" onClick={() => void navigator.clipboard?.writeText(poa.signatureUrl)}>
+                kopieren
+              </button>{' '}
+              <span className="os-muted">(nur an den Halter weitergeben)</span>
+            </p>
+          ) : null}
+          <p className="os-muted os-small">
+            Maßgeblich ist der über die Partner-Schnittstelle bestätigte Stand – nie der Rücksprung des Kunden. Das unterschriebene Dokument liegt beim
+            Partner (Dashboard › Vollmachten); die Schnittstelle gibt es aus Datenschutzgründen nicht heraus.
+          </p>
+          {data.poas.length > 1 ? (
+            <details className="os-small">
+              <summary>Frühere Versuche ({data.poas.length - 1})</summary>
+              <ul className="os-plain">
+                {data.poas.slice(1).map((p) => (
+                  <li key={p.id}>
+                    Versuch {p.attempt}: {p.label} · Nr. {p.processId ?? '–'} · {p.statusChangedAt ? dateTime(p.statusChangedAt) : dateTime(p.createdAt)}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      )}
+      {needed && data.canWrite && o.data.holder.typ === 'privat' && !o.data.holder.geburtsort && (!poa || ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state)) ? (
+        <form
+          className="os-row"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await osFetch(`orders/${o.id}/action`, { method: 'POST', body: { type: 'birthPlace', value: birthPlace } });
+              setBirthPlace('');
+              await done(true, 'Geburtsort gespeichert');
+            } catch (err) {
+              await done(false, (err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <input placeholder="Geburtsort wie im Ausweis" aria-label="Geburtsort wie im Ausweis" maxLength={105} value={birthPlace} onChange={(e) => setBirthPlace(e.target.value)} />
+          <button type="submit" className="os-btn os-btn--ghost" disabled={busy || !birthPlace.trim()}>
+            Geburtsort speichern
+          </button>
+        </form>
+      ) : null}
+      <div className="os-row">
+        {poa?.processId ? (
+          <button type="button" className="os-btn os-btn--ghost" disabled={busy} onClick={() => void run('vollmacht/abgleich', 'Stand beim Partner abgefragt')}>
+            Stand jetzt abfragen
+          </button>
+        ) : null}
+        {canRequest ? (
+          <button
+            type="button"
+            className="os-btn"
+            disabled={busy}
+            onClick={() =>
+              void run(
+                'vollmacht',
+                poa ? 'Neuer Vollmachtsvorgang angefordert' : 'Digitale Vollmacht angefordert',
+                `${poa ? 'Neuen Vollmachtsvorgang' : 'Digitale Vollmacht'} für ${o.number} beim Partner anfordern? Das legt einen kostenpflichtigen, rechtsverbindlichen Unterschriftsvorgang an.`,
+              )
+            }
+          >
+            {poa ? 'Neuen Vorgang anfordern' : 'Digitale Vollmacht anfordern'}
+          </button>
+        ) : null}
+      </div>
+    </Panel>
   );
 }
 

@@ -8,14 +8,16 @@ import type { ServiceId } from '../../lib/services.ts';
 import { ArrowRight, Check } from '../icons.tsx';
 import { PriceTag, promoActive, promoUntilText } from '../Promo.tsx';
 import { Split } from '../Split.tsx';
+import type { PlateOffer } from '../../lib/plates.ts';
+import type { ExpressOffer } from '../../lib/express.ts';
 
-const PLANS: { title: string; text: string; services?: ServiceId[]; href?: string; soon?: boolean; extra?: 'plates'; featured?: boolean }[] = [
+const PLANS: { title: string; text: string; services?: ServiceId[]; href?: string; soon?: boolean; extra?: 'plates' | 'express'; featured?: boolean }[] = [
   { title: 'Zulassung', text: 'Neuzulassung inkl. Kennzeichen-Reservierung.', services: ['neuzulassung'], href: '/kfz-anmelden/auftrag?leistung=neuzulassung', featured: true },
   { title: 'Ummeldung', text: 'Halterwechsel oder neue Adresse nach Umzug.', services: ['halterwechsel', 'umzug'], href: '/kfz-anmelden/auftrag?leistung=ummeldung' },
   { title: 'Wiederzulassung', text: 'Abgemeldetes Fahrzeug zurück auf die Straße.', services: ['wiederzulassung'], href: '/kfz-anmelden/auftrag?leistung=wiederzulassung' },
   { title: 'Abmeldung', text: 'Außerbetriebsetzung inkl. Bestätigung.', services: ['abmeldung'], href: '/kfz-anmelden/auftrag?leistung=abmeldung' },
-  { title: 'Kennzeichen', text: 'Geprägte Schilder direkt im Vorgang mitbestellen.', extra: 'plates' },
-  { title: 'Express', text: 'Priorisierte Bearbeitung für eilige Vorgänge.', soon: true },
+  { title: 'Kennzeichen', text: 'Geprägte Schilder direkt im Vorgang mitbestellen – Standard oder Carbon-Optik.', extra: 'plates' },
+  { title: 'Express', text: 'Bevorzugte Bearbeitung* für eilige Vorgänge.', extra: 'express' },
 ];
 
 const PROMISES = ['Preis vor dem Absenden sichtbar', 'Keine versteckten Kosten', 'Amtliche Gebühren 1:1 nach Beleg'];
@@ -26,7 +28,7 @@ const BUNDLES: { service: ServiceId; title: string; short: string; highlight?: b
   { service: 'wiederzulassung', title: BUNDLE_NAMES.wiederzulassung, short: 'Wiederzulassung' },
 ];
 
-export function Pricing() {
+export function Pricing({ plateOffer, expressOffer }: { plateOffer: PlateOffer; expressOffer: ExpressOffer }) {
   const promo = promoActive();
   const example = servicePrice('neuzulassung');
   return (
@@ -71,7 +73,7 @@ export function Pricing() {
         </div>
 
         <ul className="price__grid" role="list">
-          {PLANS.map((p, i) => (
+          {PLANS.map((plan) => (plan.extra === 'express' && expressOffer.express === null ? { ...plan, text: 'Bevorzugte Bearbeitung für eilige Vorgänge.', soon: true } : plan)).map((p, i) => (
             <li
               key={p.title}
               className={`price__card${p.soon ? ' price__card--soon' : ''}${p.featured ? ' price__card--featured' : ''}`}
@@ -94,10 +96,27 @@ export function Pricing() {
                   <>
                     <span className="price-tag price-tag--lg">
                       <span className="price-tag__main">
-                        <span className="price-tag__value">{formatEuro(PRICE_CONFIG.plateSignCents)}</span>
+                        <span className="price-tag__value">{formatEuro(plateOffer.standard ?? PRICE_CONFIG.plateSignCents)}</span>
                       </span>
                     </span>
-                    <span className="price__unit">je geprägtem Schild inkl. MwSt.</span>
+                    <span className="price__unit">je geprägtem Schild (Standard) inkl. MwSt.</span>
+                    {plateOffer.carbon !== null ? (
+                      <span className="price__unit price__unit--premium">
+                        Premium: Carbon-Optik je <strong>{formatEuro(plateOffer.carbon)}</strong> inkl. MwSt.
+                      </span>
+                    ) : null}
+                  </>
+                ) : p.extra === 'express' && !p.soon && expressOffer.express !== null && PRICES_FINAL ? (
+                  <>
+                    <span className="price-tag price-tag--lg">
+                      <span className="price-tag__main">
+                        <span className="price-tag__value">+ {formatEuro(expressOffer.express)}</span>
+                      </span>
+                    </span>
+                    <span className="price__unit">Aufpreis inkl. MwSt. – im Vorgang wählbar{expressOffer.express_plus !== null ? `, Express Plus + ${formatEuro(expressOffer.express_plus)}` : ''}</span>
+                    <span className="price__unit price__fine">
+                      * Vorrang in unserer Bearbeitung nach Zahlung und vollständigen Unterlagen. Keine Fristzusage – über die Dauer entscheidet die Zulassungsbehörde.
+                    </span>
                   </>
                 ) : (
                   <span className="price__pending">{p.soon ? 'Noch nicht buchbar.' : 'Preis wird im Vorgang transparent angezeigt.'}</span>

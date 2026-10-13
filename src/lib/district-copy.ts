@@ -1,11 +1,13 @@
 // Texte für die Ortsseiten /kennzeichen/[kuerzel]. Eigene Formulierungen, je Kürzel deterministisch variiert,
 // damit 700+ Seiten nicht wortgleich sind. Keine festen Behördengebühren – die richten sich nach der Gebührenordnung.
 
-import { formatEuro } from './format.ts';
+import { formatEuro, formatIsoDay } from './format.ts';
 import { BUNDLE_NAMES, PRICE_CONFIG } from './pricing.config.ts';
 import { fromPrice, isPromoActive, servicePrice } from './pricing.ts';
 import { NEW_CUSTOMER_PROMO } from './pricing.config.ts';
 import { districtLabel, inDistrict, joinGerman, variant, type DistrictPage } from './district-pages.ts';
+import type { PlateOffer } from './plates.ts';
+import { PLATE_CODES_CHECKED } from './plate-codes.generated.ts';
 
 export interface DistrictCopy {
   title: string;
@@ -25,7 +27,7 @@ export interface DistrictCopy {
   faq: { q: string; a: string }[];
 }
 
-export function districtCopy(p: DistrictPage): DistrictCopy {
+export function districtCopy(p: DistrictPage, plateOffer?: PlateOffer): DistrictCopy {
   const C = p.code;
   const place = p.place;
   const where = inDistrict(p.district);
@@ -56,9 +58,10 @@ export function districtCopy(p: DistrictPage): DistrictCopy {
     `Die ersten ein bis drei Buchstaben auf einem deutschen Kennzeichen heißen Unterscheidungszeichen, im Alltag meist Ortskennzeichen. Sie zeigen, in welchem Zulassungsbezirk ein Fahrzeug angemeldet ist.`,
     `Vor dem Bindestrich steht auf jedem deutschen Kennzeichen das Unterscheidungszeichen – umgangssprachlich das Ortskennzeichen. Es verrät, welcher Zulassungsbezirk das Fahrzeug zugelassen hat.`,
   ];
+  // Nur amtliche Angaben: Festlegung laut KBA-Faltblatt, Bezirke laut KBA-Anschriftenverzeichnis und Destatis
   const meaningB = origin
-    ? `${C} ist von ${origin} abgeleitet und gilt ${where} (${land}).`
-    : `${C} gilt ${where} (${land}).`;
+    ? `Laut Kraftfahrt-Bundesamt ist ${C} festgelegt für „${origin}“ und gilt ${where} (${land}). Stand der Angaben: ${formatIsoDay(PLATE_CODES_CHECKED)}.`
+    : `${C} gilt ${where} (${land}). Stand der Angaben: ${formatIsoDay(PLATE_CODES_CHECKED)}.`;
   const meaningC =
     p.sameDistrict.length > 0
       ? `Neben ${C} sind für denselben Bezirk auch ${joinGerman(p.sameDistrict)} vergeben. Seit der Kennzeichenliberalisierung können Halter dort zwischen den Kürzeln wählen – sofern die Zulassungsbehörde sie ausgibt.`
@@ -74,7 +77,7 @@ export function districtCopy(p: DistrictPage): DistrictCopy {
 
   return {
     title: `Kennzeichen ${C} ${place} – Wunschkennzeichen & Zulassung`,
-    metaDescription: `Kennzeichen ${C}${origin ? ` (${origin})` : ''} · ${shortLabel}, ${land}: Wunschkennzeichen eintippen, Zulassung online beauftragen, Schilder per DHL oder UPS.${promo ? ' Neukunden sparen 10 % auf die Servicepauschale.' : ''}`,
+    metaDescription: `Kennzeichen ${C} · ${shortLabel}, ${land}: Wunschkennzeichen eintippen, Zulassung online beauftragen, Schilder per DHL oder UPS.${promo ? ' Neukunden sparen 10 % auf die Servicepauschale.' : ''}`,
     lead: leads[variant(C, 'lead', leads.length)],
     howTitle: `So bekommst du dein ${C}-Kennzeichen für ${place}`,
     howIntro: intros[variant(C, 'intro', intros.length)],
@@ -94,7 +97,8 @@ export function districtCopy(p: DistrictPage): DistrictCopy {
       { label: 'Zulassung (Servicepauschale)', value: `ab ${formatEuro(zulassung.promoCents)}` },
       { label: 'Ummeldung (Servicepauschale)', value: `ab ${formatEuro(ummeldung.promoCents)}` },
       { label: 'Wunschkennzeichen reservieren', value: `+ ${formatEuro(PRICE_CONFIG.wishPlateHandlingCents)}` },
-      { label: 'Geprägte Kennzeichenschilder', value: `je ${formatEuro(PRICE_CONFIG.plateSignCents)}` },
+      { label: 'Geprägte Kennzeichenschilder (Standard)', value: `je ${formatEuro(plateOffer?.standard ?? PRICE_CONFIG.plateSignCents)}` },
+      ...(plateOffer?.carbon != null ? [{ label: 'Kennzeichenschilder in Carbon-Optik (Premium)', value: `je ${formatEuro(plateOffer.carbon)}` }] : []),
       { label: 'Versand mit DHL oder UPS', value: formatEuro(PRICE_CONFIG.shippingCents) },
       ...(bundle !== null ? [{ label: `${BUNDLE_NAMES.neuzulassung}: Zulassung, Wunschkennzeichen, Schilder, Versand`, value: formatEuro(bundle) }] : []),
     ],

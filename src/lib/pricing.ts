@@ -4,6 +4,8 @@ import { VEHICLE_TYPES, isVehicleTypeId } from './catalog.ts';
 import { BUNDLE_NAMES, NEW_CUSTOMER_PROMO, PRICE_CONFIG, type PriceConfig, type PromoConfig } from './pricing.config.ts';
 import { SERVICES, isPlateChange, type PlateChoice, type ServiceId } from './services.ts';
 import { CARRIERS, isCarrierId } from './shipping.ts';
+import { PLATE_FINISH, type PlateCostSnapshot, type PlateFinish, type PlateOffer } from './plates.ts';
+import { PROCESSING, type ExpressCostSnapshot, type ExpressOffer, type ProcessingLevel } from './express.ts';
 
 export interface PriceInput {
   service: ServiceId;
@@ -15,12 +17,35 @@ export interface PriceInput {
   newCustomer?: boolean;
   /** Versandpartner (nur für die Bezeichnung der Versandposition) */
   carrier?: string;
+  /** Ausführung der Schilder (ohne Angabe Standard) */
+  plateFinish?: PlateFinish;
+  /** Bearbeitung: Standard, Express, Express Plus (ohne Angabe Standard) */
+  processing?: ProcessingLevel;
 }
 
 export interface PriceLine {
   key: string;
   label: string;
   cents: number;
+  /** Bei Schildern: Stückzahl, Einzelpreis und Ausführung (für Auswertung und Übermittlung) */
+  qty?: number;
+  unitCents?: number;
+  finish?: PlateFinish;
+}
+
+/** Preiskonfiguration mit den im Finanzcenter gepflegten Schilderpreisen. */
+export function withPlateOffer(config: PriceConfig, offer: PlateOffer): PriceConfig {
+  return { ...config, plateSignCents: offer.standard ?? config.plateSignCents, plateSignCarbonCents: offer.carbon };
+}
+
+/** Preiskonfiguration mit den im Finanzcenter freigegebenen Express-Aufpreisen. */
+export function withExpressOffer(config: PriceConfig, offer: ExpressOffer): PriceConfig {
+  return { ...config, expressCents: { express: offer.express, express_plus: offer.express_plus } };
+}
+
+/** Einzelpreis je Schild der Ausführung – Carbon nur, wenn angeboten (sonst null). */
+export function plateUnitCents(finish: PlateFinish, config: PriceConfig = PRICE_CONFIG): number | null {
+  return finish === 'carbon' ? config.plateSignCarbonCents : config.plateSignCents;
 }
 
 export interface PriceBreakdown {
@@ -32,6 +57,8 @@ export interface PriceBreakdown {
   /** Rabattbetrag (positiv), 0 wenn keiner */
   discountCents: number;
   totalCents: number;
+  /** Interne Kosten zum Bestellzeitpunkt (nur Verwaltung mit Finanzrecht, nie auf Kundenseiten) */
+  cost?: { plates?: PlateCostSnapshot; express?: ExpressCostSnapshot };
 }
 
 export function plateSignCount(vehicleType: string): number {
@@ -83,7 +110,10 @@ export function calculatePrice(
 
   if (input.plateSigns && needsPlateSigns(input.service, input.plateChoice)) {
     const count = plateSignCount(input.vehicleType);
-    lines.push({ key: 'schilder', label: `Kennzeichenschilder (${count} Stück)`, cents: count * config.plateSignCents });
+    // Carbon nur mit freigegebenem Preis; der Server lehnt eine nicht angebotene Ausführung vorher ab
+    const finish: PlateFinish = input.plateFinish === 'carbon' && config.plateSignCarbonCents !== null ? 'carbon' : 'standard';
+    const unit = plateUnitCents(finish, config) as number;
+    lines.push({ key: 'schilder', label: `Kennzeichenschilder ${PLATE_FINISH[finish].label} (${count} Stück)`, cents: count * unit, qty: count, unitCents: unit, finish });
   }
 
   if (input.delivery === 'versand') {
@@ -93,7 +123,7 @@ export function calculatePrice(
     lines.push({ key: 'abholung', label: 'Abholung', cents: config.pickupCents });
   }
 
-  const regularCents = lines.reduce((sum, l) => sum + l.cents, 0);
+  let regularCents = lines.reduce((sum, l) => sum + l.cents, 0);
 
   // Komplett-Paket: Leistung + Wunschkennzeichen + Schilder + Versand zum Paketpreis
   const bundle = bundleFor(input, config);
@@ -101,6 +131,16 @@ export function calculatePrice(
   if (bundle !== null) {
     bundleSaving = regularCents - bundle;
     lines.push({ key: 'paket', label: `Paketvorteil ${BUNDLE_NAMES[input.service]}`, cents: -bundleSaving });
+  }
+
+  // Express: eigener Aufpreis, nicht Teil des Pakets und nicht rabattiert (nur angebotene Stufen)
+  const level = input.processing;
+  if (level && level !== 'standard') {
+    const cents = config.expressCents[level];
+    if (cents) {
+      lines.splice(1, 0, { key: 'express', label: `${PROCESSING[level].label}-Bearbeitung (bevorzugt)`, cents });
+      regularCents += cents;
+    }
   }
 
   // Neukundenrabatt: mindestens promo.percent der Servicepauschale, Ergebnis endet auf ,99
@@ -116,6 +156,10 @@ export function calculatePrice(
 export function bundleFor(input: PriceInput, config: PriceConfig = PRICE_CONFIG): number | null {
   const price = config.bundleCents[input.service];
   if (price === null || input.plateChoice !== 'wunsch' || !input.plateSigns || input.delivery !== 'versand') return null;
+  // Das Paket enthält Standard-Schilder; Carbon-Optik kostet den Aufpreis je Schild zusätzlich
+  if (input.plateFinish === 'carbon' && config.plateSignCarbonCents !== null) {
+    return price + plateSignCount(input.vehicleType) * (config.plateSignCarbonCents - config.plateSignCents);
+  }
   return price;
 }
 

@@ -72,7 +72,7 @@ export function SiteHeader() {
     <>
       <header className="site-header" data-header data-tone={tone} data-menu={open ? 'open' : 'closed'}>
         <div className="shell site-header__inner">
-          <Logo />
+          <Logo id="logo-kopf" />
           <nav className="nav" aria-label="Hauptnavigation">
             {NAV_ITEMS.map((item) => (
               <Link key={item.href} href={item.href}>
@@ -118,7 +118,7 @@ export function SiteHeader() {
         inert={!open}
       >
         <div className="mobile-nav__top">
-          <Logo />
+          <Logo id="logo-menue" />
           <button type="button" className="mobile-nav__close" aria-label="Menü schließen" onClick={close}>
             <Close width={20} height={20} />
           </button>

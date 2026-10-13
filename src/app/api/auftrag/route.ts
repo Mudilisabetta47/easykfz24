@@ -11,6 +11,10 @@ import { runAfter } from '../../../server/db.ts';
 import { afterOrderCreated } from '../../../server/os/order-actions.ts';
 import { ipFrom, limits } from '../../../server/limits.ts';
 import { createCheckout, paymentsEnabled, publicBaseUrl } from '../../../server/payments.ts';
+import { getPlateOffer } from '../../../server/plates.ts';
+import { getExpressOffer } from '../../../server/express.ts';
+import { placeByAgs } from '../../../server/regions.ts';
+import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,7 +55,7 @@ export async function POST(req: Request) {
     return fail(400, 'Die Anfrage konnte nicht verarbeitet werden.');
   }
 
-  const result = validateOrder(raw);
+  const result = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs, requireBirthPlace: poaCreationEnabled() });
   if (!result.ok) return fail(422, 'Bitte prüfen Sie die markierten Angaben.', result.errors);
   const order = result.order;
 

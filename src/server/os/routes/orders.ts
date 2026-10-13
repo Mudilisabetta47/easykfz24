@@ -33,6 +33,10 @@ import {
 import { queryOrders, type OrderFilter } from '../order-query.ts';
 import { listTasks } from '../tasks.ts';
 import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.ts';
+import { processingOf } from '../../../lib/express.ts';
+import { orderMilestones } from '../../express.ts';
+import { orderWishPlace } from '../../regions.ts';
+import { latestPoa, listPoas, poaCreationEnabled, requestPoa, setBirthPlace, verifyPoa, viewOf } from '../../power-of-attorney.ts';
 
 function filterFrom(url: URL): OrderFilter {
   const p = url.searchParams;
@@ -50,6 +54,7 @@ function filterFrom(url: URL): OrderFilter {
     vehicleFin: str(p.get('fin'), 17) || undefined,
     overdue: p.get('overdue') === '1',
     issues: p.get('issues') === '1',
+    express: p.get('express') === '1',
     limit: p.get('limit') ? Math.min(2000, Number(p.get('limit')) || 500) : 500,
   };
 }
@@ -83,8 +88,19 @@ async function orderBundle(c: Ctx, id: number) {
     hasAssignedPlate: order.assigned_plate !== '',
   };
   const customer = extra?.customer_id ? await db.first<{ id: number; number: string; name: string; category: string }>('SELECT id, number, name, category FROM customers WHERE id = ?', extra.customer_id) : null;
+  // Bearbeitung und Meilensteine (tatsächliche Zeitpunkte: Eingang, Zahlung, Vollständigkeit, Freigabe, Übermittlung, Ergebnis)
+  const processing = processingOf(order.data);
+  const milestones = await orderMilestones(id);
   return {
-    order: { ...order, payment_token: undefined, ...extra },
+    processing,
+    milestones,
+    // Im Konfigurator gewählter Ort (AGS) mit Abgleich gegen das Wunsch-Kürzel
+    wishPlace: orderWishPlace(order.data),
+    // Digitale Vollmacht: alle Versuche mit bestätigtem Stand (Abgleich über die Partner-Schnittstelle)
+    poas: (await listPoas(id)).map(viewOf),
+    poaEnabled: poaCreationEnabled(),
+    // Einkaufspreise und Kosten nur mit Finanzrecht
+    order: { ...order, payment_token: undefined, ...extra, price: c.can('finance.read') ? order.price : { ...order.price, cost: undefined } },
     customer,
     documents: docs
       .filter((d) => !(d as { deleted_at?: string }).deleted_at && !(d as { superseded_at?: string }).superseded_at)
@@ -167,6 +183,34 @@ export const orderRoutes: Route[] = [
     },
   },
   {
+    // Digitale Vollmacht anfordern (kostenpflichtig beim Partner) – je Auftrag einzeln, bestehender offener Vorgang wird wiederverwendet
+    method: 'POST',
+    path: 'orders/:id/vollmacht',
+    perm: 'orders.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (!(await getOrder(id))) throw new HttpError(404, 'Auftrag nicht gefunden');
+      const r = await requestPoa(id, c.actor.name);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, reasons: r.reasons ?? [], poa: r.poa ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, r.reused ? 'vollmacht.bestehend' : 'vollmacht.angefordert', String(id), `Vorgang ${r.poa.processId ?? '–'}`);
+      return r;
+    },
+  },
+  {
+    // Stand der digitalen Vollmacht jetzt beim Partner abfragen (kostenlos, GET /powerOfAttorneys/{processId})
+    method: 'POST',
+    path: 'orders/:id/vollmacht/abgleich',
+    perm: 'orders.read',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const rec = await latestPoa(id);
+      if (!rec) return NextResponse.json({ ok: false, error: 'Zu diesem Auftrag gibt es keinen Vollmachtsvorgang.' }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      const r = await verifyPoa(rec.id, { force: true, actor: c.actor.name });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, poa: r.poa ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return r;
+    },
+  },
+  {
     method: 'POST',
     path: 'orders',
     perm: 'orders.write',
@@ -207,6 +251,13 @@ export const orderRoutes: Route[] = [
           const to = str(b.to, 30);
           const r = ok(await actStatus(id, to, str(b.publicMessage, 1000), str(b.internalMessage, 1000), c.actor));
           await audit(c.audit, 'auftrag.status', order.number, `${order.status} → ${to}`);
+          return r;
+        }
+        case 'birthPlace': {
+          // Geburtsort für die digitale Vollmacht nachtragen (Wert nicht ins Protokoll)
+          c.need('orders.write');
+          const r = ok(await setBirthPlace(id, str(b.value, 105), c.actor.name));
+          await audit(c.audit, 'auftrag.geburtsort', order.number);
           return r;
         }
         case 'checklist':

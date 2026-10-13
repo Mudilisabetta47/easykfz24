@@ -129,6 +129,8 @@ export interface IssueInput {
   regChecks?: Record<string, boolean>;
   /** andere laufende Aufträge mit derselben FIN */
   sameFinOpen?: { id: number; number: string }[];
+  /** Wunschkennzeichen-Kürzel gegen den Wohnort laut amtlicher Zuordnung (KBA/Destatis) */
+  wishCode?: { code: string; result: 'ja' | 'nein' | 'unklar'; place: string | null; allowed: string[] };
   /** Auftragsbetrag und Summe der gebuchten Zahlungen (null = keine Buchung vorhanden) */
   totalCents?: number;
   paidCents?: number | null;
@@ -139,6 +141,15 @@ const ACTIVE: StatusId[] = ['neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zula
 /** Automatische Fehlererkennung für einen Auftrag – Grundlage für Warnhinweise, Kanban-Markierungen und Dashboard. */
 export function orderIssues(o: IssueInput): Issue[] {
   const out: Issue[] = [];
+  if (o.wishCode?.result === 'nein') {
+    out.push({
+      level: 'warnung',
+      code: 'wunsch_ort',
+      text: `Wunschkennzeichen ${o.wishCode.code} passt laut amtlicher Zuordnung nicht zum Wohnort ${o.wishCode.place}${o.wishCode.allowed.length ? ` (zulässig: ${o.wishCode.allowed.join(', ')})` : ''}`,
+    });
+  } else if (o.wishCode?.result === 'unklar') {
+    out.push({ level: 'hinweis', code: 'wunsch_ort', text: `Wohnort für das Wunschkennzeichen ${o.wishCode.code} nicht eindeutig zuordenbar – Kürzel manuell prüfen` });
+  }
   const d = o.data;
   const svc = SERVICES[o.service];
   const active = ACTIVE.includes(o.status);

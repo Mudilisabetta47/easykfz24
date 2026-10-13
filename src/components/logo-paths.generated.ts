@@ -1,0 +1,5 @@
+// Erzeugt von scripts/brand/logo.py – nicht von Hand ändern.
+
+export const WORDMARK_WIDTH = 650;
+export const WORDMARK_STROKE = 16;
+export const WORDMARK_PATHS: { d: string; x: number; cap: "butt" | "round"; part: "easy" | "kfz" }[] = [{"d": "M54,8 H8 V92 H54 M8,50 H47", "x": 0, "cap": "butt", "part": "easy"}, {"d": "M6,108 L36,8 L66,108 M17,66 H55", "x": 69, "cap": "butt", "part": "easy"}, {"d": "M47.2,16.95 A21,21 0 1 0 30,50 A21,21 0 1 1 12.8,83.05", "x": 152, "cap": "butt", "part": "easy"}, {"d": "M5,-6 L33,50 L61,-6 M33,50 V108", "x": 223, "cap": "butt", "part": "easy"}, {"d": "M8,-6 V108 M57,-6 L8,67.5", "x": 306, "cap": "butt", "part": "kfz"}, {"d": "M26.33,40 L61,108", "x": 306, "cap": "round", "part": "kfz"}, {"d": "M8,108 V8 H52 M8,50 H45", "x": 381, "cap": "butt", "part": "kfz"}, {"d": "M4,8 H54 L7,92 H57", "x": 446, "cap": "butt", "part": "kfz"}, {"d": "M9.97,20.13 A21,21 0 1 1 45.82,41.58 L8,92 H55", "x": 517, "cap": "butt", "part": "kfz"}, {"d": "M44,108 V8 L7,67 H61", "x": 588, "cap": "butt", "part": "kfz"}];

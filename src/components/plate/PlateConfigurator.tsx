@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import { checkWish, normalizeWish, type WishInput } from '../../lib/wish-plate.ts';
 import { GermanLicensePlate } from '../GermanLicensePlate.tsx';
-import { PlateInput } from './PlateInput.tsx';
+import { PlateInput, placeText, type PlacePick } from './PlateInput.tsx';
 import { ArrowRight, Close, Restart } from '../icons.tsx';
 
 type Status = 'frei' | 'vergeben' | 'unbekannt';
@@ -22,14 +22,21 @@ interface ApiResult {
   suggestions?: Suggestion[];
 }
 
+// „Verfügbar“/„Nicht verfügbar“ nur mit Antwort einer angebundenen, autorisierten Quelle – nie für erzeugte Vorschläge
 const STATUS_TEXT: Record<Status, string> = {
-  frei: 'Frei',
-  vergeben: 'Vergeben',
-  unbekannt: 'Wird bei Reservierung geprüft',
+  frei: 'Verfügbar',
+  vergeben: 'Nicht verfügbar',
+  unbekannt: 'Verfügbarkeit momentan unbekannt',
 };
 
+/** Link zum Auftrag mit Wunschkennzeichen und – falls gewählt – Ort (Amtlicher Gemeindeschlüssel) */
+export function orderHref(plate: string, place: PlacePick | null, extra: Record<string, string> = {}) {
+  const q = new URLSearchParams({ ...extra, wunsch: plate, ...(place ? { ort: place.ags } : {}) });
+  return `/kfz-anmelden/auftrag?${q}`;
+}
+
 /** Macht ein beliebiges Kennzeichen anklickbar und öffnet den Konfigurator. */
-export function PlateTrigger({ children, className = '', initial }: { children: ReactNode; className?: string; initial?: WishInput }) {
+export function PlateTrigger({ children, className = '', initial, initialPlace = null }: { children: ReactNode; className?: string; initial?: WishInput; initialPlace?: PlacePick | null }) {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   return (
@@ -51,6 +58,7 @@ export function PlateTrigger({ children, className = '', initial }: { children: 
       {open ? (
         <PlateConfigurator
           initial={initial}
+          initialPlace={initialPlace}
           onClose={() => {
             setOpen(false);
             btn.current?.focus();
@@ -64,14 +72,18 @@ export function PlateTrigger({ children, className = '', initial }: { children: 
 export function PlateConfigurator({
   onClose,
   initial,
+  initialPlace = null,
   onPick,
 }: {
   onClose: () => void;
   initial?: WishInput;
-  /** Übernahme-Modus (im Auftrag): gewähltes Kennzeichen zurückgeben statt zum Auftrag zu verlinken */
-  onPick?: (plate: string) => void;
+  /** Bereits gewählter Ort (z. B. von einer Ortsseite oder aus dem Auftrag) */
+  initialPlace?: PlacePick | null;
+  /** Übernahme-Modus (im Auftrag): gewähltes Kennzeichen (und Ort) zurückgeben statt zum Auftrag zu verlinken */
+  onPick?: (plate: string, place: PlacePick | null) => void;
 }) {
   const [wish, setWish] = useState<WishInput>(initial ?? { cityCode: '', letters: '', numbers: '' });
+  const [place, setPlace] = useState<PlacePick | null>(initialPlace);
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -144,6 +156,8 @@ export function PlateConfigurator({
   }, []);
 
   const fieldError = !local.ok && wish.cityCode ? local : null;
+  // Der gewählte Ort gilt nur, solange das Kürzel amtlich zu ihm gehört
+  const placeFor = (code: string) => (place && place.codes.includes(code) ? place : null);
   // Offene Stellen zeigen grau die gerade gewählte Kombination
   const placeholder = { cityCode: 'HB', letters: selected?.letters ?? 'EZ', numbers: selected?.numbers ?? '24' };
 
@@ -171,18 +185,20 @@ export function PlateConfigurator({
             showDistrict={false}
             invalid={fieldError ? fieldError.field : null}
             describedBy="pc-district"
-            onEnter={() => selected && onPick?.(selected.plate)}
+            onEnter={() => selected && onPick?.(selected.plate, placeFor(selected.cityCode))}
+            place={place}
+            onPlace={setPlace}
           />
         </div>
         <p className="pc__district" id="pc-district" aria-live="polite">
           {local.ok ? (
             <>
-              <strong>{local.pattern.cityCode}</strong> · {local.districtName}
+              <strong>{local.pattern.cityCode}</strong> · {place && placeFor(local.pattern.cityCode) ? placeText(place) : local.districtName}
             </>
           ) : fieldError ? (
             <span className="pc__error">{fieldError.error}</span>
           ) : (
-            'Einfach ins Schild tippen: Ort, dann Buchstaben und Zahlen. Lässt du die leer, schlagen wir Kombinationen vor.'
+            'Einfach ins Schild tippen: Kürzel oder Ortsname bzw. PLZ, dann Buchstaben und Zahlen. Lässt du die leer, schlagen wir Kombinationen vor.'
           )}
         </p>
 
@@ -215,8 +231,8 @@ export function PlateConfigurator({
             </ul>
             {result?.provider !== 'extern' ? (
               <p className="pc__note">
-                Ob eine Kombination frei ist, prüfen wir bei der Reservierung durch die Zulassungsstelle in {local.districtName}. Ist sie
-                vergeben, melden wir uns mit Alternativen.
+                Die Vorschläge sind formal gültige Kombinationen – keine Aussage über die Verfügbarkeit. Eine Live-Abfrage gibt es dafür derzeit nicht; verbindlich geprüft
+                wird erst bei der Reservierung durch die Zulassungsbehörde {local.districtName}. Ist die Kombination vergeben, melden wir uns mit Alternativen.
               </p>
             ) : null}
           </section>
@@ -227,11 +243,11 @@ export function PlateConfigurator({
             Schließen
           </button>
           {selected && onPick ? (
-            <button type="button" className="btn" onClick={() => onPick(selected.plate)}>
+            <button type="button" className="btn" onClick={() => onPick(selected.plate, placeFor(selected.cityCode))}>
               {selected.plate} übernehmen <ArrowRight className="btn__icon" />
             </button>
           ) : selected ? (
-            <Link href={`/kfz-anmelden/auftrag?wunsch=${encodeURIComponent(selected.plate)}`} className="btn" onClick={onClose}>
+            <Link href={orderHref(selected.plate, placeFor(selected.cityCode))} className="btn" onClick={onClose}>
               {selected.plate} reservieren lassen <ArrowRight className="btn__icon" />
             </Link>
           ) : null}

@@ -69,6 +69,19 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
               <span className={`badge badge--${STATUSES[r.status].tone}`}>{statusLabel(r.status, r.service, 'kunde')}</span>
             </div>
             <p className="status-result__text">{STATUSES[r.status].publicText}</p>
+            {r.express ? <ExpressSteps express={r.express} /> : null}
+            {r.vollmacht ? (
+              <div className={`status-poa status-poa--${r.vollmacht.view}`}>
+                <p className="label">Digitale Vollmacht</p>
+                <p className="status-poa__title">{r.vollmacht.title}</p>
+                {r.vollmacht.verifiedAt ? <p className="muted status-poa__meta">Bestätigt über unseren Vollmachtspartner: {formatDateTime(r.vollmacht.verifiedAt)}</p> : null}
+                {r.vollmacht.signatureUrl ? (
+                  <a className="btn btn--sm" href={r.vollmacht.signatureUrl} rel="noopener noreferrer">
+                    Jetzt online unterschreiben
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
             <ProcessSteps display={(r.kfzDisplay || 'eingegangen') as DisplayStatus} timeline={r.kfzTimeline} />
             <dl className="status-facts">
               <div>
@@ -129,6 +142,29 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Express: Meilensteine mit tatsächlichen Zeitpunkten – keine Fristen, keine geschätzten Zeiten. */
+function ExpressSteps({ express }: { express: NonNullable<StatusState['result']>['express'] & object }) {
+  const reached = express.milestones.filter((m) => m.at).length;
+  return (
+    <section className="process process--express" aria-label="Express-Auftragsstatus">
+      <p className="label">{express.label}-Auftragsstatus</p>
+      <ol className="xsteps" role="list">
+        {express.milestones.map((m, i) => (
+          <li key={m.key} className={`xsteps__item${m.at ? ' is-done' : ''}${i === reached && !m.at ? ' is-next' : ''}${m.tone ? ` is-${m.tone}` : ''}`}>
+            <span className="xsteps__dot" aria-hidden="true" />
+            <span className="xsteps__label">{m.label}</span>
+            <span className="xsteps__at">{m.at ? formatDateTime(m.at) : 'noch nicht erreicht'}</span>
+            {m.note ? <span className="xsteps__note">{m.note}</span> : null}
+          </li>
+        ))}
+      </ol>
+      <p className="process__text muted">
+        Angezeigt werden nur tatsächlich eingetretene Schritte. Die Bearbeitungsdauer der Zulassungsbehörde können wir nicht beeinflussen.
+      </p>
+    </section>
   );
 }
 

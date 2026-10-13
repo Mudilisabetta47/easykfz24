@@ -19,7 +19,7 @@ function draft() {
   const d = emptyDraft('halterwechsel');
   d.vehicle = { art: 'pkw', hersteller: 'Audi', modell: 'A5', fin: 'WAUZZZF55KA012345', bisherigesKennzeichen: 'HB-EZ 24', antrieb: 'benzin', eKennzeichen: false, hKennzeichen: false };
   d.holder = { ...d.holder, typ: 'privat', vorname: 'Erika', nachname: 'Muster', geburtsdatum: '1984-03-07', strasse: 'Weg', hausnummer: '1', plz: '28195', ort: 'Bremen', email: 'erika@example.de', telefon: '0421 123456' };
-  d.plate = { wahl: 'behalten', wunschkennzeichen: '', schilder: false, zustellung: 'abholung', versanddienst: '' };
+  d.plate = { wahl: 'behalten', wunschkennzeichen: '', wunschort: '', schilder: false, ausfuehrung: 'standard', zustellung: 'abholung', versanddienst: '' };
   d.finish = { evb: 'a1b2c3d', kontoinhaber: 'Erika Muster', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, hinweise: '' };
   return d;
 }

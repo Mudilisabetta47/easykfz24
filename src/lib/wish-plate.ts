@@ -2,6 +2,7 @@
 // Ob ein Kennzeichen tatsächlich frei ist, weiß nur die zuständige Zulassungsbehörde – siehe server/plate-availability.ts.
 
 import { DISTRICTS } from './districts.ts';
+import { PLATE_CODES, REVOKED_CODES } from './plate-codes.generated.ts';
 
 export interface WishInput {
   cityCode: string;
@@ -18,6 +19,19 @@ export const BLOCKED_LETTERS = ['HJ', 'KZ', 'NS', 'SA', 'SS'];
 
 export function lookupDistrict(code: string): string | null {
   return DISTRICTS[code.toUpperCase()] ?? null;
+}
+
+/**
+ * Warum ein Kürzel nicht wählbar ist – nur verifizierte Kürzel (KBA + Destatis) sind zulässig, nichts wird ergänzt.
+ * null = Kürzel ist wählbar.
+ */
+export function cityCodeProblem(code: string): string | null {
+  const c = code.toUpperCase();
+  if (DISTRICTS[c]) return null;
+  const known = PLATE_CODES[c];
+  if (known?.s === 'p' || known?.s === 'f') return `„${c}“ wird derzeit amtlich geprüft und ist vorübergehend nicht wählbar`;
+  if (REVOKED_CODES.includes(c)) return `„${c}“ ist ein aufgehobenes Kürzel und wird nicht mehr neu ausgegeben`;
+  return `„${c}“ ist kein amtlich vergebenes Ortskennzeichen`;
 }
 
 /** Vorschläge für die Autovervollständigung des Ortskennzeichens. */
@@ -53,7 +67,7 @@ export function checkWish(raw: WishInput): WishCheck {
   const w = normalizeWish(raw);
   if (!w.cityCode) return { ok: false, field: 'cityCode', error: 'Bitte das Ortskennzeichen eingeben, z. B. OHZ' };
   const districtName = lookupDistrict(w.cityCode);
-  if (!districtName) return { ok: false, field: 'cityCode', error: `„${w.cityCode}“ ist kein vergebenes Ortskennzeichen` };
+  if (!districtName) return { ok: false, field: 'cityCode', error: cityCodeProblem(w.cityCode) as string };
   if (!w.letters) return { ok: false, field: 'letters', error: 'Ein oder zwei Buchstaben – oder „??“ für Vorschläge' };
   if (!w.numbers) return { ok: false, field: 'numbers', error: 'Ein bis vier Ziffern – oder „??“ für Vorschläge' };
   if (w.numbers[0] === '0') return { ok: false, field: 'numbers', error: 'Die Zahl darf nicht mit 0 beginnen' };

@@ -3,6 +3,8 @@ import { formatDateTime, formatEuro, formatIsoDay } from '../../lib/format.ts';
 import { PLATE_CHOICES, SERVICES } from '../../lib/services.ts';
 import { formatIban } from '../../lib/validation.ts';
 import { CARRIERS } from '../../lib/shipping.ts';
+import { plateSummary } from '../../lib/plates.ts';
+import { plateSignCount } from '../../lib/pricing.ts';
 import type { OrderDetail } from '../../server/orders.ts';
 
 function Facts({ title, rows }: { title: string; rows: [string, string][] }) {
@@ -22,7 +24,7 @@ function Facts({ title, rows }: { title: string; rows: [string, string][] }) {
 }
 
 /** Alle Auftragsangaben – genutzt in Detail- und Druckansicht. IBAN hier vollständig (wird für die Zulassung benötigt). */
-export function OrderFacts({ order }: { order: OrderDetail }) {
+export function OrderFacts({ order, wishPlace = null }: { order: OrderDetail; wishPlace?: { name: string; kreis: string; land: string } | null }) {
   const d = order.data;
   const h = d.holder;
   return (
@@ -51,6 +53,7 @@ export function OrderFacts({ order }: { order: OrderDetail }) {
             : ([
                 ['Name', `${h.vorname} ${h.nachname}`],
                 ['Geburtsdatum', formatIsoDay(h.geburtsdatum)],
+                ...(h.geburtsort ? ([['Geburtsort', h.geburtsort]] as [string, string][]) : []),
               ] as [string, string][])),
           ['Anschrift', `${h.strasse} ${h.hausnummer}, ${h.plz} ${h.ort}`],
           ['E-Mail', h.email],
@@ -62,7 +65,8 @@ export function OrderFacts({ order }: { order: OrderDetail }) {
         rows={[
           ['Wahl', d.plate.wahl ? PLATE_CHOICES[d.plate.wahl].label : 'entfällt (Abmeldung)'],
           ['Wunschkennzeichen', d.plate.wunschkennzeichen],
-          ['Schilder', d.plate.schilder ? 'mitbestellt' : 'nein'],
+          ...(wishPlace ? ([['Kennzeichen-Ort', `${wishPlace.name}${wishPlace.kreis ? ` (${wishPlace.kreis}, ${wishPlace.land})` : ''}`]] as [string, string][]) : []),
+          ['Schilder', d.plate.schilder ? `mitbestellt: ${plateSummary(d.plate, plateSignCount(d.vehicle.art))}` : 'nein'],
           ['Zustellung', d.plate.zustellung === 'versand' ? `Versand mit ${d.plate.versanddienst ? CARRIERS[d.plate.versanddienst].name : '–'}` : 'Abholung'],
         ]}
       />

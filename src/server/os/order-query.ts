@@ -6,7 +6,10 @@ import type { ValidatedOrder } from '../../lib/order.ts';
 import type { DocumentKind, ServiceId } from '../../lib/services.ts';
 import { isStatusId, type StatusId } from '../../lib/status.ts';
 import { orderIssues, stageOf, type Issue, type Stage } from '../../lib/workflow.ts';
-import { getDb } from '../db.ts';
+import { allIn, getDb } from '../db.ts';
+import { plateFinishOf, type PlateFinish } from '../../lib/plates.ts';
+import { processingOf, type ProcessingLevel } from '../../lib/express.ts';
+import { wishCodeCheck } from '../regions.ts';
 
 export interface OrderFilter {
   q?: string;
@@ -22,6 +25,8 @@ export interface OrderFilter {
   vehicleFin?: string;
   overdue?: boolean;
   issues?: boolean;
+  /** nur Express und Express Plus */
+  express?: boolean;
   limit?: number;
 }
 
@@ -39,6 +44,12 @@ export interface OrderListRow {
   previous_plate: string;
   assigned_plate: string;
   wish_plate: string;
+  /** Schilder mitbestellt: Ausführung, sonst leer */
+  plate_signs: '' | PlateFinish;
+  /** Bearbeitung (Standard, Express, Express Plus) */
+  processing: ProcessingLevel;
+  /** erste bestätigte Zahlung (für die Express-Warteschlange) */
+  paid_at: string | null;
   delivery: string;
   total_cents: number;
   payment_status: string;
@@ -119,7 +130,7 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   }
   params.push(Math.min(f.limit ?? 500, 2000));
   const rows = await db.all<
-    Omit<OrderListRow, 'checklist' | 'stage' | 'issues' | 'vehicle' | 'wish_plate'> & { data_json: string; checklist_json: string; reg_checks_json: string }
+    Omit<OrderListRow, 'checklist' | 'stage' | 'issues' | 'vehicle' | 'wish_plate' | 'plate_signs' | 'processing' | 'paid_at'> & { data_json: string; checklist_json: string; reg_checks_json: string }
   >(
     `SELECT o.id, o.number, o.created_at, o.updated_at, o.status, o.service, o.email, o.holder_name, o.fin, o.previous_plate, o.assigned_plate, o.delivery, o.total_cents,
        o.payment_status, o.kfz_display, o.kfz_status, o.kfz_order_id, o.assignee_id, o.priority, o.due_at, o.follow_up_at, o.released_at, o.customer_id, o.source,
@@ -130,11 +141,18 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   );
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
-  const docs = await db.all<{ order_id: number; kinds: string }>(
-    `SELECT order_id, GROUP_CONCAT(DISTINCT kind) AS kinds FROM documents WHERE deleted_at = '' AND order_id IN (${ids.map(() => '?').join(',')}) GROUP BY order_id`,
-    ...ids,
+  const docs = await allIn<{ order_id: number; kinds: string }>(
+    db,
+    ids,
+    (ph) => `SELECT order_id, GROUP_CONCAT(DISTINCT kind) AS kinds FROM documents WHERE deleted_at = '' AND order_id IN (${ph}) GROUP BY order_id`,
   );
   const docMap = new Map(docs.map((d) => [d.order_id, (d.kinds || '').split(',') as DocumentKind[]]));
+  const pays = await allIn<{ order_id: number; at: string }>(
+    db,
+    ids,
+    (ph) => `SELECT order_id, MIN(at) AS at FROM payments WHERE kind = 'zahlung' AND status = 'bezahlt' AND order_id IN (${ph}) GROUP BY order_id`,
+  );
+  const paidAt = new Map(pays.map((p) => [p.order_id, p.at]));
   const fins = await db.all<{ fin: string; id: number; number: string }>(
     "SELECT fin, id, number FROM orders WHERE fin != '' AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
   );
@@ -165,15 +183,21 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
       uploadedKinds: docMap.get(r.id) ?? [],
       regChecks,
       sameFinOpen: ACTIVE.includes(r.status) ? fins.filter((x) => x.fin === r.fin && x.id !== r.id) : [],
+      wishCode: wishCodeCheck(data),
     });
     const stage = stageOf({ status: r.status, payment_status: r.payment_status, kfz_display: r.kfz_display, released_at: r.released_at, checklistComplete: complete });
     if (f.stage && f.stage !== stage) continue;
     if (f.issues && !issues.some((i) => i.level !== 'hinweis')) continue;
+    const processing = processingOf(data);
+    if (f.express && processing === 'standard') continue;
     const { data_json: _d, checklist_json: _c, reg_checks_json: _r, ...rest } = r;
     out.push({
       ...rest,
       vehicle: `${data.vehicle.hersteller} ${data.vehicle.modell}`.trim(),
       wish_plate: data.plate.wunschkennzeichen,
+      plate_signs: data.plate.schilder ? plateFinishOf(data.plate) : '',
+      processing,
+      paid_at: paidAt.get(r.id) ?? null,
       checklist: { done: items.filter((i) => state[i.key]?.checked).length, total: items.length, complete },
       stage,
       issues,

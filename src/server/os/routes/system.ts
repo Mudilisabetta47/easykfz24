@@ -16,7 +16,7 @@ import { getSettings, LOCK_MINUTES_RANGE, setSettings } from '../../settings.ts'
 import { authenticate, createUser, listUsers, loadUser, updateUser } from '../../users.ts';
 import { disableTwoFactor, enableTwoFactor, setupTwoFactor, twoFactorStatus } from '../twofactor.ts';
 import { listRules, listRuns, runScheduledRules, saveRule } from '../automation.ts';
-import { getCompany, invoiceReadiness, setCompany } from '../company.ts';
+import { companyWarnings, getCompany, invoiceReadiness, setCompany } from '../company.ts';
 import { dashboardData } from '../dashboard.ts';
 import { listDocs } from '../documents.ts';
 import { HttpError, int, ok, str, type Ctx, type Route } from '../http.ts';
@@ -24,6 +24,8 @@ import { getUserPrefs, listNotifications, markAllRead, markRead, setUserPrefs } 
 import { queryOrders } from '../order-query.ts';
 import { listCustomers } from '../customers.ts';
 import { runAfter } from '../../db.ts';
+import { getPlateOffer } from '../../plates.ts';
+import { getExpressOffer } from '../../express.ts';
 
 export async function sessionPayload(c: Pick<Ctx, 's'>) {
   const settings = await getSettings();
@@ -350,6 +352,9 @@ export const systemRoutes: Route[] = [
       const storage = storageInfo();
       return {
         lockMinutes: settings.lockMinutes,
+        // Verkaufspreise der Schilder (für Auftragsformular); Einkaufspreise nur im Finanzcenter
+        plateOffer: await getPlateOffer(),
+        expressOffer: await getExpressOffer(),
         lockRange: LOCK_MINUTES_RANGE,
         canManage: c.can('settings.manage'),
         // Nur ob etwas eingerichtet ist – niemals Werte von Geheimnissen.
@@ -388,7 +393,7 @@ export const systemRoutes: Route[] = [
     perm: ['settings.manage', 'finance.read'],
     handler: async (c) => {
       const company = await getCompany(true);
-      return { company, missing: invoiceReadiness(company), canManage: c.can('settings.manage') };
+      return { company, missing: invoiceReadiness(company), warnings: companyWarnings(company), canManage: c.can('settings.manage') };
     },
   },
   {

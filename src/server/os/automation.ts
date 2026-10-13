@@ -96,6 +96,67 @@ export const RULES: RuleDef[] = [
     },
   },
   {
+    id: 'express_priorisierung',
+    title: 'Express bezahlt → priorisieren und interne Frist setzen',
+    description:
+      'Ist ein Express-Auftrag bezahlt, erhält er Priorität „hoch“ (Express Plus: „dringend“) und eine interne Bearbeitungsfrist laut Express-Einstellungen. Express Plus wird der eingestellten Ansprechperson zugewiesen, falls noch niemand zuständig ist.',
+    trigger: ['payment.paid'],
+    safety: 'Nur Priorität, interne Frist und Zuweisung. Keine Kundenzusage, keine Übermittlung.',
+    params: [{ key: 'zustaendig_plus', label: 'Ansprechperson Express Plus (falls niemand zugewiesen)', type: 'user', default: null }],
+    defaultEnabled: true,
+    async run({ event, params }) {
+      if (!event.order_id) return { result: 'übersprungen', detail: 'kein Auftrag' };
+      const o = await (await getDb()).first<{ id: number; number: string; status: string; data_json: string; price_json: string; due_at: string; assignee_id: number | null }>(
+        'SELECT id, number, status, data_json, price_json, due_at, assignee_id FROM orders WHERE id = ?',
+        event.order_id,
+      );
+      if (!o || o.status === 'storniert') return { result: 'übersprungen', detail: 'Auftrag fehlt oder storniert' };
+      const { isExpress, processingOf } = await import('../../lib/express.ts');
+      const level = processingOf(JSON.parse(o.data_json) as { bearbeitung?: unknown });
+      if (!isExpress(level)) return { result: 'übersprungen', detail: 'Standard-Bearbeitung' };
+      const snap = (JSON.parse(o.price_json) as { cost?: { express?: { internalHours: number } } }).cost?.express;
+      const hours = snap?.internalHours ?? (await (await import('../express.ts')).currentExpress()).levels[level].internalHours;
+      const due = new Date(Date.now() + hours * 3_600_000).toISOString();
+      const { actAssign, actPlanning } = await import('./order-actions.ts');
+      const actor = { id: 0, name: 'Automatisierung' };
+      const r = await actPlanning(o.id, { priority: level === 'express_plus' ? 'dringend' : 'hoch', ...(o.due_at && o.due_at < due ? {} : { due_at: due }) }, actor);
+      if (!r.ok) return { result: 'übersprungen', detail: r.error };
+      let assigned = '';
+      if (level === 'express_plus' && o.assignee_id === null && params.zustaendig_plus) {
+        const a = await actAssign(o.id, params.zustaendig_plus, actor);
+        assigned = a.ok ? ', Ansprechperson zugewiesen' : '';
+      }
+      return { result: 'ausgeführt', detail: `${o.number}: ${level === 'express_plus' ? 'Express Plus' : 'Express'} priorisiert, interne Frist ${hours} h${assigned}` };
+    },
+  },
+  {
+    id: 'express_plus_rueckruf',
+    title: 'Express Plus: Rückfrage der Behörde → Rückruf-Aufgabe',
+    description: 'Bei einer Rückfrage (Unterlagen fehlen bzw. Rückfrage über kfz-api.de) entsteht für Express-Plus-Aufträge eine dringende Aufgabe „Kunde zurückrufen“.',
+    trigger: ['order.status', 'kfz.status'],
+    safety: 'Legt nur eine interne Aufgabe an.',
+    params: [],
+    defaultEnabled: true,
+    async run({ event }) {
+      if (!event.order_id) return { result: 'übersprungen', detail: 'kein Auftrag' };
+      const query = event.type === 'order.status' ? event.payload.to === 'unterlagen_fehlen' : event.payload.display === 'angaben_erforderlich';
+      if (!query) return { result: 'übersprungen', detail: 'keine Rückfrage' };
+      const o = await orderBasics(event.order_id);
+      if (!o) return { result: 'übersprungen', detail: 'Auftrag fehlt' };
+      const { processingOf } = await import('../../lib/express.ts');
+      if (processingOf(JSON.parse(o.data_json) as { bearbeitung?: unknown }) !== 'express_plus') return { result: 'übersprungen', detail: 'kein Express Plus' };
+      const id = await task({
+        title: `Kunde zurückrufen (Express Plus): ${o.number}`,
+        description: 'Zugesagter Rückruf bei Rückfragen – Kunde während der Geschäftszeiten anrufen und Rückfrage klären.',
+        priority: 'dringend',
+        dueInDays: 0,
+        orderId: o.id,
+        assigneeId: o.assignee_id,
+      });
+      return { result: 'ausgeführt', detail: `Aufgabe #${id}` };
+    },
+  },
+  {
     id: 'unterlagen_aufgabe',
     title: 'Dokument fehlt → Aufgabe erstellen',
     description: 'Fehlen Pflichtunterlagen beim Eingang oder wird „Unterlagen fehlen“ gesetzt, entsteht eine Aufgabe „Unterlagen anfordern“.',
@@ -253,6 +314,29 @@ export const RULES: RuleDef[] = [
         exec: async () => {
           await emitSafe({ type: 'order.overdue', orderId: r.id, actor: 'Automatisierung', payload: { due: r.due_at }, dedupeKey: `order.overdue:${r.id}:${r.due_at}` });
           return { result: 'ausgeführt', detail: `${r.number}: Frist ${r.due_at.slice(0, 10)}` };
+        },
+      }));
+    },
+  },
+  {
+    id: 'vollmacht_abgleich',
+    title: 'Digitale Vollmacht: Stand beim Partner abgleichen',
+    description:
+      'Fragt offene Vollmachtsvorgänge regelmäßig über die Partner-Schnittstelle ab (kfz-api.de bietet dafür keinen Webhook). Änderungen erscheinen im Auftrag und als Hinweis.',
+    trigger: 'zeitgesteuert',
+    safety: 'Nur lesende, kostenlose Abfrage (GET /powerOfAttorneys/{processId}); höchstens alle 10 Minuten je Vorgang.',
+    params: [],
+    defaultEnabled: true,
+    async scan() {
+      const { poasDue, verifyPoa } = await import('../power-of-attorney.ts');
+      const rows = await poasDue(20);
+      return rows.map((r) => ({
+        key: `${r.id}:${Math.floor(Date.now() / 600_000)}`,
+        orderId: r.order_id,
+        exec: async () => {
+          const res = await verifyPoa(r.id, { actor: 'Automatisierung (Abgleich)' });
+          if (!res.ok) return { result: 'übersprungen', detail: `Vorgang ${r.process_id}: Abfrage nicht möglich (${res.error}) – nächster Versuch beim nächsten Lauf` };
+          return { result: res.changed ? 'ausgeführt' : 'übersprungen', detail: `Vorgang ${r.process_id}: ${res.poa.label}` };
         },
       }));
     },

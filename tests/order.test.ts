@@ -19,7 +19,7 @@ function validDraft() {
     email: 'Erika@Example.de',
     telefon: '0421 123456',
   };
-  d.plate = { wahl: 'behalten', wunschkennzeichen: '', schilder: true, zustellung: 'versand', versanddienst: 'dhl' };
+  d.plate = { wahl: 'behalten', wunschkennzeichen: '', wunschort: '', schilder: true, ausfuehrung: 'standard', zustellung: 'versand', versanddienst: 'dhl' };
   d.finish = { evb: 'a1b2c3d', kontoinhaber: 'Erika Mustermann', iban: 'DE89 3704 0044 0532 0130 00', sepaMandat: true, vollmacht: true, datenschutz: true, hinweise: '' };
   return d;
 }

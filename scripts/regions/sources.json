@@ -1,0 +1,3 @@
+{ "kba-faltblatt": { "stand": "16.04.2026", "url": "https://www.kba.de/SharedDocs/Downloads/DE/Presse/kfz_kennzeichenliste_faltblatt.pdf", "sha256": "99c2ebebdb9129e85b1253de0e176f9091a0d511f276c84c27bc0011c142b1f1" },
+  "kba-av1": { "stand": "Juli 2026", "url": "https://www.kba.de/SharedDocs/Downloads/DE/Anschriftenverzeichnisse/av1_2026_07_pdf.pdf", "sha256": "0298adc261fea457173438cc3840e0aaad18d210929286c50004e152dbe1ae28" },
+  "destatis-gv": { "stand": "30.09.2026", "url": "https://www.destatis.de/DE/Themen/Laender-Regionen/Regionales/Gemeindeverzeichnis/Administrativ/Archiv/GVAuszugQ/AuszugGV3QAktuell.xlsx", "sha256": "45e979afe2e4354758e52f7b5b0c2a8167dd9db4a13585cec6acf17211f3b5f3" } }

@@ -48,6 +48,16 @@ async function draftFor(ev: OsEvent): Promise<Draft | null> {
       return { kind: 'bestandskunde', title: 'Bestandskunde bestellt erneut', text: `${label}${p.orders ? ` · ${p.orders}. Auftrag` : ''}` };
     case 'payment.paid':
       return { kind: 'zahlung_ok', title: 'Zahlung eingegangen', text: label };
+    case 'order.poa': {
+      // Stand der digitalen Vollmacht – nur verifizierte Änderungen (Abgleich über die Partner-Schnittstelle)
+      const st = String(p.status ?? '');
+      if (st === 'offen') return null;
+      const text = st === 'signiert' ? (p.ready ? 'Vollmacht unterschrieben' : 'Unterschrieben, Angaben unvollständig') : st === 'abgelehnt' ? 'Vollmacht abgelehnt' : st === 'verfallen' ? 'Vollmacht abgelaufen' : 'Technischer Fehler bei der Vollmacht';
+      return { kind: 'vollmacht', title: text, text: label, priority: st === 'signiert' && p.ready ? 'normal' : 'wichtig' };
+    }
+    case 'order.withdrawal':
+      // Widerruf über die Online-Funktion: Frist für die Rückzahlung beachten (14 Tage ab Eingang)
+      return { kind: 'widerruf', title: 'Widerruf eingegangen', text: `${label || `Vertrag: ${p.contract ?? ''}`} · Vorgang ${p.reference ?? ''}` };
     case 'payment.failed':
       return { kind: 'zahlung_fehler', title: 'Zahlung fehlgeschlagen', text: `${label}${p.reason ? ` · ${p.reason}` : ''}` };
     case 'order.status':

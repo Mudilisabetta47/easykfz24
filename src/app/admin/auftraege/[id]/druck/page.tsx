@@ -7,6 +7,7 @@ import { DOCUMENTS, SERVICES } from '../../../../../lib/services.ts';
 import { statusLabel } from '../../../../../lib/status.ts';
 import { requirePermission } from '../../../../../server/auth.ts';
 import { getOrder, listDocuments } from '../../../../../server/orders.ts';
+import { orderWishPlace } from '../../../../../server/regions.ts';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Druckansicht' };
@@ -33,7 +34,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           {order.assigned_plate ? <p>Zugeteiltes Kennzeichen: {order.assigned_plate}</p> : null}
         </div>
       </header>
-      <OrderFacts order={order} />
+      <OrderFacts order={order} wishPlace={orderWishPlace(order.data)} />
       <section className="facts">
         <h2>Unterlagen-Checkliste</h2>
         <ul className="print-check">

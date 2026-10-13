@@ -27,6 +27,8 @@ interface Props {
   invalid?: PlateGroup | 'all' | null;
   /** Schildform: einzeilig (eu) oder zweizeilig für Motorrad, Leichtkraftrad, Traktor */
   format?: PlateFormat;
+  /** Ausführung: „carbon“ zeigt einen Rahmen in Carbon-Optik (schematisch); das Schildfeld bleibt weiß reflektierend */
+  finish?: 'standard' | 'carbon';
 }
 
 const { PAD_X, PAD_Y, PAD_B } = PLATE_VIEW;
@@ -123,15 +125,19 @@ export function GermanLicensePlate({
   caret = null,
   invalid = null,
   format = 'eu',
+  finish = 'standard',
 }: Props) {
   const G = plateGeometry(format, cityCode, letters, numbers, showEuroBand);
   const { W, H } = G;
   const { RADIUS } = PLATE;
   const bi = PLATE.BORDER_INSET;
   const label = `Kennzeichen ${[cityCode, letters, numbers].filter(Boolean).join(' ')}`;
-  const vbW = W + PAD_X * 2;
-  const vbH = H + PAD_Y + PAD_B;
-  const width = typeof size === 'number' ? `${(size * vbW) / W}px` : `calc(${size} * ${(vbW / W).toFixed(4)})`;
+  // Carbon-Optik: Rahmen um das Schild – gleiche Außenbreite wie Standard, das Schild wird dafür etwas kleiner gezeichnet
+  const F = finish === 'carbon' ? 10 : 0;
+  const vbW = W + (PAD_X + F) * 2;
+  const vbH = H + PAD_Y + PAD_B + 2 * F;
+  const outer = (W + PAD_X * 2) / W;
+  const width = typeof size === 'number' ? `${size * outer}px` : `calc(${size} * ${outer.toFixed(4)})`;
   const style = {
     '--lp-w': width,
     '--lp-tilt': `${perspective}deg`,
@@ -140,9 +146,31 @@ export function GermanLicensePlate({
   const B = G.band;
 
   return (
-    <span className={`lp${perspective ? ' lp--tilt' : ''} ${className}`} style={style} role="img" aria-label={label}>
-      <svg viewBox={`${-PAD_X} ${-PAD_Y} ${vbW} ${vbH}`} className="lp__svg" aria-hidden="true">
+    <span
+      className={`lp${perspective ? ' lp--tilt' : ''}${F ? ' lp--carbon' : ''} ${className}`}
+      style={style}
+      role="img"
+      aria-label={F ? `${label}, Carbon-Optik` : label}
+    >
+      <svg viewBox={`${-PAD_X - F} ${-PAD_Y - F} ${vbW} ${vbH}`} className="lp__svg" aria-hidden="true">
         <defs>
+          {F ? (
+            <>
+              {/* Köperbindung (2/2) als Carbon-Struktur */}
+              <pattern id={`${id}-carbon`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="5" height="5" fill="#16181c" />
+                <rect width="2.5" height="2.5" fill="#2b2f36" />
+                <rect x="2.5" y="2.5" width="2.5" height="2.5" fill="#2b2f36" />
+                <rect width="2.5" height="0.6" fill="#3b4049" />
+                <rect x="2.5" y="2.5" width="2.5" height="0.6" fill="#3b4049" />
+              </pattern>
+              <linearGradient id={`${id}-carbon-gloss`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#ffffff" stopOpacity="0.28" />
+                <stop offset="0.45" stopColor="#ffffff" stopOpacity="0.04" />
+                <stop offset="1" stopColor="#000000" stopOpacity="0.25" />
+              </linearGradient>
+            </>
+          ) : null}
           <clipPath id={`${id}-clip`}>
             <rect width={W} height={H} rx={RADIUS} />
           </clipPath>
@@ -251,6 +279,13 @@ export function GermanLicensePlate({
           {/* Schatten unter dem Schild */}
           <rect x="6" y="9" width={W - 12} height={H - 2} rx={RADIUS} fill={tone === 'dark' ? '#000' : '#0a1433'} opacity={tone === 'dark' ? 0.55 : 0.3} filter={`url(#${id}-shadow)`} />
           <rect x="14" y={H - 1} width={Math.max(W - 28, 10)} height="4" rx="2" fill="#000" opacity={tone === 'dark' ? 0.45 : 0.18} filter={`url(#${id}-soft)`} />
+          {F ? (
+            <g data-plate-part="carbon" className="lp__part lp__carbon">
+              <rect x={-F} y={-F} width={W + 2 * F} height={H + 2 * F} rx={RADIUS + F * 0.8} fill={`url(#${id}-carbon)`} />
+              <rect x={-F} y={-F} width={W + 2 * F} height={H + 2 * F} rx={RADIUS + F * 0.8} fill={`url(#${id}-carbon-gloss)`} />
+              <rect x={-F + 0.4} y={-F + 0.4} width={W + 2 * F - 0.8} height={H + 2 * F - 0.8} rx={RADIUS + F * 0.8 - 0.4} fill="none" stroke="#5b616c" strokeOpacity="0.7" strokeWidth="0.8" />
+            </g>
+          ) : null}
 
           <g data-plate-part="body" className="lp__part">
             <rect width={W} height={H} rx={RADIUS} fill={`url(#${id}-base)`} />

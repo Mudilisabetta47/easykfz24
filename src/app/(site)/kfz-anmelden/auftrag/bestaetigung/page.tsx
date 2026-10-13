@@ -2,10 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import '../../../../../styles/forms.css';
 import { ArrowRight, Check } from '../../../../../components/icons.tsx';
-import { Ph } from '../../../../../components/Ph.tsx';
 import { normalizeOrderNumber } from '../../../../../lib/order-number.ts';
 import { isServiceId, SERVICES } from '../../../../../lib/services.ts';
-import { SITE } from '../../../../../lib/site.ts';
+import { PROVIDER, SITE, telHref } from '../../../../../lib/site.ts';
+import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../../../../../lib/withdrawal.ts';
+import { withdrawalMode } from '../../../../../server/withdrawal.ts';
 
 export const metadata: Metadata = { title: 'Auftrag eingegangen', robots: { index: false } };
 
@@ -51,10 +52,24 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
           <li>Wir prüfen Ihre Angaben und Unterlagen. Fehlt etwas, sehen Sie den Hinweis in der Statusabfrage und wir melden uns.</li>
           <li>
             Senden Sie uns die unterschriebene <Link href={`/kfz-anmelden/vollmacht${number ? `?nr=${number}` : ''}`}>Vollmacht</Link> und die
-            Originale per Post an: <Ph>{SITE.company}</Ph>, <Ph>{SITE.street}</Ph>, <Ph>{SITE.city}</Ph>. Bitte die Auftragsnummer beilegen.
+            Originale per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}. Bitte die Auftragsnummer beilegen.
           </li>
           <li>Sobald alles vollständig ist, reichen wir den Vorgang bei der zuständigen Zulassungsbehörde ein.</li>
         </ol>
+        <p className="muted">
+          Fragen zu Ihrem Auftrag? {PROVIDER.phone ? (
+            <>
+              Telefon <a href={telHref(PROVIDER.phone)}>{PROVIDER.phone}</a> ·{' '}
+            </>
+          ) : null}
+          E-Mail <a href={`mailto:${PROVIDER.email}`}>{PROVIDER.email}</a>
+        </p>
+        {withdrawalMode() !== 'aus' ? (
+          <p className="muted">
+            Informationen zu Ihrem Widerrufsrecht: <Link href={NOTICE_PATH}>Widerrufsbelehrung</Link> ·{' '}
+            <Link href={`${WITHDRAW_PATH}${number ? `?nr=${number}` : ''}`}>{WITHDRAW_LABEL}</Link>
+          </p>
+        ) : null}
         {def ? (
           <div className="confirm__originals">
             <p className="label">Per Post im Original</p>

@@ -707,7 +707,58 @@
   margin-block-start: 8px;
 }
 
+/* ---------- Digitale Vollmacht: Rücksprungseite ---------- */
+.poa--wait .poa__icon {
+  background: var(--ez-blue);
+}
+.poa--warn .poa__icon {
+  background: var(--ez-warning);
+}
+.poa--error .poa__icon {
+  background: var(--ez-danger);
+}
+.poa--neutral .poa__icon {
+  background: var(--ez-ink-soft);
+}
+.poa__check {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--ez-sky);
+  font-size: var(--step--1);
+}
+.poa__meta,
+.poa__privacy {
+  margin: 0;
+  font-size: var(--step--1);
+}
+
 /* ---------- Statusabfrage ---------- */
+.status-poa {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  margin-block: 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: var(--ez-sky);
+}
+.status-poa--signed {
+  background: var(--ez-success-soft);
+}
+.status-poa--rejected,
+.status-poa--expired,
+.status-poa--failed {
+  background: color-mix(in oklab, var(--ez-danger) 10%, white);
+}
+.status-poa__title {
+  margin: 0;
+  font-weight: 650;
+}
+.status-poa__meta {
+  margin: 0;
+  font-size: var(--step--1);
+}
 .status-grid {
   display: grid;
   grid-template-columns: 380px 1fr;
@@ -1119,4 +1170,203 @@
   margin: 0;
   font-size: var(--step--1);
   color: var(--ez-ink-soft);
+}
+
+/* ---------- Ausführung der Schilder: Standard / Carbon-Optik ---------- */
+.finish-grid {
+  margin-block-end: 6px;
+}
+.finish-choice {
+  position: relative;
+}
+.finish-choice__preview {
+  display: grid;
+  place-items: center;
+  margin-block-end: 12px;
+  padding: 16px 14px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #eef2f8, #e4e9f2);
+}
+.finish-choice__preview .lp {
+  inline-size: 92%;
+}
+.finish-choice--carbon .finish-choice__preview {
+  background: radial-gradient(120% 90% at 30% 0%, #3a3f48 0%, #1d2026 55%, #121418 100%);
+}
+.finish-choice__badge {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 12px;
+  z-index: 1;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1d2026, #3a3f48);
+  color: #f3f4f6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.finish-note {
+  margin-block: 4px 0;
+  font-size: 13px;
+}
+
+/* ---------- Express: bevorzugte Bearbeitung ---------- */
+.express {
+  margin-block-start: 28px;
+  padding: 22px 22px 18px;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(80, 110, 255, 0.18) 0%, transparent 55%),
+    linear-gradient(160deg, #10131a 0%, #1b2030 60%, #151a26 100%);
+  color: #eef1f7;
+  box-shadow: 0 10px 30px rgba(10, 16, 40, 0.25);
+}
+.express__head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.express__icon {
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b5bff, #7c4dff);
+  color: #fff;
+  flex: none;
+}
+.express__kicker {
+  margin: 0;
+  color: #a9b4d0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.express__title {
+  margin: 2px 0 0;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1.25;
+}
+.express__fine {
+  margin: 12px 0 0;
+  color: #d5dbea;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.express__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 14px;
+  padding: 0;
+  list-style: none;
+  counter-reset: xs;
+}
+.express__steps li {
+  counter-increment: xs;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e7ebf5;
+  font-size: 12.5px;
+}
+.express__steps li::before {
+  content: counter(xs);
+  display: inline-grid;
+  place-items: center;
+  inline-size: 18px;
+  block-size: 18px;
+  margin-inline-end: 6px;
+  border-radius: 50%;
+  background: rgba(124, 77, 255, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.express .choice {
+  background: #fff;
+  color: var(--ez-ink, #10131a);
+}
+.express-choice {
+  position: relative;
+}
+.express-choice__badge {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #3b5bff, #7c4dff);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.express-choice__list {
+  margin: 8px 0 0;
+  padding-inline-start: 18px;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .express {
+    padding: 18px 14px 14px;
+  }
+  .express__title {
+    font-size: 18px;
+  }
+}
+
+/* ---------- Statusseite: Express-Meilensteine ---------- */
+.xsteps {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.xsteps__item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 2px 10px;
+  align-items: center;
+  padding: 7px 0;
+  color: var(--ez-muted, #5b6476);
+}
+.xsteps__dot {
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 50%;
+  border: 2px solid #c3c9d4;
+}
+.xsteps__item.is-done {
+  color: var(--ez-ink, #10131a);
+}
+.xsteps__item.is-done .xsteps__dot {
+  border-color: #2e7d32;
+  background: #2e7d32;
+}
+.xsteps__item.is-next .xsteps__dot {
+  border-color: #3b5bff;
+}
+.xsteps__item.is-warn .xsteps__dot {
+  border-color: #b26a00;
+  background: #b26a00;
+}
+.xsteps__item.is-fail .xsteps__dot {
+  border-color: #c62828;
+  background: #c62828;
+}
+.xsteps__at {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.xsteps__note {
+  grid-column: 2 / -1;
+  font-size: 13px;
 }

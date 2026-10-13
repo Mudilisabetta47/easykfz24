@@ -11,15 +11,13 @@ import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 import { districtCopy } from '../../../../lib/district-copy.ts';
 import { allCodes, codeFromSlug, districtLabel, districtPage, joinGerman, placeName, slugForCode } from '../../../../lib/district-pages.ts';
 import { publicBaseUrl } from '../../../../server/payments.ts';
+import { getPlateOffer } from '../../../../server/plates.ts';
 
 type Params = Promise<{ kuerzel: string }>;
 
 // Unbekannte Schreibweisen (z. B. /kennzeichen/OHZ oder /kennzeichen/WÜ) werden auf die kanonische Adresse umgeleitet.
-export const dynamicParams = true;
-
-export function generateStaticParams() {
-  return allCodes().map((c) => ({ kuerzel: slugForCode(c) }));
-}
+// Je Aufruf gerendert: die Schilderpreise kommen aus dem Finanzcenter (Preisangabe = berechneter Preis).
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const code = codeFromSlug((await params).kuerzel);
@@ -56,7 +54,7 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
   const page = code ? districtPage(code) : null;
   if (!page) notFound();
   if (kuerzel !== page.slug) permanentRedirect(`/kennzeichen/${page.slug}`);
-  const copy = districtCopy(page);
+  const copy = districtCopy(page, await getPlateOffer());
   const label = districtLabel(page.district);
   const base = publicBaseUrl();
 

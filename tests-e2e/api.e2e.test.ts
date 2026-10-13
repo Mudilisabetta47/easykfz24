@@ -1,4 +1,4 @@
-// End-to-End-Tests der Verwaltungs-Schnittstelle (alle 101 Endpunkte) gegen den gebauten Server.
+// End-to-End-Tests der Verwaltungs-Schnittstelle (alle Endpunkte, siehe EXPECTED_ROUTES) gegen den gebauten Server.
 // Start über: node scripts/e2e.mjs node|worker   (setzt E2E_* und startet einen isolierten Server)
 //
 // Je Endpunkt: ohne Anmeldung → 401, Rolle ohne Recht → 403, berechtigte Rolle → Erfolg, ungültige Eingaben → 4xx
@@ -17,6 +17,8 @@ const ADMIN_PW = process.env.E2E_ADMIN_PASSWORD ?? '';
 const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
+/** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
+const EXPECTED_ROUTES = 107;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -48,6 +50,8 @@ const ordered = [...ROUTES].sort((a, b) => (a.path.match(/:/g)?.length ?? 0) - (
 const NEEDS_EXTERNAL: Record<string, string> = {
   'POST finance/payments/:id/refresh': 'Stripe-API (Abruf der Zahlung)',
   'POST messages/send': 'E-Mail-Dienst (Resend/SMTP)',
+  'POST orders/:id/vollmacht': 'kfz-api.de Vollmachtsvorgang (kostenpflichtig, nur mit VOLLMACHT_DIGITAL) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST orders/:id/vollmacht/abgleich': 'kfz-api.de GET /powerOfAttorneys (nur mit vorhandenem Vorgang) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
 };
 const hits: Record<string, Set<string>> = Object.fromEntries(ROUTES.map((r) => [r.key, new Set<string>()]));
 const fivehundreds: string[] = [];
@@ -342,7 +346,7 @@ describe('System-Endpunkte', () => {
 
   it('Automatisierungen: lesen, ändern, Zeitregeln, Rechteprüfung', async () => {
     const a = await expect(le, 'GET', 'automation', 200);
-    assert.equal((a.json.rules as unknown[]).length, 9);
+    assert.equal((a.json.rules as unknown[]).length, 12);
     await expect(le, 'GET', 'automation/runs', 200);
     await expect(sb, 'POST', 'automation/scan', 403);
     await expect(vw, 'POST', 'automation/scan', 200);
@@ -870,6 +874,245 @@ describe('Finanzen und Rechnungen', () => {
   });
 });
 
+describe('Kennzeichenschilder Standard und Carbon-Optik', () => {
+  type Plat = { sellCents: number | null; buyCents: number; active: boolean };
+  const plateOrder = (email: string, fin: string, finish: string, art = 'pkw') => {
+    const d = orderData({ email, fin });
+    return { data: { ...d, vehicle: { ...d.vehicle, art }, plate: { wahl: 'neu', wunschkennzeichen: '', schilder: true, ausfuehrung: finish, zustellung: 'abholung', versanddienst: '' } } };
+  };
+  const body = (carbon: Plat, shipping: number | null = null, checks = { deliverable: true, permitted: true }) => ({
+    prices: { standard: { sellCents: 1299, buyCents: 405, active: true }, carbon },
+    supplierShippingCents: shipping,
+    carbonChecks: checks,
+  });
+  type PlateLine = { key: string; cents: number; label: string; finish: string; qty: number; unitCents: number };
+  type Snap = { finish: string; qty: number; unitBuyCents: number; buyCents: number; supplierShippingCents: number | null; priceVersion: number };
+  const detail = async (c: Client, id: unknown) => (await expect(c, 'GET', `orders/${id}`, 200)).json.order as { data: { plate: { ausfuehrung: string } }; price: { lines: PlateLine[]; cost?: { plates?: Snap } } };
+  const created: Record<string, number> = {};
+
+  it('Preise je Ausführung: Ausgangswerte, Rechte, Prüfung, Freigabe nur mit Bestätigungen', async () => {
+    const g = await expect(bh, 'GET', 'finance/plates', 200);
+    const cur = g.json.current as { version: number; prices: { standard: Plat; carbon: Plat }; supplierShippingCents: number | null };
+    assert.deepEqual([cur.version, cur.prices.standard.sellCents, cur.prices.standard.buyCents, cur.prices.carbon.active, cur.prices.carbon.buyCents, cur.supplierShippingCents], [0, 1299, 405, false, 530, null]);
+    await expect(sb, 'GET', 'finance/plates', 403);
+    const rej = await expect(sb, 'POST', 'orders', 422, plateOrder('carbon.vorher@example.de', 'WVWZZZ1KZAW000711', 'carbon'));
+    assert.match(String((rej.json.fields as Record<string, string>)['plate.ausfuehrung']), /nicht verfügbar/);
+    await expect(bh, 'POST', 'finance/plates', 422, body({ sellCents: null, buyCents: 530, active: true }));
+    await expect(bh, 'POST', 'finance/plates', 422, body({ sellCents: -1, buyCents: 530, active: true }));
+    const noCheck = await expect(bh, 'POST', 'finance/plates', 422, body({ sellCents: 1499, buyCents: 530, active: true }, null, { deliverable: true, permitted: false }));
+    assert.match(String(noCheck.json.error), /Lieferbarkeit.*Zulässigkeit/);
+    await expect(sb, 'POST', 'finance/plates', 403, body({ sellCents: 1499, buyCents: 530, active: true }));
+    const v1 = await expect(bh, 'POST', 'finance/plates', 200, body({ sellCents: 1499, buyCents: 530, active: true }));
+    assert.equal((v1.json.version as { version: number }).version, 1);
+    const st = await expect(le, 'GET', 'settings', 200);
+    assert.deepEqual(st.json.plateOffer, { standard: 1299, carbon: 1499 }, 'Verkaufspreise für alle, Einkauf nicht');
+  });
+
+  it('Website zeigt beide Ausführungen mit den gepflegten Preisen', async () => {
+    const pr = (await anon.req('GET', '/kfz-anmelden')).text.replace(/<!-- -->/g, '');
+    assert.ok(pr.includes('Carbon-Optik') && pr.includes('14,99'), 'Preistabelle mit Carbon-Optik');
+    assert.ok((await anon.req('GET', '/')).text.replace(/<!-- -->/g, '').includes('Carbon-Optik je'), 'Startseite');
+    assert.ok((await anon.req('GET', '/kennzeichen/hb')).text.replace(/<!-- -->/g, '').includes('Carbon-Optik (Premium)'), 'Ortsseite');
+  });
+
+  it('Standard und Carbon mit je einem (Motorrad) und zwei Schildern (Pkw): Preis, Kosten-Momentaufnahme, Akte, Liste', async () => {
+    const cases = [
+      ['std2', 'standard', 'pkw', 2, 1299, 405],
+      ['std1', 'standard', 'motorrad', 1, 1299, 405],
+      ['cb2', 'carbon', 'pkw', 2, 1499, 530],
+      ['cb1', 'carbon', 'motorrad', 1, 1499, 530],
+    ] as const;
+    let n = 0;
+    for (const [key, finish, art, qty, sell, buy] of cases) {
+      const c = await expect(sb, 'POST', 'orders', 200, plateOrder(`${key}@example.de`, `WVWZZZ1KZAW000${750 + n++}`, finish, art));
+      created[key] = Number(c.json.id);
+      const o = await detail(bh, c.json.id);
+      assert.equal(o.data.plate.ausfuehrung, finish);
+      const line = o.price.lines.find((l) => l.key === 'schilder')!;
+      assert.deepEqual([line.finish, line.qty, line.unitCents, line.cents], [finish, qty, sell, qty * sell], key);
+      assert.match(line.label, new RegExp(`${finish === 'carbon' ? 'Carbon-Optik' : 'Standard'} \\(${qty} Stück\\)`));
+      assert.deepEqual(o.price.cost?.plates, { finish, qty, unitBuyCents: buy, buyCents: qty * buy, supplierShippingCents: null, priceVersion: 1, priceFrom: (o.price.cost?.plates as Snap & { priceFrom: string }).priceFrom }, `${key}: Kosten gespeichert`);
+      assert.equal((await detail(sb, c.json.id)).price.cost, undefined, 'ohne Finanzrecht keine Einkaufspreise');
+    }
+    const list = (await expect(sb, 'GET', 'orders?status=alle', 200)).json as unknown as { id: number; plate_signs: string }[];
+    assert.deepEqual(['std2', 'std1', 'cb2', 'cb1'].map((k) => list.find((x) => x.id === created[k])?.plate_signs), ['standard', 'standard', 'carbon', 'carbon']);
+  });
+
+  it('Rechnung übernimmt die Ausführung unverändert', async () => {
+    const inv = await expect(bh, 'POST', 'finance/invoices', 200, { orderId: created.cb2 });
+    const d = (await bh.get(`finance/invoices/${inv.json.id}`)).json as unknown as { lines: { label: string; grossCents: number }[] };
+    const l = d.lines.find((x) => x.label.startsWith('Kennzeichenschilder'))!;
+    assert.equal(l.label, 'Kennzeichenschilder Carbon-Optik (2 Stück)');
+    assert.equal(l.grossCents, 2998);
+  });
+
+  it('Wirtschaftlichkeit: ohne Lieferanten-Versand kein Deckungsbeitrag; mit Versand korrekt; Preisänderung lässt alte Aufträge unverändert', async () => {
+    const c0 = (await expect(bh, 'GET', 'finance/contributions', 200)).json as unknown as { orderId: number; plateBuyCents: number; plateShippingCents: number | null; contributionCents: number | null; platePriceVersion: number }[];
+    const cb2 = c0.find((x) => x.orderId === created.cb2)!;
+    assert.deepEqual([cb2.plateBuyCents, cb2.plateShippingCents, cb2.contributionCents, cb2.platePriceVersion], [1060, null, null, 1], 'Versand unbekannt → kein DB');
+    // Neue Preisversion: Einkauf Carbon teurer, Versand des Lieferanten gepflegt
+    const v2 = await expect(bh, 'POST', 'finance/plates', 200, body({ sellCents: 1599, buyCents: 560, active: true }, 390));
+    assert.equal((v2.json.version as { version: number }).version, 2);
+    const after = await detail(bh, created.cb2);
+    assert.deepEqual([after.price.cost?.plates?.buyCents, after.price.cost?.plates?.priceVersion, after.price.lines.find((l) => l.key === 'schilder')?.cents], [1060, 1, 2998], 'historischer Auftrag unverändert');
+    const n = await expect(sb, 'POST', 'orders', 200, plateOrder('cb-neu@example.de', 'WVWZZZ1KZAW000790', 'carbon'));
+    const no = await detail(bh, n.json.id);
+    assert.deepEqual([no.price.lines.find((l) => l.key === 'schilder')?.cents, no.price.cost?.plates?.buyCents, no.price.cost?.plates?.supplierShippingCents, no.price.cost?.plates?.priceVersion], [3198, 1120, 390, 2]);
+    const c1 = (await expect(bh, 'GET', 'finance/contributions', 200)).json as unknown as { orderId: number; netCents: number; costCents: number | null; feeCents: number | null; plateCostCents: number; contributionCents: number | null }[];
+    const row = c1.find((x) => x.orderId === Number(n.json.id))!;
+    assert.equal(row.plateCostCents, 1120 + 390);
+    if (row.costCents !== null && row.feeCents !== null) assert.equal(row.contributionCents, row.netCents - row.costCents - row.plateCostCents - row.feeCents, 'Netto − Vorgangskosten − Schilder − Gebühr');
+    const r = await expect(bh, 'GET', 'finance/plates', 200);
+    const rows = (r.json.report as { rows: { finish: string; orders: number; plates: number; buyCents: number; shippingCents: number; completeOrders: number; completeNetCents: number; contributionCents: number; feeCents: number }[] }).rows;
+    const cb = rows.find((x) => x.finish === 'carbon')!;
+    assert.deepEqual([cb.orders, cb.plates, cb.buyCents, cb.shippingCents, cb.completeOrders], [3, 5, 1060 + 530 + 1120, 390, 1], 'Carbon: 2+1+2 Schilder, nur der neue Auftrag vollständig');
+    assert.equal(cb.contributionCents, cb.completeNetCents - 1120 - 390 - 0, 'unbezahlt: Gebühr 0');
+    const sd = rows.find((x) => x.finish === 'standard')!;
+    assert.ok(sd.plates >= 3 && sd.buyCents === sd.plates * 405);
+  });
+
+  it('Carbon wieder aus dem Angebot: neue Carbon-Bestellungen abgelehnt, Website ohne Carbon', async () => {
+    await expect(bh, 'POST', 'finance/plates', 200, body({ sellCents: 1599, buyCents: 560, active: false }, 390, { deliverable: true, permitted: true }));
+    await expect(sb, 'POST', 'orders', 422, plateOrder('carbon.danach@example.de', 'WVWZZZ1KZAW000741', 'carbon'));
+    assert.ok(!(await anon.req('GET', '/kfz-anmelden')).text.includes('Carbon-Optik, Premium'));
+    assert.equal(((await expect(bh, 'GET', 'finance/plates', 200)).json.history as unknown[]).length, 3, 'Preisverlauf');
+  });
+});
+
+describe('Express-Bearbeitung', () => {
+  const xBody = (exActive: boolean, plusActive: boolean, plus = ['Feste persönliche Ansprechperson für Ihren Auftrag']) => ({
+    levels: {
+      express: { sellCents: 1990, active: exActive, internalCostCents: 300, internalHours: 24 },
+      express_plus: { sellCents: 2990, active: plusActive, internalCostCents: 500, internalHours: 12 },
+    },
+    plusServices: plus,
+  });
+  const web = async (email: string, fin: string, bearbeitung: string) => {
+    const form = new FormData();
+    form.set('data', JSON.stringify({ ...orderData({ service: 'abmeldung', email, fin }), bearbeitung }));
+    form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+    form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+    return anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': `10.9.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}` } });
+  };
+  const idOf = async (number: string) => ((await vw.get(`orders?status=alle&q=${number}`)).json as unknown as { id: number }[])[0].id;
+  type M = { key: string; label: string; at: string | null; note?: string };
+  const bundle = async (id: number) => (await expect(bh, 'GET', `orders/${id}`, 200)).json as { processing: string; milestones: M[]; order: { priority: string; due_at: string; status: string; total_cents: number; price: { lines: { key: string; cents: number; label: string }[]; cost?: { express?: unknown } } } };
+  const x: Record<string, { id: number; number: string }> = {};
+
+  it('Einstellungen: Ausgangswerte nicht im Angebot, Rechte, Prüfung, Freigabe', async () => {
+    const g = await expect(bh, 'GET', 'finance/express', 200);
+    const cur = g.json.current as { version: number; levels: { express: { active: boolean; sellCents: number } } };
+    assert.deepEqual([cur.version, cur.levels.express.active, cur.levels.express.sellCents], [0, false, 1990]);
+    await expect(sb, 'GET', 'finance/express', 403);
+    const before = await web('x.vorher@example.de', 'WVWZZZ1KZAW000801', 'express');
+    assert.equal(before.status, 422);
+    assert.match(String((before.json.errors as Record<string, string>).bearbeitung), /nicht verfügbar/);
+    await expect(bh, 'POST', 'finance/express', 422, { ...xBody(true, false), levels: { ...xBody(true, false).levels, express: { sellCents: null, active: true, internalCostCents: 0, internalHours: 24 } } });
+    await expect(bh, 'POST', 'finance/express', 422, xBody(false, true, []));
+    await expect(bh, 'POST', 'finance/express', 422, { ...xBody(true, false), levels: { ...xBody(true, false).levels, express: { sellCents: 1990, active: true, internalCostCents: 0, internalHours: 0 } } });
+    await expect(sb, 'POST', 'finance/express', 403, xBody(true, true));
+    const ok = await expect(bh, 'POST', 'finance/express', 200, xBody(true, true));
+    assert.equal((ok.json.version as { version: number }).version, 1);
+    const st = await expect(le, 'GET', 'settings', 200);
+    assert.deepEqual(st.json.expressOffer, { express: 1990, express_plus: 2990, plusServices: ['Feste persönliche Ansprechperson für Ihren Auftrag'] });
+  });
+
+  it('Startseite: Express mit Sternchen und Einschränkung direkt daneben, ohne Fristzusage', async () => {
+    const home = (await anon.req('GET', '/')).text.replace(/<!-- -->/g, '');
+    assert.ok(home.includes('Bevorzugte Bearbeitung*'));
+    assert.ok(home.includes('+ 19,90'));
+    assert.ok(home.includes('Keine Fristzusage'));
+    assert.doesNotMatch(home, /24 Stunden|24h|garantiert/i);
+  });
+
+  it('Bestellung Express Plus: Aufpreis, Kosten-Momentaufnahme, Warteschlange, Priorisierung nach Zahlung', async () => {
+    const r = await web('x.plus@example.de', 'WVWZZZ1KZAW000811', 'express_plus');
+    assert.equal(r.status, 200, r.text);
+    x.plus = { number: String(r.json.number), id: await idOf(String(r.json.number)) };
+    const s = await web('x.std@example.de', 'WVWZZZ1KZAW000812', 'standard');
+    x.std = { number: String(s.json.number), id: await idOf(String(s.json.number)) };
+    const b = await bundle(x.plus.id);
+    assert.equal(b.processing, 'express_plus');
+    const line = b.order.price.lines.find((l) => l.key === 'express')!;
+    assert.deepEqual([line.cents, line.label], [2990, 'Express Plus-Bearbeitung (bevorzugt)']);
+    assert.deepEqual(b.order.price.cost?.express, { level: 'express_plus', internalCostCents: 500, internalHours: 12, version: 1 });
+    assert.equal((await bundle(x.std.id)).order.price.lines.some((l) => l.key === 'express'), false);
+    const queue = (await expect(sb, 'GET', 'orders?status=laufend&express=1', 200)).json as unknown as { id: number; processing: string; paid_at: string | null }[];
+    assert.ok(queue.some((q) => q.id === x.plus.id && q.processing === 'express_plus' && q.paid_at === null));
+    assert.ok(!queue.some((q) => q.id === x.std.id), 'Standard nicht in der Express-Warteschlange');
+    // Zahlung per signiertem Stripe-Webhook → Automatisierung priorisiert
+    const payload = JSON.stringify({ id: 'evt_x_plus', type: 'checkout.session.completed', data: { object: { id: 'cs_test_x_plus', client_reference_id: x.plus.number, payment_status: 'paid', amount_total: b.order.total_cents } } });
+    assert.equal((await anon.req('POST', '/api/zahlung/webhook', { body: payload, headers: { 'Content-Type': 'application/json', 'Stripe-Signature': stripeSig(payload) } })).status, 200);
+    await new Promise((res) => setTimeout(res, 800));
+    const a = await bundle(x.plus.id);
+    assert.equal(a.order.priority, 'dringend');
+    assert.equal(a.order.status, 'in_pruefung');
+    const dueH = (Date.parse(a.order.due_at) - Date.now()) / 3_600_000;
+    assert.ok(dueH > 11 && dueH <= 12.1, `interne Frist ~12 h, ist ${dueH.toFixed(2)} h`);
+    const runs = (await expect(vw, 'GET', 'automation/runs', 200)).json as unknown as { rule_id: string; order_id: number; result: string }[];
+    assert.ok(runs.some((u) => u.rule_id === 'express_priorisierung' && u.order_id === x.plus.id && u.result === 'ausgeführt'));
+    const at = Object.fromEntries(a.milestones.map((m) => [m.key, m.at]));
+    assert.ok(at.eingang && at.zahlung && at.unterlagen && at.pruefung, 'Eingang, Zahlung, Unterlagen, Prüfung mit Zeitstempel');
+    assert.equal(at.freigabe, null);
+    const q2 = (await expect(sb, 'GET', 'orders?status=laufend&express=1', 200)).json as unknown as { id: number; paid_at: string | null }[];
+    assert.ok(q2.find((q) => q.id === x.plus.id)?.paid_at, 'Warteschlange kennt den Zahlungszeitpunkt');
+  });
+
+  it('Freigabe, Übertragung, Behörde (manuelle Prüfung) und Ergebnis – nur echte Zeitpunkte', async () => {
+    const W = `orders/${x.plus.id}/action`;
+    const d = await expect(sb, 'GET', `orders/${x.plus.id}`, 200);
+    for (const item of (d.json.order as { checklistItems: { key: string }[] }).checklistItems) await expect(sb, 'POST', W, 200, { type: 'checklist', key: item.key, checked: true });
+    for (const code of (d.json.insights as { codes: string[] }).codes) await expect(sb, 'POST', W, 200, { type: 'regCheck', key: `code_${code}`, value: true });
+    await expect(sb, 'POST', W, 200, { type: 'release' });
+    await expect(sb, 'POST', W, 200, { type: 'status', to: 'bei_zulassungsstelle' });
+    const send = (status: string, ev: string) => {
+      const raw = JSON.stringify({ order: { id: 8811, externalId: x.plus.number }, businessTransaction: 'AB', status });
+      return anon.req('POST', '/api/webhooks/kfz-api', { body: raw, headers: { 'Content-Type': 'application/json', 'X-Signature': sign(raw, KFZ_SECRET), 'X-Event-Id': ev } });
+    };
+    assert.equal((await send('FORWARDED', 'x-plus-fwd')).status, 200);
+    let m = (await bundle(x.plus.id)).milestones;
+    const beh = m.find((y) => y.key === 'behoerde')!;
+    assert.ok(beh.at);
+    assert.match(String(beh.note), /von Hand/);
+    assert.equal(m.find((y) => y.key === 'ergebnis')!.at, null, 'kein Ergebnis erfunden');
+    assert.equal((await send('APPROVED', 'x-plus-ok')).status, 200);
+    m = (await bundle(x.plus.id)).milestones;
+    assert.deepEqual(m.map((y) => !!y.at), [true, true, true, true, true, true, true, true]);
+    assert.equal(m.at(-1)!.label, 'Zulassung erfolgreich');
+    const times = m.map((y) => y.at as string);
+    assert.ok(times[0] <= times[1] && times[4] <= times[5] && times[5] <= times[7], 'Reihenfolge der Zeitpunkte plausibel');
+  });
+
+  it('Express Plus: Rückfrage der Behörde erzeugt genau eine Rückruf-Aufgabe', async () => {
+    const r = await web('x.plus2@example.de', 'WVWZZZ1KZAW000821', 'express_plus');
+    x.plus2 = { number: String(r.json.number), id: await idOf(String(r.json.number)) };
+    const raw = JSON.stringify({ order: { id: 8821, externalId: x.plus2.number }, businessTransaction: 'AB', status: 'REJECTED' });
+    assert.equal((await anon.req('POST', '/api/webhooks/kfz-api', { body: raw, headers: { 'Content-Type': 'application/json', 'X-Signature': sign(raw, KFZ_SECRET), 'X-Event-Id': 'x-plus2-rej' } })).status, 200);
+    await new Promise((res) => setTimeout(res, 800));
+    const tasks = (await expect(vw, 'GET', 'tasks?scope=team', 200)).json.items as { order_id: number; title: string }[];
+    assert.equal(tasks.filter((t) => t.order_id === x.plus2.id && t.title.startsWith('Kunde zurückrufen (Express Plus)')).length, 1);
+  });
+
+  it('Finanzcenter: Aufpreis, Zusatzkosten, Gebühr, Deckungsbeitrag und tatsächliche Dauer je Stufe', async () => {
+    const pays = (await expect(bh, 'GET', 'finance/payments', 200)).json as unknown as { id: number; order_id: number; provider: string }[];
+    const pay = pays.find((p) => p.order_id === x.plus.id && p.provider === 'stripe')!;
+    await expect(bh, 'POST', `finance/payments/${pay.id}/fee`, 200, { feeCents: 89 });
+    const rep = await expect(bh, 'GET', 'finance/express', 200);
+    const rows = rep.json.report as { level: string; orders: number; paid: number; completed: number; surchargeGrossCents: number; surchargeNetCents: number; internalCostCents: number; feeCents: number; contributionCents: number; durations: Record<string, { n: number }>; internalTarget: { met: number; missed: number; open: number } | null }[];
+    const plus = rows.find((r) => r.level === 'express_plus')!;
+    assert.deepEqual([plus.orders, plus.paid, plus.completed, plus.surchargeGrossCents, plus.internalCostCents], [2, 1, 1, 5980, 1000]);
+    const total = (await bundle(x.plus.id)).order.total_cents;
+    const share = Math.round((89 * 2990) / total);
+    assert.equal(plus.feeCents, share);
+    assert.equal(plus.contributionCents, plus.surchargeNetCents - 1000 - share, 'Aufpreis netto − Zusatzkosten − Gebührenanteil');
+    assert.equal(plus.durations.gesamt.n, 2, 'Dauer bis zum Ergebnis der Behörde: Zulassung und Rückfrage');
+    assert.equal(plus.durations.freigabe_uebertragen.n, 1);
+    assert.deepEqual(plus.internalTarget, { met: 1, missed: 0, open: 0 });
+    const std = rows.find((r) => r.level === 'standard')!;
+    assert.ok(std.orders > 0 && std.internalTarget === null);
+  });
+});
+
 /* =====================================================================
    10. Aufgaben, Kommunikation, Benachrichtigungen, Papierkorb
    ===================================================================== */
@@ -1059,9 +1302,87 @@ describe('Sicherheit', () => {
    12. Abschluss: Abdeckung und keine Serverfehler
    ===================================================================== */
 
+describe('Ortsauswahl und Wunschkennzeichen (verifizierte KBA-/Destatis-Daten)', () => {
+  type PlaceView = { ags: string; name: string; zusatz?: string; kreis: string; land: string; codes: string[]; pending: string[] };
+  const orte = async (q: string) => (await anon.req('GET', `/api/orte?q=${encodeURIComponent(q)}`)).json as { ok: boolean; places: PlaceView[]; more: boolean };
+  const wishOrder = (email: string, fin: string, plate: string, ags: string) => {
+    const d = orderData({ service: 'neuzulassung', email, fin });
+    return { data: { ...d, holder: { ...d.holder, plz: '28865', ort: 'Lilienthal' }, plate: { wahl: 'wunsch', wunschkennzeichen: plate, wunschort: ags, schilder: false, zustellung: 'abholung', versanddienst: '' } } };
+  };
+  let lilienthal = '';
+
+  it('Ortssuche: Name, Kreis und Land; gleichnamige Gemeinden getrennt; Eingrenzung über Kreis', async () => {
+    const l = await orte('Lilienthal');
+    const p = l.places.find((x) => x.name === 'Lilienthal')!;
+    assert.deepEqual([p.kreis, p.land, p.codes], ['Landkreis Osterholz', 'Niedersachsen', ['OHZ']]);
+    lilienthal = p.ags;
+    assert.deepEqual((await orte('Bremen')).places.find((x) => x.name === 'Bremen')?.codes, ['HB']);
+    const neu = (await orte('Neuenkirchen')).places.filter((x) => x.name === 'Neuenkirchen');
+    assert.ok(neu.length >= 8);
+    assert.equal(new Set(neu.map((x) => `${x.name}|${x.zusatz ?? ''}|${x.kreis}`)).size, neu.length, 'jede Gemeinde eindeutig beschriftet');
+    // zweimal Neuenkirchen im selben Kreis: Unterscheidung über die PLZ des Verwaltungssitzes
+    const vg = (await orte('Neuenkirchen Greifswald')).places;
+    assert.deepEqual(vg.map((x) => x.zusatz).sort(), ['PLZ 17392', 'PLZ 17498']);
+    const dh = await orte('Neuenkirchen Diepholz');
+    assert.deepEqual(dh.places.map((x) => [x.kreis, x.codes]), [['Landkreis Diepholz', ['DH', 'SY']]]);
+    assert.equal((await anon.req('GET', '/api/orte?ags=00000000')).status, 404);
+    assert.equal(((await anon.req('GET', `/api/orte?ags=${lilienthal}`)).json.place as PlaceView).name, 'Lilienthal');
+  });
+
+  it('Bestellung: Kürzel muss zum gewählten Ort passen; erfundene Kürzel abgelehnt; Ort bleibt am Auftrag', async () => {
+    const wrong = await expect(sb, 'POST', 'orders', 422, wishOrder('ort.falsch@example.de', 'WVWZZZ1KZAW000911', 'HB-EZ 24', lilienthal));
+    assert.match(String((wrong.json.fields as Record<string, string>)['plate.wunschkennzeichen']), /HB gehört laut Kraftfahrt-Bundesamt nicht zu Lilienthal – zulässig: OHZ/);
+    const fake = await expect(sb, 'POST', 'orders', 422, wishOrder('ort.fake@example.de', 'WVWZZZ1KZAW000912', 'LIL-EZ 24', lilienthal));
+    assert.match(String((fake.json.fields as Record<string, string>)['plate.wunschkennzeichen']), /kein amtlich vergebenes Ortskennzeichen/);
+    const unknown = await expect(sb, 'POST', 'orders', 422, wishOrder('ort.unbekannt@example.de', 'WVWZZZ1KZAW000913', 'OHZ-EZ 24', '99999999'));
+    assert.match(String((unknown.json.fields as Record<string, string>)['plate.wunschkennzeichen']), /Ort ist nicht bekannt/);
+    const good = await expect(sb, 'POST', 'orders', 200, wishOrder('ort.richtig@example.de', 'WVWZZZ1KZAW000914', 'OHZ-EZ 24', lilienthal));
+    const d = await expect(sb, 'GET', `orders/${good.json.id}`, 200);
+    assert.equal((d.json.order as { data: { plate: { wunschort: string } } }).data.plate.wunschort, lilienthal);
+    assert.deepEqual(d.json.wishPlace, { ags: lilienthal, name: 'Lilienthal', kreis: 'Landkreis Osterholz', land: 'Niedersachsen', codes: ['OHZ'], fits: true });
+  });
+});
+
+describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
+  it('Rücksprung ohne, mit unbekannten oder manipulierten Parametern: neutraler Hinweis, keine Erfolgsmeldung, keine Auftragsdaten', async () => {
+    for (const q of ['', '?powerOfAttorneyId=4711&status=signed', '?powerOfAttorneyId=abc&status=signed', '?powerOfAttorneyId=1%27%20OR%201%3D1&status=signed', '?status=signed']) {
+      const r = await anon.req('GET', `/vollmacht/abschluss${q}`);
+      assert.equal(r.status, 200, q);
+      const t = r.text.replace(/<!-- -->/g, '');
+      assert.ok(t.includes('Wir konnten diesen Vorgang nicht zuordnen.'), q);
+      assert.ok(!t.includes('erfolgreich unterschrieben'), `keine Erfolgsmeldung: ${q}`);
+      assert.ok(!/EK-\d{4}-\d{5}/.test(t), `keine Auftragsnummer: ${q}`);
+    }
+    const api = await anon.req('GET', '/api/vollmacht/status?powerOfAttorneyId=4711');
+    assert.equal(api.status, 200);
+    assert.deepEqual([api.json.view, api.json.known], ['unknown', false]);
+  });
+
+  it('OS: Anforderung ohne Freischaltung sauber abgelehnt, Leserecht reicht nicht; Abgleich ohne Vorgang', async () => {
+    const r = await expect(sb, 'POST', `orders/${ids.a}/vollmacht`, 422);
+    assert.match(String(r.json.error), /nicht freigeschaltet/);
+    await expect(le, 'POST', `orders/${ids.a}/vollmacht`, 403);
+    const a = await expect(le, 'POST', `orders/${ids.a}/vollmacht/abgleich`, 422);
+    assert.match(String(a.json.error), /keinen Vollmachtsvorgang/);
+    const d = await expect(sb, 'GET', `orders/${ids.a}`, 200);
+    assert.deepEqual([d.json.poas, d.json.poaEnabled], [[], false]);
+  });
+});
+
+describe('Widerrufsstrecke (Entwurf) ist ohne Freischaltung nicht öffentlich', () => {
+  it('Seiten, Schnittstelle und Footer-Link sind im Produktivbetrieb ohne WIDERRUF_AKTIV nicht erreichbar', async () => {
+    assert.equal((await anon.req('GET', '/widerruf')).status, 404);
+    assert.equal((await anon.req('GET', '/widerrufsbelehrung')).status, 404);
+    const api = await anon.req('POST', '/api/widerruf', { body: { name: 'Erika Muster', contract: 'EK-2026-00001', email: 'erika@example.de' } });
+    assert.equal(api.status, 404);
+    const home = (await anon.req('GET', '/impressum')).text;
+    assert.ok(!home.includes('Vertrag widerrufen'), 'kein Widerrufslink vor der Freischaltung');
+  });
+});
+
 describe('Abdeckung', () => {
-  it('jeder der 101 Endpunkte wurde mit Erfolg und ohne Anmeldung getestet, mit Recht zusätzlich verweigert', () => {
-    assert.equal(ROUTES.length, 101, `erwartet 101 Endpunkte, gefunden ${ROUTES.length}`);
+  it('jeder Endpunkt wurde mit Erfolg und ohne Anmeldung getestet, mit Recht zusätzlich verweigert', () => {
+    assert.equal(ROUTES.length, EXPECTED_ROUTES, `erwartet ${EXPECTED_ROUTES} Endpunkte, gefunden ${ROUTES.length}`);
     const missing: string[] = [];
     for (const r of ROUTES) {
       const h = hits[r.key];

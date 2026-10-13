@@ -458,6 +458,8 @@ function Users() {
 interface CompanyData {
   company: Record<string, string | number>;
   missing: string[];
+  /** Abweichungen zum Impressum der Website (nur Hinweis) */
+  warnings?: string[];
   canManage: boolean;
 }
 
@@ -481,6 +483,11 @@ function Company() {
     <>
       {flash.node}
       {data.missing.length ? <p className="os-flash is-error">Für Rechnungen fehlen: {data.missing.join(', ')}.</p> : <p className="os-ok-line">Angaben für ordnungsgemäße Rechnungen vollständig.</p>}
+      {(data.warnings ?? []).map((w) => (
+        <p key={w} className="os-flash is-warn">
+          {w}
+        </p>
+      ))}
       <Panel title="Unternehmensdaten">
         <div className="os-fields os-fields--3">
           {f('name', 'Firmenname inkl. Rechtsform', { wide: true })}

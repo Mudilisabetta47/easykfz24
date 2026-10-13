@@ -10,6 +10,8 @@ const g = globalThis as unknown as {
     loginPerIp: SlidingWindowLimiter;
     loginGlobal: SlidingWindowLimiter;
     plates: SlidingWindowLimiter;
+    withdrawals: SlidingWindowLimiter;
+    poaStatus: SlidingWindowLimiter;
   };
 };
 
@@ -21,6 +23,8 @@ const FACTORIES: { [K in keyof Limits]: () => SlidingWindowLimiter } = {
   loginPerIp: () => new SlidingWindowLimiter(5, 15 * 60 * 1000), // 5 Fehlversuche pro 15 Minuten und IP
   loginGlobal: () => new SlidingWindowLimiter(30, 15 * 60 * 1000), // insgesamt 30 Fehlversuche pro 15 Minuten
   plates: () => new SlidingWindowLimiter(40, 60 * 1000), // 40 Kennzeichen-Abfragen pro Minute und IP
+  withdrawals: () => new SlidingWindowLimiter(10, 60 * 60 * 1000), // 10 Widerrufserklärungen pro Stunde und IP (Missbrauchsschutz)
+  poaStatus: () => new SlidingWindowLimiter(60, 10 * 60 * 1000), // Rücksprungseite und Nachprüfung: 60 pro 10 Minuten und IP
 };
 
 export function limits(): Limits {

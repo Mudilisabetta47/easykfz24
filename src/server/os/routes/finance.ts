@@ -5,6 +5,8 @@ import { SERVICE_IDS, SERVICES } from '../../../lib/services.ts';
 import { audit } from '../../audit.ts';
 import { getDb } from '../../db.ts';
 import { getSettings, setSettings } from '../../settings.ts';
+import { currentPlateVersion, getPlatePrices, platePriceHistory, savePlatePrices } from '../../plates.ts';
+import { currentExpress, DURATION_STEPS, expressHistory, expressReport, saveExpress } from '../../express.ts';
 import { getCompany, invoiceReadiness } from '../company.ts';
 import { exportResponse } from '../export.ts';
 import {
@@ -17,6 +19,7 @@ import {
   listVouchers,
   openItems,
   periodTotals,
+  plateReport,
   reconciliation,
   refreshStripeFee,
   saveVoucher,
@@ -171,6 +174,74 @@ export const financeRoutes: Route[] = [
       await setSettings(values, c.actor.name);
       await audit(c.audit, 'finanzen.einkaufskosten');
       return { ok: true };
+    },
+  },
+  {
+    method: 'GET',
+    path: 'finance/express',
+    perm: 'finance.read',
+    handler: async (c) => {
+      const from = str(c.url.searchParams.get('from'), 10);
+      const to = str(c.url.searchParams.get('to'), 10);
+      const company = await getCompany();
+      return {
+        current: await currentExpress(),
+        history: (await expressHistory()).slice(-20).reverse(),
+        report: await expressReport({ from: from || undefined, to: to || undefined }, (g) => splitGross(g, company)),
+        steps: DURATION_STEPS.map((x) => ({ key: x.key, label: x.label })),
+        canWrite: c.can('finance.write'),
+      };
+    },
+  },
+  {
+    method: 'POST',
+    path: 'finance/express',
+    perm: 'finance.write',
+    handler: async (c) => {
+      const r = await saveExpress({ levels: c.body.levels, plusServices: c.body.plusServices ?? [] }, c.actor.name);
+      if (!r.ok) throw new HttpError(422, r.error);
+      const v = r.version;
+      await audit(
+        c.audit,
+        'preise.express',
+        `Version ${v.version}`,
+        `Express ${v.levels.express.active ? v.levels.express.sellCents : 'aus'} · Express Plus ${v.levels.express_plus.active ? v.levels.express_plus.sellCents : 'aus'}`,
+      );
+      return { ok: true, version: v };
+    },
+  },
+  {
+    method: 'GET',
+    path: 'finance/plates',
+    perm: 'finance.read',
+    handler: async (c) => {
+      const from = str(c.url.searchParams.get('from'), 10);
+      const to = str(c.url.searchParams.get('to'), 10);
+      const history = await platePriceHistory();
+      return {
+        current: await currentPlateVersion(),
+        prices: await getPlatePrices(),
+        history: history.slice(-20).reverse(),
+        report: await plateReport({ from: from || undefined, to: to || undefined }),
+        canWrite: c.can('finance.write'),
+      };
+    },
+  },
+  {
+    method: 'POST',
+    path: 'finance/plates',
+    perm: 'finance.write',
+    handler: async (c) => {
+      const r = await savePlatePrices({ prices: c.body.prices, supplierShippingCents: c.body.supplierShippingCents ?? null, carbonChecks: c.body.carbonChecks ?? { deliverable: false, permitted: false } }, c.actor.name);
+      if (!r.ok) throw new HttpError(422, r.error);
+      const v = r.version;
+      await audit(
+        c.audit,
+        'preise.schilder',
+        `Version ${v.version}`,
+        `Standard ${v.prices.standard.sellCents}/${v.prices.standard.buyCents} · Carbon ${v.prices.carbon.active ? `${v.prices.carbon.sellCents}/${v.prices.carbon.buyCents}` : 'nicht im Angebot'} · Versand ${v.supplierShippingCents ?? 'offen'}`,
+      );
+      return { ok: true, version: v };
     },
   },
   {

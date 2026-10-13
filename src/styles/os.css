@@ -1548,6 +1548,10 @@
   background: rgb(198 40 40 / 0.12);
   color: var(--os-bad);
 }
+.os-flash.is-warn {
+  background: rgb(184 110 0 / 0.12);
+  color: var(--os-warn);
+}
 
 /* ---------- Programmlayout ---------- */
 .os-app {
@@ -4123,4 +4127,59 @@
   .os-problems button {
     grid-template-columns: auto 1fr;
   }
+}
+
+/* Kennzeichenschilder in Carbon-Optik (Premium) */
+.os-badge--carbon {
+  background: linear-gradient(135deg, #1d2026, #3a3f48);
+  color: #f3f4f6;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+/* Bearbeitung & Zeitstempel (Express-Meilensteine) */
+.os-milestones {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.os-milestones li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 10px;
+  padding: 4px 0 4px 16px;
+  position: relative;
+  color: var(--os-muted, #6b7280);
+}
+.os-milestones li::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 10px;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.os-milestones li.is-done {
+  color: inherit;
+}
+.os-milestones li.is-done::before {
+  background: #2e7d32;
+  border-color: #2e7d32;
+}
+.os-milestones li.is-warn::before {
+  background: #b26a00;
+  border-color: #b26a00;
+}
+.os-milestones li.is-fail::before {
+  background: #c62828;
+  border-color: #c62828;
+}
+.os-milestones li > span:nth-child(3) {
+  grid-column: 1 / -1;
+}
+tr.is-late td {
+  background: rgba(198, 40, 40, 0.06);
 }

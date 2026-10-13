@@ -11,7 +11,7 @@ import type { WishInput } from '../../lib/wish-plate.ts';
 import { ArrowRight } from '../icons.tsx';
 import { CarClassic, CarElectric, CarFront, LightBike, Motorcycle, Tractor } from '../VehicleIcons.tsx';
 import { PlateConfigurator } from '../plate/PlateConfigurator.tsx';
-import { PlateInput } from '../plate/PlateInput.tsx';
+import { PlateInput, type PlacePick } from '../plate/PlateInput.tsx';
 
 type Mode = 'anmelden' | 'ummelden' | 'abmelden';
 
@@ -52,7 +52,7 @@ const VEHICLES = [
 type VehicleId = (typeof VEHICLES)[number]['id'];
 
 /** Schnellstart im ersten Bildschirm: Leistung wählen, Kennzeichen direkt ins Schild tippen, weiter zum Auftrag. */
-export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = {}) {
+export function HeroQuickStart({ initialCity = '', initialPlace = null }: { initialCity?: string; initialPlace?: PlacePick | null } = {}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('anmelden');
   const [vehicle, setVehicle] = useState<VehicleId>('auto');
@@ -61,6 +61,7 @@ export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = 
   const format = 'format' in veh ? veh.format : 'eu';
   const [plate, setPlate] = useState<WishInput>(initialCity ? { ...EMPTY, cityCode: initialCity } : EMPTY);
   const [picker, setPicker] = useState(false);
+  const [place, setPlace] = useState<PlacePick | null>(initialPlace);
   const [error, setError] = useState<string | null>(null);
   const m = MODES[mode];
   const price = fromPrice(m.priceOf);
@@ -69,8 +70,10 @@ export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = 
   const empty = !plate.cityCode && !plate.letters && !plate.numbers;
   const complete = !!plate.cityCode && !!plate.letters && !!plate.numbers;
 
-  const go = (params: Record<string, string>) => {
-    const q = new URLSearchParams({ leistung: m.service, fahrzeug: veh.fahrzeug, ...('art' in veh ? { art: veh.art } : {}), ...params });
+  const go = (params: Record<string, string>, pl: PlacePick | null = place) => {
+    // Gewählten Ort nur mitgeben, wenn das Kürzel amtlich zu ihm gehört
+    const ort: Record<string, string> = mode !== 'abmelden' && pl && pl.codes.includes(plate.cityCode) && params.wunsch?.startsWith(`${plate.cityCode}-`) ? { ort: pl.ags } : {};
+    const q = new URLSearchParams({ leistung: m.service, fahrzeug: veh.fahrzeug, ...('art' in veh ? { art: veh.art } : {}), ...params, ...ort });
     router.push(`/kfz-anmelden/auftrag?${q}`);
   };
 
@@ -146,6 +149,8 @@ export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = 
         invalid={error ? 'all' : null}
         describedBy="quick-hint"
         onEnter={submit}
+        place={mode === 'abmelden' ? null : place}
+        onPlace={setPlace}
       />
 
       <p className="quick__hint" id="quick-hint" aria-live="polite">
@@ -169,10 +174,12 @@ export function HeroQuickStart({ initialCity = '' }: { initialCity?: string } = 
       {picker ? (
         <PlateConfigurator
           initial={plate}
+          initialPlace={place}
           onClose={() => setPicker(false)}
-          onPick={(p) => {
+          onPick={(p, pl) => {
             setPicker(false);
-            go({ wunsch: p });
+            const q = new URLSearchParams({ leistung: m.service, fahrzeug: veh.fahrzeug, ...('art' in veh ? { art: veh.art } : {}), wunsch: p, ...(pl ? { ort: pl.ags } : {}) });
+            router.push(`/kfz-anmelden/auftrag?${q}`);
           }}
         />
       ) : null}

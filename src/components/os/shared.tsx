@@ -86,6 +86,19 @@ export function PriorityBadge({ value }: { value: string }) {
   return <Badge tone={PRIORITY_TONE[value] ?? 'slate'}>{PRIORITY_LABEL[value] ?? value}</Badge>;
 }
 
+/** Express-Aufträge deutlich markieren (Standard ohne Abzeichen) */
+export function ProcessingBadge({ level }: { level?: string }) {
+  if (level === 'express') return <Badge tone="amber">Express</Badge>;
+  if (level === 'express_plus') return <Badge tone="red">Express+</Badge>;
+  return null;
+}
+
+/** Schilder in Carbon-Optik deutlich markieren (Standard ohne Abzeichen) */
+export function PlateBadge({ signs }: { signs?: string }) {
+  if (signs !== 'carbon') return null;
+  return <Badge tone="carbon">Carbon</Badge>;
+}
+
 export function StageBadge({ stage }: { stage: Stage }) {
   const m = STAGE_META[stage];
   return <Badge tone={m.tone}>{m.label}</Badge>;

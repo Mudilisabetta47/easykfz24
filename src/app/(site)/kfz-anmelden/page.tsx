@@ -11,6 +11,10 @@ import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL, PROMO_FINE_PRINT } from
 import { servicePrice } from '../../../lib/pricing.ts';
 import { PriceTag, PromoBadge, promoActive } from '../../../components/Promo.tsx';
 import { DOCUMENTS, documentsFor, PLATE_CHOICES, SERVICE_IDS, SERVICES, type ServiceId } from '../../../lib/services.ts';
+import { getPlateOffer } from '../../../server/plates.ts';
+
+// Schilderpreise kommen aus dem Finanzcenter – Seite daher je Aufruf
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Kfz anmelden – Leistungen, Unterlagen, Ablauf',
@@ -33,7 +37,8 @@ const STEPS = [
   { t: 'Zustellung', d: 'Papiere und ggf. Kennzeichen kommen per DHL oder UPS mit Sendungsverfolgung – oder Sie holen sie ab. Den Stand sehen Sie jederzeit online.' },
 ];
 
-export default function KfzAnmeldenPage() {
+export default async function KfzAnmeldenPage() {
+  const plateOffer = await getPlateOffer();
   return (
     <>
       <header className="page-head">
@@ -177,10 +182,17 @@ export default function KfzAnmeldenPage() {
                 {promoActive() ? <td className="muted">–</td> : null}
               </tr>
               <tr>
-                <th scope="row">Kennzeichenschild je Stück</th>
-                <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.plateSignCents) : 'wird im Vorgang transparent angezeigt'}</td>
+                <th scope="row">Kennzeichenschild je Stück (Standard)</th>
+                <td>{PRICES_FINAL ? formatEuro(plateOffer.standard ?? PRICE_CONFIG.plateSignCents) : 'wird im Vorgang transparent angezeigt'}</td>
                 {promoActive() ? <td className="muted">–</td> : null}
               </tr>
+              {plateOffer.carbon !== null ? (
+                <tr>
+                  <th scope="row">Kennzeichenschild je Stück (Carbon-Optik, Premium)</th>
+                  <td>{PRICES_FINAL ? formatEuro(plateOffer.carbon) : 'wird im Vorgang transparent angezeigt'}</td>
+                  {promoActive() ? <td className="muted">–</td> : null}
+                </tr>
+              ) : null}
               <tr>
                 <th scope="row">Versand per Einschreiben</th>
                 <td>{PRICES_FINAL ? formatEuro(PRICE_CONFIG.shippingCents) : 'wird im Vorgang transparent angezeigt'}</td>

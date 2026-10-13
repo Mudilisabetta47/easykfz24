@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { DRIVE_TYPE_IDS, VEHICLE_TYPE_IDS, isEKennzeichenEligible, type DriveTypeId, type VehicleTypeId } from './catalog.ts';
 import { MAX_FILES_PER_DOCUMENT } from './files.ts';
 import { isCarrierId, type CarrierId } from './shipping.ts';
+import { isPlateFinish, type PlateFinish, type PlateOffer } from './plates.ts';
+import { isProcessingLevel, type ExpressOffer, type ProcessingLevel } from './express.ts';
+import { cityCodeProblem } from './wish-plate.ts';
 import {
   DOCUMENTS,
   SERVICES,
@@ -36,6 +39,8 @@ const flag = () => z.boolean().default(false);
 
 export const orderInputSchema = z.object({
   service: str(30),
+  /** Bearbeitung: standard | express | express_plus (ältere Aufträge ohne Angabe = Standard) */
+  bearbeitung: str(20).default('standard'),
   vehicle: z
     .object({
       art: str(20),
@@ -54,6 +59,8 @@ export const orderInputSchema = z.object({
       vorname: str(60),
       nachname: str(60),
       geburtsdatum: str(10),
+      /** Geburtsort wie im Ausweis – für die digitale Vollmacht (Pflicht beim Vollmachtsvorgang, laut Partner-Doku) */
+      geburtsort: str(105),
       firmenname: str(120),
       registernummer: str(60),
       ansprechpartner: str(120),
@@ -69,7 +76,11 @@ export const orderInputSchema = z.object({
     .object({
       wahl: str(10),
       wunschkennzeichen: str(20),
+      /** Im Konfigurator gewählter Ort (Amtlicher Gemeindeschlüssel, 8 Ziffern) – optional */
+      wunschort: str(8),
       schilder: flag(),
+      /** Ausführung der Schilder: standard | carbon (ältere Aufträge ohne Angabe = Standard) */
+      ausfuehrung: str(10).default('standard'),
       zustellung: str(10),
       versanddienst: str(10),
     })
@@ -94,6 +105,8 @@ export type OrderInput = z.output<typeof orderInputSchema>;
 
 export interface ValidatedOrder {
   service: ServiceId;
+  /** Bearbeitung; bei Aufträgen vor Express fehlt das Feld (= Standard) */
+  bearbeitung?: ProcessingLevel;
   vehicle: {
     art: VehicleTypeId;
     hersteller: string;
@@ -110,6 +123,8 @@ export interface ValidatedOrder {
     vorname: string;
     nachname: string;
     geburtsdatum: string;
+    /** Geburtsort (nur Privatpersonen); fehlt bei älteren Aufträgen */
+    geburtsort?: string;
     firmenname: string;
     registernummer: string;
     ansprechpartner: string;
@@ -123,7 +138,11 @@ export interface ValidatedOrder {
   plate: {
     wahl: PlateChoice | null;
     wunschkennzeichen: string;
+    /** Im Konfigurator gewählter Ort (AGS); fehlt, wenn kein Ort gewählt wurde */
+    wunschort?: string;
     schilder: boolean;
+    /** Ausführung der Schilder; bei Aufträgen vor Carbon-Optik fehlt das Feld (= Standard) */
+    ausfuehrung?: PlateFinish;
     zustellung: 'versand' | 'abholung';
     /** Versandpartner, nur bei Versand */
     versanddienst: CarrierId | null;
@@ -163,7 +182,22 @@ export function errorsForPrefix(errors: FieldErrors, prefix: string): FieldError
   return Object.fromEntries(Object.entries(errors).filter(([k]) => k === prefix || k.startsWith(prefix)));
 }
 
-export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
+/** Gewählter Ort mit seinen amtlich verifizierten Kürzeln (serverseitig aus KBA + Destatis) */
+export interface WishPlace {
+  name: string;
+  codes: string[];
+}
+
+export function validateOrder(
+  raw: unknown,
+  opts: {
+    plateOffer?: PlateOffer;
+    expressOffer?: ExpressOffer;
+    wishPlace?: (ags: string) => WishPlace | null;
+    /** Digitale Vollmacht aktiv: Geburtsort ist dann für Privatpersonen Pflicht (außer Abmeldung) */
+    requireBirthPlace?: boolean;
+  } = {},
+): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
   const parsed = orderInputSchema.safeParse(raw);
   if (!parsed.success) {
     const errors: FieldErrors = {};
@@ -230,6 +264,7 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
   let vorname = '';
   let nachname = '';
   let geburtsdatum = '';
+  let geburtsort = '';
   let firmenname = '';
   let registernummer = '';
   let ansprechpartner = '';
@@ -237,6 +272,8 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
     vorname = take('holder.vorname', checkRequired(h.vorname, 'Bitte den Vornamen angeben'));
     nachname = take('holder.nachname', checkRequired(h.nachname, 'Bitte den Nachnamen angeben'));
     geburtsdatum = take('holder.geburtsdatum', checkBirthDate(h.geburtsdatum));
+    geburtsort = h.geburtsort.trim().replace(/\s+/g, ' ');
+    if (!geburtsort && opts.requireBirthPlace && service && service !== 'abmeldung') errors['holder.geburtsort'] = 'Bitte den Geburtsort angeben (wie im Ausweis)';
   } else if (typ === 'firma') {
     firmenname = take('holder.firmenname', checkRequired(h.firmenname, 'Bitte den Firmennamen angeben'));
     registernummer = h.registernummer.trim();
@@ -252,14 +289,48 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
   // Kennzeichen und Zustellung
   const p = input.plate;
   let wunschkennzeichen = '';
-  if (wahl === 'wunsch') wunschkennzeichen = take('plate.wunschkennzeichen', checkPlate(p.wunschkennzeichen));
+  if (wahl === 'wunsch') {
+    wunschkennzeichen = take('plate.wunschkennzeichen', checkPlate(p.wunschkennzeichen));
+    // Nur amtlich verifizierte Kürzel – erfundene, aufgehobene oder noch zu prüfende werden abgelehnt
+    const problem = wunschkennzeichen ? cityCodeProblem(wunschkennzeichen.split('-')[0]) : null;
+    if (problem) errors['plate.wunschkennzeichen'] = problem;
+  }
+  // Gewählter Ort: Das Kürzel muss amtlich zu diesem Ort gehören (Prüfung serverseitig mit den verifizierten Daten)
+  const wunschort = wahl === 'wunsch' && /^\d{8}$/.test(p.wunschort.trim()) ? p.wunschort.trim() : '';
+  if (wunschort && wunschkennzeichen && !errors['plate.wunschkennzeichen'] && opts.wishPlace) {
+    const place = opts.wishPlace(wunschort);
+    const code = wunschkennzeichen.split('-')[0];
+    if (!place) errors['plate.wunschkennzeichen'] = 'Der gewählte Ort ist nicht bekannt – bitte den Ort im Kennzeichen neu auswählen';
+    else if (!place.codes.includes(code)) {
+      errors['plate.wunschkennzeichen'] = place.codes.length
+        ? `${code} gehört laut Kraftfahrt-Bundesamt nicht zu ${place.name} – zulässig: ${place.codes.join(', ')}`
+        : `Für ${place.name} wird das Ortskennzeichen derzeit amtlich geprüft – bitte später erneut versuchen oder ohne Ortsauswahl fortfahren`;
+    }
+  }
   const schilder = isPlateChange(service, wahl) ? p.schilder : false;
+  // Ob Carbon-Optik gerade angeboten wird, prüft der Server mit den Preisen aus dem Finanzcenter
+  let ausfuehrung: PlateFinish = 'standard';
+  if (schilder) {
+    if (isPlateFinish(p.ausfuehrung)) ausfuehrung = p.ausfuehrung;
+    else if (p.ausfuehrung) errors['plate.ausfuehrung'] = 'Bitte Standard oder Carbon-Optik wählen';
+    if (ausfuehrung === 'carbon' && opts.plateOffer && opts.plateOffer.carbon === null) {
+      errors['plate.ausfuehrung'] = 'Carbon-Optik ist derzeit nicht verfügbar – bitte Standard wählen';
+    }
+  }
   const zustellung = p.zustellung === 'versand' || p.zustellung === 'abholung' ? p.zustellung : null;
   if (!zustellung) errors['plate.zustellung'] = 'Bitte Versand oder Abholung wählen';
   let versanddienst: CarrierId | null = null;
   if (zustellung === 'versand') {
     if (isCarrierId(p.versanddienst)) versanddienst = p.versanddienst;
     else errors['plate.versanddienst'] = 'Bitte DHL oder UPS wählen';
+  }
+
+  // Bearbeitung (Express nur, wenn die Stufe angeboten wird – prüft der Server mit den Einstellungen aus dem Finanzcenter)
+  let bearbeitung: ProcessingLevel = 'standard';
+  if (isProcessingLevel(input.bearbeitung)) bearbeitung = input.bearbeitung;
+  else if (input.bearbeitung) errors.bearbeitung = 'Bitte Standard, Express oder Express Plus wählen';
+  if (bearbeitung !== 'standard' && opts.expressOffer && opts.expressOffer[bearbeitung] === null) {
+    errors.bearbeitung = 'Diese Express-Stufe ist derzeit nicht verfügbar – bitte Standard wählen';
   }
 
   // Abschluss
@@ -283,12 +354,14 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
     ok: true,
     order: {
       service,
+      bearbeitung,
       vehicle: { art, hersteller, modell, fin, bisherigesKennzeichen, antrieb, eKennzeichen, hKennzeichen },
       holder: {
         typ,
         vorname,
         nachname,
         geburtsdatum,
+        ...(geburtsort ? { geburtsort } : {}),
         firmenname,
         registernummer,
         ansprechpartner,
@@ -299,7 +372,7 @@ export function validateOrder(raw: unknown): { ok: true; order: ValidatedOrder }
         email,
         telefon,
       },
-      plate: { wahl, wunschkennzeichen, schilder, zustellung, versanddienst },
+      plate: { wahl, wunschkennzeichen, ...(wunschort ? { wunschort } : {}), schilder, ausfuehrung, zustellung, versanddienst },
       finish: {
         evb,
         kontoinhaber,
