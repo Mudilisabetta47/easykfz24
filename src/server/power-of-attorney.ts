@@ -4,11 +4,14 @@
 // - Der echte Stand kommt ausschließlich aus GET /powerOfAttorneys/{processId}. Für Vollmachten gibt es kein Webhook-Ereignis,
 //   deshalb gleicht EasyKFZ24 offene Vorgänge selbst ab (Rücksprung, Statusabfrage, OS, zeitgesteuerte Automatisierung).
 // - Der Rücksprung-Parameter `status` ändert nie etwas; er stößt höchstens einen gedrosselten Abgleich an.
-// - POST /powerOfAttorneys kostet je Vorgang und ist rechtsverbindlich: nur mit VOLLMACHT_DIGITAL=1, je Auftrag einzeln,
+// - POST /powerOfAttorneys kostet je Vorgang und ist rechtsverbindlich: nur mit VOLLMACHT_DIGITAL=1 bzw. im ausdrücklich
+//   eingeschalteten Testmodus (VOLLMACHT_TESTMODUS=1, nur Inhaber mit Testfreigabe), je Auftrag einzeln,
 //   idempotent über externalOrderId (gleiche ID + offener Vorgang + gleiche Angaben → derselbe Vorgang, kein neuer).
 //
 // Umgebung:
-//   VOLLMACHT_DIGITAL=1              Anforderung neuer Vorgänge erlaubt (ohne: nur Abgleich vorhandener)
+//   (ohne Vollmacht-Variable)       Betriebsart AUS: keine Anforderung, nur Abgleich bereits vorhandener Vorgänge
+//   VOLLMACHT_TESTMODUS=1            Testmodus: nur der Inhaber, nur für einen ausdrücklich freigegebenen Auftrag
+//   VOLLMACHT_DIGITAL=1              Anforderung für alle geeigneten Aufträge (geht dem Testmodus vor)
 //   VOLLMACHT_EMAIL_SENDEN=0         Link NICHT durch den Partner per E-Mail senden (Vorgabe: senden, White Label)
 //   VOLLMACHT_RUECKSPRUNG_URL        im Partner-Dashboard hinterlegte Adresse (Vorgabe: <Basis>/vollmacht/abschluss)
 //   VOLLMACHT_REDIRECT_SENDEN=1      redirectUrl je Vorgang mitsenden (nur gleicher Origin wie die Dashboard-Adresse)
@@ -47,13 +50,22 @@ export function poaCreationEnabled(): boolean {
 }
 
 /**
- * Betriebsart: „aus“ ohne Partner-Zugang; „test“ mit Zugang, aber ohne VOLLMACHT_DIGITAL – dann nur der vom Inhaber
- * ausdrücklich freigegebene Auftrag (Testfreigabe, einmalig, befristet); „aktiv“ für alle geeigneten Aufträge.
+ * Betriebsart – standardmäßig AUS. „test“ nur mit ausdrücklich gesetztem VOLLMACHT_TESTMODUS=1 (dann nur der vom Inhaber
+ * freigegebene Auftrag, einmalig, befristet); „aktiv“ nur mit VOLLMACHT_DIGITAL=1. Beides setzt den Partner-Zugang voraus.
  */
 export type PoaMode = 'aus' | 'test' | 'aktiv';
 export function poaMode(): PoaMode {
   if (!kfzApiConfigured()) return 'aus';
-  return poaCreationEnabled() ? 'aktiv' : 'test';
+  if (process.env.VOLLMACHT_DIGITAL === '1') return 'aktiv';
+  if (process.env.VOLLMACHT_TESTMODUS === '1') return 'test';
+  return 'aus';
+}
+
+/** Warum nichts angefordert werden kann (Betriebsart AUS) */
+export function poaOffReason(): string {
+  return kfzApiConfigured()
+    ? 'Die digitale Vollmacht ist ausgeschaltet. Für einen Test VOLLMACHT_TESTMODUS=1 in Cloudflare setzen.'
+    : 'Die digitale Vollmacht ist nicht eingerichtet (kein Zugang zu kfz-api.de).';
 }
 
 export interface PoaActor {
@@ -289,7 +301,7 @@ export async function setTestRelease(orderId: number, active: boolean, actor: Po
     return { ok: true, release: null };
   }
   const mode = poaMode();
-  if (mode === 'aus') return { ok: false, error: 'kfz-api.de ist nicht eingerichtet (KFZ_API_BASE_URL, KFZ_API_LOGIN, KFZ_API_PASSWORD).' };
+  if (mode === 'aus') return { ok: false, error: poaOffReason() };
   if (mode === 'aktiv') return { ok: false, error: 'Die digitale Vollmacht ist bereits für alle Aufträge freigeschaltet (VOLLMACHT_DIGITAL=1) – keine Testfreigabe nötig.' };
   if (order.status === 'storniert') return { ok: false, error: 'Der Auftrag ist storniert.' };
   if (!POA_SERVICES.includes(order.service as never)) return { ok: false, error: 'Für diese Leistung ist keine Vollmacht nötig.' };
@@ -313,7 +325,7 @@ export async function setTestRelease(orderId: number, active: boolean, actor: Po
 /** Darf für diesen Auftrag ein neuer (kostenpflichtiger) Vorgang angelegt werden? */
 async function creationAllowed(orderId: number, attempt: number, actor: PoaActor): Promise<string | null> {
   const mode = poaMode();
-  if (mode === 'aus') return 'kfz-api.de ist nicht eingerichtet.';
+  if (mode === 'aus') return poaOffReason();
   if (mode === 'aktiv') return null;
   if (actor.role !== 'inhaber') return 'Testmodus: Nur der Inhaber kann eine echte Vollmacht anfordern.';
   const r = await getTestRelease();
@@ -459,7 +471,7 @@ export type CreateResult = { ok: true; poa: PoaView; reused: boolean } | { ok: f
  * entsteht ein neuer Versuch – im Testmodus nur mit neuer Testfreigabe.
  */
 export async function requestPoa(orderId: number, actor: PoaActor, opts: { sepa: boolean; fingerprint: string }): Promise<CreateResult> {
-  if (poaMode() === 'aus') return { ok: false, error: 'Die digitale Vollmacht ist nicht eingerichtet (kein Zugang zu kfz-api.de).' };
+  if (poaMode() === 'aus') return { ok: false, error: poaOffReason() };
   const p = await prepare(orderId, opts.sepa);
   if (p.kind === 'error') return { ok: false, error: p.error, reasons: p.reasons };
   if (p.kind === 'reuse') return { ok: true, poa: viewOf(p.rec), reused: true };

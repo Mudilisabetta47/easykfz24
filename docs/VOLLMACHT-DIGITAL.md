@@ -78,9 +78,9 @@ und der letzten Prüfung, Hinweisen des Partners, früheren Versuchen und „Sta
 
 | Betriebsart | Bedingung | Wer kann anfordern |
 |---|---|---|
-| aus | kein Partner-Zugang (`KFZ_API_*`) | niemand |
-| **Testmodus** | Partner-Zugang, **ohne** `VOLLMACHT_DIGITAL` (= Live-Stand) | nur der **Inhaber**, nur für den Auftrag mit **Testfreigabe** |
-| aktiv | `VOLLMACHT_DIGITAL=1` | alle mit Recht „Aufträge bearbeiten“ |
+| **aus** (Standard) | keine Vollmacht-Variable gesetzt – oder kein Partner-Zugang (`KFZ_API_*`) | niemand; nur Abgleich bereits vorhandener Vorgänge |
+| Testmodus | Partner-Zugang **und ausdrücklich** `VOLLMACHT_TESTMODUS=1` | nur der **Inhaber**, nur für den Auftrag mit **Testfreigabe** |
+| aktiv | Partner-Zugang und `VOLLMACHT_DIGITAL=1` (geht dem Testmodus vor) | alle mit Recht „Aufträge bearbeiten“ |
 
 **Testfreigabe** (OS → Auftrag → Digitale Vollmacht, nur Inhaber): gilt für genau einen Auftrag, 24 Stunden, und wird beim
 ersten Anfordern an diesen Versuch gebunden. Wiederholungen desselben Versuchs (gleiche Referenz) und der Abgleich bleiben
@@ -92,12 +92,13 @@ bleibt unverändert (kein Geburtsort-Pflichtfeld).
 
 | Variable | Wirkung | Vorgabe |
 |---|---|---|
-| `VOLLMACHT_DIGITAL=1` | Anfordern neuer Vorgänge + Pflichtfeld Geburtsort | aus |
+| `VOLLMACHT_TESTMODUS=1` | Testmodus: nur Inhaber, nur für einen freigegebenen Auftrag; Bestellformular unverändert | aus |
+| `VOLLMACHT_DIGITAL=1` | Anfordern neuer Vorgänge für alle geeigneten Aufträge + Pflichtfeld Geburtsort | aus |
 | `VOLLMACHT_EMAIL_SENDEN=0` | Partner schickt **keine** E-Mail | Partner sendet |
 | `VOLLMACHT_RUECKSPRUNG_URL` | im Dashboard hinterlegte Adresse | `https://easykfz24.de/vollmacht/abschluss` |
 | `VOLLMACHT_REDIRECT_SENDEN=1` | `redirectUrl` je Vorgang mitsenden | aus |
 
-Ohne `VOLLMACHT_DIGITAL` bleibt alles wie bisher: kein Geburtsort-Feld, keine Anforderung, keine Kosten.
+Ohne beide Variablen ist die Betriebsart **aus**: kein Geburtsort-Feld, keine Anforderung, keine Kosten.
 Abschlussseite, Abgleich und Zeitregel sind harmlos (nur kostenlose Abfragen vorhandener Vorgänge).
 
 ## Getestet (13.10.2026, Testnachbau, keine echten Vorgänge)
@@ -120,7 +121,9 @@ Cron in workerd (`wrangler dev`, geplanter Lauf): offener Vorgang abgeglichen �
 ## Erster echter Test (Testmodus) – Ablauf
 
 Voraussetzungen: dieser Stand ist veröffentlicht; KBA-/Produktionsfreigabe bei kfz-api.de ist erfolgt (laut Dashboard
-geplant 14.10.2026, 08:00 Uhr); OS → KFZ-API-Center → „Verbindungstest“ zeigt „Verbindung und Anmeldung in Ordnung“.
+geplant 14.10.2026, 08:00 Uhr); OS → KFZ-API-Center → „Verbindungstest“ zeigt „Verbindung und Anmeldung in Ordnung“;
+in Cloudflare (Worker easykfz24 → Einstellungen → Variablen) **`VOLLMACHT_TESTMODUS=1`** gesetzt – erst nach ausdrücklicher
+Zustimmung des Inhabers; nach dem Test wieder entfernen.
 
 1. OS → Neuer Auftrag: **eigener** Auftrag, Privatperson, Angaben genau wie im **Personalausweis** (Name, Geburtsdatum,
    Anschrift), eigene E-Mail, FIN des eigenen Fahrzeugs; Leistung nicht „Abmeldung“. IBAN nur, wenn das Kfz-Steuer-Mandat mitgetestet werden soll.
@@ -133,7 +136,7 @@ geplant 14.10.2026, 08:00 Uhr); OS → KFZ-API-Center → „Verbindungstest“ 
 7. OS: „Stand jetzt abfragen“ → „unterschrieben“ (bzw. „Angaben unvollständig“ ohne `readyForApplication`).
 8. Statusabfrage (Auftragsnummer + E-Mail) zeigt den Vollmachtsstand getrennt von Zahlung und Bearbeitung.
 9. Nach spätestens 10 Minuten: OS → Einstellungen → Automatisierungen → „Vollmacht-Abgleich“ zeigt Läufe des Cron-Triggers.
-10. Testfreigabe zurückziehen; Testauftrag stornieren (es wird kein Zulassungsantrag gestellt).
+10. Testfreigabe zurückziehen; Testauftrag stornieren (es wird kein Zulassungsantrag gestellt); `VOLLMACHT_TESTMODUS` wieder entfernen.
 
 ## Vor dem Einschalten für alle Kunden (Checkliste)
 

@@ -665,7 +665,7 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
               ? 'Noch kein Vollmachtsvorgang. Die Anforderung legt beim Partner einen kostenpflichtigen Unterschriftsvorgang an (Online-Unterschrift mit Ausweis).'
               : data.poaMode === 'test'
                 ? 'Testmodus: Die digitale Vollmacht ist nicht für alle Aufträge freigeschaltet. Nur der Inhaber kann einen einzelnen, ausdrücklich freigegebenen eigenen Auftrag für einen echten Vorgang freigeben.'
-                : 'Die digitale Vollmacht ist noch nicht eingerichtet (kein Partner-Zugang). Bis dahin gilt die Vollmacht im Original.'
+                : 'Die digitale Vollmacht ist ausgeschaltet. Bis dahin gilt die Vollmacht im Original.'
             : 'Für diese Leistung ist keine Vollmacht nötig.'}
         </p>
       ) : (

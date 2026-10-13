@@ -161,17 +161,27 @@ describe('Ablauf gegen den Testnachbau', () => {
   let orderId = 0;
   let number = '';
 
-  it('ohne Freischaltung (VOLLMACHT_DIGITAL) wird nichts angefordert', async () => {
+  it('Standard AUS: ohne VOLLMACHT_TESTMODUS bzw. VOLLMACHT_DIGITAL wird nichts angefordert', async () => {
     const v = validateOrder(draft());
     assert.ok(v.ok);
     const created = await orders.createOrder((v as { order: ValidatedOrder }).order, []);
     orderId = created.id;
     number = created.number;
     delete process.env.VOLLMACHT_DIGITAL;
-    assert.equal(poa.poaMode(), 'test');
-    const r = await request(orderId);
-    assert.ok(!r.ok && r.code === 'denied' && /Testmodus/.test(r.error));
+    delete process.env.VOLLMACHT_TESTMODUS;
+    // Standard: AUS – der Partner-Zugang allein schaltet nichts frei, auch nicht für den Inhaber
+    assert.equal(poa.poaMode(), 'aus');
+    for (const who of [staff, owner]) {
+      const r = await request(orderId, who);
+      assert.ok(!r.ok && /ausgeschaltet/.test(r.error), JSON.stringify(r));
+    }
+    const g = await poa.setTestRelease(orderId, true, owner);
+    assert.ok(!g.ok && /VOLLMACHT_TESTMODUS/.test(g.error), 'keine Testfreigabe ohne ausdrücklich eingeschalteten Testmodus');
+    assert.equal(await poa.getTestRelease(), null);
     assert.equal(fake.processes.size, 0);
+    process.env.VOLLMACHT_TESTMODUS = '1';
+    assert.equal(poa.poaMode(), 'test', 'Testmodus nur mit ausdrücklicher Einstellung');
+    delete process.env.VOLLMACHT_TESTMODUS;
     process.env.VOLLMACHT_DIGITAL = '1';
   });
 
@@ -362,6 +372,7 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
 
   it('Testmodus: nur Inhaber, nur der freigegebene Auftrag, genau ein Versuch, befristet', async () => {
     delete process.env.VOLLMACHT_DIGITAL;
+    process.env.VOLLMACHT_TESTMODUS = '1';
     try {
       assert.equal(poa.poaMode(), 'test');
       const mine = await orders.createOrder(validated(), []);
@@ -409,6 +420,7 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
       const ev = await (await getDb()).all<{ message: string }>("SELECT message FROM events WHERE order_id = ? AND type = 'vollmacht'", mine.id);
       assert.ok(ev.some((e) => /Testfreigabe .*erteilt/.test(e.message)) && ev.some((e) => /zurückgezogen/.test(e.message)));
     } finally {
+      delete process.env.VOLLMACHT_TESTMODUS;
       process.env.VOLLMACHT_DIGITAL = '1';
     }
   });
