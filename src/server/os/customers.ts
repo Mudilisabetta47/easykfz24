@@ -6,6 +6,7 @@ import type { ValidatedOrder } from '../../lib/order.ts';
 import { getDb, q } from '../db.ts';
 import { deleteBlobs } from '../blobs.ts';
 import { emitSafe } from './events.ts';
+import { PARTNER_RETENTION_DAYS, retainedOrderIds } from './partner-retention.ts';
 
 const now = () => new Date().toISOString();
 export const normEmail = (e: string) => e.trim().toLowerCase();
@@ -527,6 +528,11 @@ export async function erasureCheck(id: number): Promise<{ blockers: string[]; re
   const blockers: string[] = [];
   if (open?.n) blockers.push(`${open.n} laufende(r) Auftrag/Aufträge – erst abschließen oder stornieren`);
   const retained: string[] = [];
+  const kept = await retainedOrderIds(id);
+  if (kept.length)
+    retained.push(
+      `Auftragsangaben, Unterlagen und Vollmachtsnachweise von ${kept.length} an den Zulassungspartner übermittelten Auftrag/Aufträgen – Aufbewahrung mindestens ${Math.round(PARTNER_RETENTION_DAYS / 366)} Jahre ab Antragstellung (Partnervertrag POWR § 4 Abs. 6); werden danach erneut geprüft`,
+    );
   if (invoices?.n) retained.push(`${invoices.n} Rechnung(en)/Gutschrift(en) inkl. Rechnungsanschrift – Aufbewahrung 8 bzw. 10 Jahre (§ 147 AO, § 14b UStG)`);
   if (paid?.n) retained.push(`Buchungsrelevante Auftragsdaten (Nummer, Leistung, Betrag, Zahlungsstatus) von ${paid.n} Auftrag/Aufträgen`);
   const erasable = [
@@ -543,11 +549,15 @@ export async function anonymizeCustomer(id: number, actor: string): Promise<R> {
   const check = await erasureCheck(id);
   if (check.blockers.length) return { ok: false, error: check.blockers.join('; ') };
   const db = await getDb();
-  const orders = await db.all<{ id: number; data_json: string }>('SELECT id, data_json FROM orders WHERE customer_id = ?', id);
-  const docs = await db.all<{ id: string; stored_name: string }>(
-    "SELECT d.id, d.stored_name FROM documents d JOIN orders o ON o.id = d.order_id WHERE o.customer_id = ? AND d.deleted_at = ''",
-    id,
-  );
+  // Aufträge unter Aufbewahrung (Partnervertrag § 4 Abs. 6) bleiben samt Unterlagen unverändert
+  const kept = new Set(await retainedOrderIds(id));
+  const orders = (await db.all<{ id: number; data_json: string }>('SELECT id, data_json FROM orders WHERE customer_id = ?', id)).filter((o) => !kept.has(o.id));
+  const docs = (
+    await db.all<{ id: string; stored_name: string; order_id: number }>(
+      "SELECT d.id, d.stored_name, d.order_id FROM documents d JOIN orders o ON o.id = d.order_id WHERE o.customer_id = ? AND d.deleted_at = ''",
+      id,
+    )
+  ).filter((d) => !kept.has(d.order_id));
   const at = now();
   const stmts = [];
   for (const o of orders) {
@@ -564,7 +574,7 @@ export async function anonymizeCustomer(id: number, actor: string): Promise<R> {
     );
   }
   stmts.push(
-    q("UPDATE documents SET deleted_at = ?, deleted_by = ? WHERE order_id IN (SELECT id FROM orders WHERE customer_id = ?) AND deleted_at = ''", at, `${actor} (DSGVO)`, id),
+    ...docs.map((d) => q("UPDATE documents SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at = ''", at, `${actor} (DSGVO)`, d.id)),
     q("UPDATE messages SET body = '', to_addr = '' WHERE customer_id = ?", id),
     q('DELETE FROM customer_contacts WHERE customer_id = ?', id),
     q('DELETE FROM customer_locations WHERE customer_id = ?', id),

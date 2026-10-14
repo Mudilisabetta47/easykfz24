@@ -45,6 +45,8 @@ export const DOCUMENTS: Record<DocumentKind, { label: string; short: string; hin
 /** Besondere Kennzeichenarten, die zusätzliche Unterlagen auslösen. */
 export interface DocumentOptions {
   hKennzeichen?: boolean;
+  /** Digitale Vollmacht eingeschaltet: keine Papiervollmacht in der Checkliste (Nachweis kommt vom Partner, siehe poaGate) */
+  digitalPoa?: boolean;
 }
 
 export const PLATE_CHOICES: Record<PlateChoice, { label: string; hint: string }> = {

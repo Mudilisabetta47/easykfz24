@@ -8,6 +8,7 @@ import type { DisplayStatus } from './kfz-status.ts';
 import type { ValidatedOrder } from './order.ts';
 import { DOCUMENTS, isEvbRequired, isPreviousPlateRequired, requiredDocuments, SERVICES, type DocumentKind, type ServiceId } from './services.ts';
 import type { StatusId } from './status.ts';
+import type { PoaGate } from './power-of-attorney.ts';
 
 export const STAGES = ['neu', 'dokumente', 'zahlung_bestaetigt', 'bereit', 'beim_partner', 'in_bearbeitung', 'abgeschlossen'] as const;
 export const SIDE_STAGES = ['rueckfrage', 'fehler', 'storniert'] as const;
@@ -134,6 +135,8 @@ export interface IssueInput {
   /** Auftragsbetrag und Summe der gebuchten Zahlungen (null = keine Buchung vorhanden) */
   totalCents?: number;
   paidCents?: number | null;
+  /** Digitale Vollmacht (QES): Pflicht und Partnerstand – siehe poaGate */
+  poa?: PoaGate;
 }
 
 const ACTIVE: StatusId[] = ['neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle'];
@@ -197,6 +200,7 @@ export function releaseBlockers(o: IssueInput): string[] {
   if (o.payment_status !== 'bezahlt') blockers.push('Zahlung nicht bestätigt');
   else if (o.paidCents != null && o.totalCents != null && o.paidCents < o.totalCents) blockers.push('Gezahlter Betrag liegt unter dem Auftragsbetrag – im Finanzcenter (Zahlungsabgleich) klären');
   for (const i of orderIssues(o)) if (i.level === 'fehler') blockers.push(i.text);
+  if (o.poa?.required && !o.poa.signed) blockers.push(`Digitale Vollmacht nicht vom Partner als unterschrieben und vollständig bestätigt (${o.poa.label})`);
   const codes = securityCodesFor(o.service, o.data.plate.wahl === 'behalten');
   for (const c of codes) if (!o.regChecks?.[`code_${c}`]) blockers.push(`${SECURITY_CODES[c].label} nicht bestätigt`);
   return [...new Set(blockers)];

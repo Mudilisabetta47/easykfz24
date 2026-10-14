@@ -116,6 +116,25 @@ export function adminState(p: { status: PoaStatus | null; ready: boolean; sendEm
   return 'erstellt';
 }
 
+/**
+ * Freigabe-Voraussetzung (Partnervertrag POWR § 3: qualifiziert elektronisch signierte Vollmacht, außer Außerbetriebsetzung).
+ * Pflicht, sobald die digitale Vollmacht eingeschaltet ist ODER für den Auftrag bereits ein digitaler Vorgang existiert.
+ * Erfüllt ist sie NUR durch den vom Partner abgefragten Stand (GET): signiert UND readyForApplication – eine Bestätigung
+ * im Checkout, der Rücksprung-Hinweis oder ein Häkchen in der Checkliste genügen nie.
+ */
+export interface PoaGate {
+  required: boolean;
+  signed: boolean;
+  /** Stand für die Meldung (ADMIN_LABEL oder „kein Vorgang“) */
+  label: string;
+}
+export function poaGate(service: ServiceId, digitalOn: boolean, latest: { status: PoaStatus | '' | null; ready: boolean; sendEmail: boolean; note: string; createError: string } | null): PoaGate {
+  const required = POA_SERVICES.includes(service) && (digitalOn || latest !== null);
+  if (!latest) return { required, signed: false, label: 'noch keine digitale Vollmacht angefordert' };
+  const state = adminState({ ...latest, status: latest.status || null });
+  return { required, signed: latest.status === 'signiert' && latest.ready, label: ADMIN_LABEL[state] };
+}
+
 /** Rücksprung-Parameter streng prüfen: nur Ziffern (int64), bekannter Hinweis; alles andere wird ignoriert */
 export function parseReturnParams(q: { powerOfAttorneyId?: string | string[]; status?: string | string[] }): { processId: number | null; hint: ReturnHint | null } {
   const raw = Array.isArray(q.powerOfAttorneyId) ? q.powerOfAttorneyId[0] : q.powerOfAttorneyId;

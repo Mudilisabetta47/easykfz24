@@ -160,7 +160,7 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   for (const r of rows) {
     const data = JSON.parse(r.data_json) as ValidatedOrder;
     const state = JSON.parse(r.checklist_json || '{}') as ChecklistState;
-    const items = buildChecklist(r.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen });
+    const items = buildChecklist(r.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen, digitalPoa: process.env.VOLLMACHT_DIGITAL === '1' });
     const complete = isChecklistComplete(items, state);
     let regChecks: Record<string, boolean> = {};
     try {

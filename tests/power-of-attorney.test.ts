@@ -14,6 +14,7 @@ import {
   sepaOption,
   accountHolderMatches,
   adminState,
+  poaGate,
   buildPoaRequest,
   customerView,
   CUSTOMER_TEXT,
@@ -441,5 +442,72 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
       rules.map((x) => x.rule_id).filter((x) => x !== 'vollmacht_abgleich'),
       [],
     );
+  });
+});
+
+const oa = await import('../src/server/os/order-actions.ts');
+const { releaseBlockers } = await import('../src/lib/workflow.ts');
+const { buildChecklist } = await import('../src/lib/checklist.ts');
+
+describe('Freigabe: nur eine vom Partner bestätigte Unterschrift zählt (Partnervertrag § 3)', () => {
+  const poaBlocker = async (id: number) => releaseBlockers(await oa.issueInput((await orders.getOrder(id))!)).find((b) => /Digitale Vollmacht/.test(b));
+
+  it('Regel: Abmeldung ohne QES; ohne Vorgang und ausgeschaltet keine Pflicht; sonst nur signiert + vollständig', () => {
+    const signed = { status: 'signiert' as const, ready: true, sendEmail: true, note: '', createError: '' };
+    assert.equal(poaGate('abmeldung', true, null).required, false);
+    for (const s of ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung'] as const) {
+      assert.deepEqual([poaGate(s, true, null).required, poaGate(s, true, null).signed], [true, false], s);
+      assert.equal(poaGate(s, false, null).required, false, `${s}: Papierweg, solange ausgeschaltet`);
+      assert.equal(poaGate(s, false, signed).required, true, `${s}: ein digitaler Vorgang existiert → Pflicht bleibt`);
+      assert.equal(poaGate(s, true, signed).signed, true);
+      assert.equal(poaGate(s, true, { ...signed, ready: false }).signed, false, 'signiert, aber unvollständig');
+      for (const st of ['offen', 'abgelehnt', 'verfallen', 'fehlgeschlagen'] as const) assert.equal(poaGate(s, true, { ...signed, status: st }).signed, false, st);
+    }
+  });
+
+  it('Checkliste: im digitalen Modus kein Papier-Häkchen für die Vollmacht (Abmeldung unverändert)', () => {
+    assert.ok(!buildChecklist('neuzulassung', 'neu', { digitalPoa: true }).some((i) => i.key === 'vollmacht_original'));
+    assert.ok(buildChecklist('abmeldung', null, { digitalPoa: true }).some((i) => i.key === 'vollmacht_original'));
+    assert.ok(buildChecklist('neuzulassung', 'neu').some((i) => i.key === 'vollmacht_original'));
+  });
+
+  it('Checkout-Bestätigung allein (finish.vollmacht) sperrt die Freigabe; erst der Partnerstand „signiert + vollständig“ hebt sie auf', async () => {
+    const d = await orders.createOrder(validated(), []);
+    assert.equal((await orders.getOrder(d.id))!.data.finish.vollmacht, true, 'Kunde hat im Checkout bestätigt');
+    assert.match((await poaBlocker(d.id)) ?? '', /noch keine digitale Vollmacht angefordert/);
+    const r = await request(d.id);
+    assert.ok(r.ok);
+    const rec = (await poa.latestPoa(d.id))!;
+    assert.match((await poaBlocker(d.id)) ?? '', /Unterschriftslink versendet/);
+    // manipulierter Rücksprung ändert nichts
+    await pub.publicPoaState(parseReturnParams({ powerOfAttorneyId: String(rec.process_id), status: 'signed' }).processId);
+    assert.ok(await poaBlocker(d.id));
+    // Identifizierung abgebrochen: Stand bleibt offen, Hinweis steht im Verlauf, Freigabe bleibt gesperrt
+    await control('/__test/set', { id: rec.process_id, status: 'offen', ready: false, note: 'Identifizierung abgebrochen' });
+    await poa.verifyPoa(rec.id, { force: true });
+    assert.ok(await poaBlocker(d.id));
+    await control('/__test/set', { id: rec.process_id, status: 'signiert', ready: false, missing: ['Ort'], note: '' });
+    await poa.verifyPoa(rec.id, { force: true });
+    assert.match((await poaBlocker(d.id)) ?? '', /unvollständig/);
+    for (const st of ['abgelehnt', 'verfallen', 'fehlgeschlagen']) {
+      await control('/__test/set', { id: rec.process_id, status: st, ready: false });
+      await poa.verifyPoa(rec.id, { force: true });
+      assert.ok(await poaBlocker(d.id), st);
+    }
+    await control('/__test/set', { id: rec.process_id, status: 'signiert', ready: true, missing: [] });
+    await poa.verifyPoa(rec.id, { force: true });
+    assert.equal(await poaBlocker(d.id), undefined);
+    // Nachverfolgbarkeit im OS: jeder vom Partner bestätigte Wechsel steht im Auftragsverlauf
+    const ev = (await (await getDb()).all<{ message: string }>("SELECT message FROM events WHERE order_id = ? AND type = 'vollmacht' ORDER BY id", d.id)).map((e) => e.message).join('\n');
+    for (const label of ['angefordert', 'Hinweis des Partners – Identifizierung abgebrochen', 'Unterschrieben, Angaben unvollständig', 'Vollmacht abgelehnt', 'Vollmacht abgelaufen', 'Technischer Fehler', 'Vollmacht unterschrieben –']) assert.ok(ev.includes(label), label);
+  });
+
+  it('Abmeldung: keine digitale Vollmacht nötig, keine Sperre', async () => {
+    const raw = draft({ service: 'abmeldung' });
+    raw.vehicle.bisherigesKennzeichen = 'HB-EK 1';
+    const v = validateOrder(raw);
+    assert.ok(v.ok, JSON.stringify(!v.ok && v.errors));
+    const d = await orders.createOrder((v as { ok: true; order: ValidatedOrder }).order, []);
+    assert.equal(await poaBlocker(d.id), undefined);
   });
 });

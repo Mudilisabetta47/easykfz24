@@ -648,6 +648,12 @@ export async function verifyPoa(recordId: number, opts: { force?: boolean; actor
       touchStmt(rec.order_id),
     );
   }
+  // Hinweis des Partners bei unverändertem Stand (z. B. Identifizierung abgebrochen) – nachvollziehbar im Verlauf
+  if (!changed && f.note && f.note !== rec.note)
+    stmts.push(
+      eventStmt(rec.order_id, { type: 'vollmacht', message: `Digitale Vollmacht (Vorgang ${rec.process_id}): Hinweis des Partners – ${f.note.slice(0, 300)}`, actor: opts.actor ?? 'kfz-api.de (Abgleich)' }),
+      touchStmt(rec.order_id),
+    );
   await db.batch(stmts);
   if (changed && f.status === 'signiert' && f.ready) {
     // Kundenmail „Vollmacht bestätigt“ – nur nach über die Partner-API bestätigter, vollständiger Unterschrift

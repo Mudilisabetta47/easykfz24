@@ -16,6 +16,7 @@ import { getPlateOffer } from '../plates.ts';
 import { getExpressOffer } from '../express.ts';
 import { placeByAgs, wishCodeCheck } from '../regions.ts';
 import { earlyStartWait, waitMessage } from '../../lib/withdrawal-period.ts';
+import { poaGate, type PoaStatus } from '../../lib/power-of-attorney.ts';
 
 export interface Actor {
   id: number;
@@ -30,7 +31,7 @@ export const PRIORITIES = ['niedrig', 'normal', 'hoch', 'dringend'] as const;
 
 export async function issueInput(o: OrderDetail): Promise<IssueInput> {
   const db = await getDb();
-  const [docs, same, extra, paid] = await Promise.all([
+  const [docs, same, extra, paid, poa] = await Promise.all([
     db.all<{ kind: DocumentKind }>("SELECT DISTINCT kind FROM documents WHERE order_id = ? AND deleted_at = ''", o.id),
     db.all<{ id: number; number: string }>(
       "SELECT id, number FROM orders WHERE fin = ? AND id != ? AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle') LIMIT 5",
@@ -43,6 +44,10 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
     ),
     db.first<{ n: number; sum: number | null }>(
       "SELECT COUNT(*) AS n, SUM(amount_cents) AS sum FROM payments WHERE order_id = ? AND kind IN ('zahlung', 'erstattung') AND status IN ('bezahlt', 'erstattet')",
+      o.id,
+    ),
+    db.first<{ status: PoaStatus | ''; ready: number; send_email: number; note: string; create_error: string }>(
+      'SELECT status, ready, send_email, note, create_error FROM power_of_attorneys WHERE order_id = ? ORDER BY attempt DESC, id DESC LIMIT 1',
       o.id,
     ),
   ]);
@@ -71,6 +76,11 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
     wishCode: wishCodeCheck(o.data),
     // Ohne gebuchte Zahlung (z. B. Altaufträge vor dem Zahlungsjournal) kein Betragsabgleich
     paidCents: paid?.n ? (paid.sum ?? 0) : null,
+    poa: poaGate(
+      o.service,
+      process.env.VOLLMACHT_DIGITAL === '1',
+      poa ? { status: poa.status, ready: !!poa.ready, sendEmail: !!poa.send_email, note: poa.note, createError: poa.create_error } : null,
+    ),
   };
 }
 

@@ -236,7 +236,7 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
     data,
     price: JSON.parse(price_json) as PriceBreakdown,
     checklist: JSON.parse(checklist_json) as ChecklistState,
-    checklistItems: buildChecklist(row.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen }),
+    checklistItems: buildChecklist(row.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen, digitalPoa: process.env.VOLLMACHT_DIGITAL === '1' }),
   };
 }
 

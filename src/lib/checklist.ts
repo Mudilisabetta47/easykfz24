@@ -1,5 +1,6 @@
 // Unterlagen-Checkliste für die Sachbearbeitung, abgeleitet aus Leistung und Auftragsdaten.
 
+import { POA_SERVICES } from './power-of-attorney.ts';
 import { DOCUMENTS, documentsFor, isEvbRequired, isPlateChange, SERVICES, type DocumentOptions, type PlateChoice, type ServiceId } from './services.ts';
 
 export interface ChecklistItem {
@@ -21,7 +22,8 @@ export function buildChecklist(service: ServiceId, plateChoice: PlateChoice | nu
   if (isEvbRequired(service, plateChoice)) items.push({ key: 'evb', label: 'eVB-Nummer gültig', required: true });
   if (def.sepa) items.push({ key: 'sepa', label: 'SEPA-Mandat Kfz-Steuer vollständig', required: true });
 
-  items.push({ key: 'vollmacht_original', label: 'Vollmacht im Original eingegangen', required: true });
+  // Digitale Vollmacht: kein Häkchen – die Freigabe verlangt den Partnerstand „signiert + vollständig“ (releaseBlockers)
+  if (!(opts.digitalPoa && POA_SERVICES.includes(service))) items.push({ key: 'vollmacht_original', label: 'Vollmacht im Original eingegangen', required: true });
 
   if (def.documents.zb1) items.push({ key: 'zb1_original', label: 'ZB I im Original eingegangen', required: true });
   const zb2Original = def.documents.zb2 === 'pflicht' || (def.documents.zb2 && isPlateChange(service, plateChoice));

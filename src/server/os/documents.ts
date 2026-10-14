@@ -8,6 +8,7 @@ import { DOCUMENT_KINDS, DOCUMENTS } from '../../lib/services.ts';
 import { getDb, q } from '../db.ts';
 import { deleteBlobs, putBlob } from '../blobs.ts';
 import { emitSafe } from './events.ts';
+import { documentRetained } from './partner-retention.ts';
 
 const now = () => new Date().toISOString();
 
@@ -279,6 +280,7 @@ export async function purgeDoc(id: string): Promise<R> {
   const d = await db.first<{ stored_name: string; deleted_at: string; previous_id: string }>('SELECT stored_name, deleted_at, previous_id FROM documents WHERE id = ?', id);
   if (!d) return { ok: false, error: 'Dokument nicht gefunden' };
   if (!d.deleted_at) return { ok: false, error: 'Erst in den Papierkorb verschieben' };
+  if (await documentRetained(id)) return { ok: false, error: 'Aufbewahrungspflicht: Unterlage eines übermittelten Antrags – mindestens zwei Jahre ab Antragstellung (Partnervertrag POWR § 4 Abs. 6)' };
   await db.batch([q("UPDATE documents SET previous_id = ? WHERE previous_id = ?", d.previous_id, id), q('DELETE FROM documents WHERE id = ?', id)]);
   await deleteBlobs([d.stored_name]).catch((e) => console.error('[dokumente] Datei konnte nicht entfernt werden:', (e as Error).message));
   return { ok: true };
