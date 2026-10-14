@@ -145,7 +145,7 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
     heading: '10. Zulassungspartner, Behörden und Kraftfahrzeugsteuer',
     blocks: [
       {
-        p: 'Zur technischen und organisatorischen Abwicklung von Kfz-Zulassungsverfahren nutzen wir den Dienst kfz-api.de der POWR GmbH, Bremer Heerstraße 79, 26135 Oldenburg. Soweit für den beauftragten Vorgang erforderlich, werden Daten und Unterlagen an den Zulassungspartner und die zuständige Zulassungsbehörde weitergegeben. Statusinformationen und Nachweise können von dort an uns zurückübermittelt werden. Rechtsgrundlage ist regelmäßig Art. 6 Abs. 1 lit. b DSGVO; gesetzliche Pflichten bleiben unberührt.',
+        p: 'Für die elektronische Antragstellung bei den Zulassungsbehörden arbeiten wir mit der POWR GmbH, Bremer Heerstraße 79, 26135 Oldenburg (kfz-api.de), zusammen. Die POWR GmbH ist beim Kraftfahrt-Bundesamt als Großkunde registriert und übermittelt die Anträge in eigenem Namen über die Großkundenschnittstelle des Kraftfahrt-Bundesamtes an die zuständige Zulassungsbehörde. Dafür geben wir die für den beauftragten Vorgang erforderlichen Daten, Unterlagen und Vollmachten an die POWR GmbH weiter. Die POWR GmbH verarbeitet diese Daten in eigener datenschutzrechtlicher Verantwortung, insbesondere zur Prüfung, Antragstellung, Nachweisführung und Abrechnung. Statusinformationen, Quittungen und Bescheide werden von dort an uns zurückübermittelt. Rechtsgrundlage der Übermittlung ist Art. 6 Abs. 1 lit. b DSGVO; gesetzliche Pflichten bleiben unberührt.',
       },
       {
         p: 'Soweit die Kraftfahrzeugsteuer betroffen ist, können die für das SEPA-Mandat erforderlichen Informationen an die Bundeszollverwaltung beziehungsweise die zuständige Stelle übermittelt werden.',
