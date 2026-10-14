@@ -16,7 +16,7 @@ import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
 import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
-import { CHECKOUT_CLOSED_MESSAGE, checkoutState } from '../../../server/checkout.ts';
+import { CHECKOUT_CLOSED_MESSAGE, checkoutState, customerPaymentsOpen } from '../../../server/checkout.ts';
 import { withdrawalMode } from '../../../server/withdrawal.ts';
 
 export const runtime = 'nodejs';
@@ -110,7 +110,8 @@ export async function POST(req: Request) {
     // Bestell- und Vertragsbestätigung (dauerhafter Datenträger) – ohne KUNDENMAILS=1 nur protokolliert, nie versendet
     runAfter(import('../../../server/transactional-mail.ts').then((m) => m.queueOrderConfirmation(created.id)));
     // Mit angebundenem Zahlungsdienstleister direkt zur Bezahlseite; scheitert das, bleibt die Zahlung offen.
-    const provider = paymentProvider();
+    // Zahlungspause bzw. gesperrte Zahlung: Auftrag bleibt bestehen, Zahlung offen (keine Weiterleitung zu Mollie)
+    const provider = customerPaymentsOpen() ? paymentProvider() : null;
     const paymentUrl =
       provider === 'mollie'
         ? await startMolliePayment(created.id, publicBaseUrl(req)).then((r) => (r.ok ? r.checkoutUrl : null))

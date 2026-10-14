@@ -75,3 +75,13 @@ describe('Erklärungen zum vorzeitigen Leistungsbeginn', () => {
     assert.ok(!v.ok && v.errors['finish.widerrufErlischt']);
   });
 });
+
+describe('Zahlungspause', () => {
+  it('Standard: pausiert; nur ZAHLUNG_PAUSE=0 hebt sie auf', async () => {
+    const { paymentsPaused } = await import('../src/server/checkout.ts');
+    assert.equal(paymentsPaused({}), true);
+    assert.equal(paymentsPaused({ ZAHLUNG_PAUSE: '1' }), true);
+    assert.equal(paymentsPaused({ ZAHLUNG_PAUSE: 'nein' }), true);
+    assert.equal(paymentsPaused({ ZAHLUNG_PAUSE: '0' }), false);
+  });
+});

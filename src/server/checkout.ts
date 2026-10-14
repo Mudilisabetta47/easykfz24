@@ -25,5 +25,14 @@ export const CHECKOUT_CLOSED_MESSAGE =
  * kein Zahlungsstart, keine Bezahl-Links (Zahlungsseite, Statusabfrage, E-Mails) – gleich, wie der Auftrag entstanden ist.
  */
 export function customerPaymentsOpen(): boolean {
-  return paymentsEnabled() && checkoutState().open;
+  return paymentsEnabled() && checkoutState().open && !paymentsPaused();
+}
+
+/**
+ * Vorübergehende Zahlungspause (Vorgabe des Inhabers, 14.10.2026): keine neuen Zahlungsstarts, bis die Datenschutzerklärung
+ * die Übermittlung an Mollie korrekt beschreibt. Standard: pausiert. Aufheben nur nach Freigabe mit ZAHLUNG_PAUSE=0.
+ * Aufträge werden weiter angenommen; die Zahlung bleibt offen, Zahlungsdetails folgen gesondert.
+ */
+export function paymentsPaused(env: Record<string, string | undefined> = process.env): boolean {
+  return env.ZAHLUNG_PAUSE !== '0';
 }

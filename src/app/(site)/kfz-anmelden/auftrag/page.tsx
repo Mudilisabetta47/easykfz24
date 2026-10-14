@@ -3,13 +3,12 @@ import '../../../../styles/forms.css';
 import { OrderWizard } from '../../../../components/order/OrderWizard.tsx';
 import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 import { checkPlate } from '../../../../lib/validation.ts';
-import { paymentsEnabled } from '../../../../server/payments.ts';
 import { getPlateOffer } from '../../../../server/plates.ts';
 import { getExpressOffer } from '../../../../server/express.ts';
 import { placeByAgs } from '../../../../server/regions.ts';
 import { withdrawalMode } from '../../../../server/withdrawal.ts';
 import { poaCreationEnabled } from '../../../../server/power-of-attorney.ts';
-import { CHECKOUT_CLOSED_MESSAGE, checkoutState } from '../../../../server/checkout.ts';
+import { CHECKOUT_CLOSED_MESSAGE, checkoutState, customerPaymentsOpen } from '../../../../server/checkout.ts';
 import { PROVIDER, telHref } from '../../../../lib/site.ts';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +75,7 @@ export default async function AuftragPage({
             currentPlate={current.ok ? current.value : ''}
             vehicleType={fahrzeug.slice(0, 20)}
             plateKind={art === 'e' || art === 'h' ? art : null}
-            payOnline={paymentsEnabled()}
+            payOnline={customerPaymentsOpen()}
             bundle={paket === '1'}
             wishPlace={place}
             withdrawalInfo={withdrawalMode() !== 'aus'}

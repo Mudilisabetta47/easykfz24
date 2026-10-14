@@ -30,7 +30,7 @@ await new Promise((r) => fakeMollie.server.listen(0, '127.0.0.1', r));
 const fakeMollieBase = `http://127.0.0.1:${fakeMollie.server.address().port}`;
 const mollieEnv = { MOLLIE_API_BASE: `${fakeMollieBase}/v2`, MOLLIE_API_KEY: FAKE_MOLLIE_KEYS.test, ZAHLUNG_ONLINE: '1' };
 // Wie im Produktivbetrieb: Widerrufsbelehrung erreichbar, Checkout freigegeben (Sicherheitsschalter, siehe src/server/checkout.ts)
-const legalEnv = { WIDERRUF_AKTIV: '1', BESTELLUNG_AKTIV: '1' };
+const legalEnv = { WIDERRUF_AKTIV: '1', BESTELLUNG_AKTIV: '1', ZAHLUNG_PAUSE: '0' };
 
 let server;
 if (mode === 'node') {

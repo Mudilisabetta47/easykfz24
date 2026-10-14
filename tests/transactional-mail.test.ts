@@ -102,6 +102,7 @@ before(async () => {
   process.env.MOLLIE_API_BASE = `${mollieBase}/v2`;
   process.env.MOLLIE_API_KEY = (FAKE_MOLLIE_KEYS as { test: string }).test;
   process.env.ZAHLUNG_ONLINE = '1';
+  process.env.ZAHLUNG_PAUSE = '0'; // Zahlungspause für diese Tests aufgehoben (Bezahl-Links in Mails)
 });
 after(() => {
   resend.close();
