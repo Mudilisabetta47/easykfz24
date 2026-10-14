@@ -44,6 +44,7 @@ export function SiteFooter() {
             <ul>
               <li><Link href="/impressum">Impressum</Link></li>
               <li><Link href="/datenschutz">Datenschutz</Link></li>
+              <li><Link href="/kundeninformationen">Kundeninformationen</Link></li>
               <li><Link href="/kfz-anmelden/vollmacht">Vollmacht (Vorlage)</Link></li>
               {withdrawal ? <li><Link href={NOTICE_PATH}>Widerrufsbelehrung</Link></li> : null}
               {withdrawal ? <li><Link href={WITHDRAW_PATH}>{WITHDRAW_LABEL}</Link></li> : null}

@@ -202,7 +202,7 @@ export function OrderWizard({
     const st = STEPS[i];
     if (st.key === 'review') return {};
     if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
-    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, requireEarlyStart: withdrawalInfo });
+    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, earlyStartOffered: withdrawalInfo });
     const errs: FieldErrors = {};
     if (!res.ok) {
       if (i > 0 && res.errors.service) return {};
@@ -1084,16 +1084,17 @@ export function OrderWizard({
                     <Link href="/datenschutz" target="_blank">
                       Datenschutzhinweise
                     </Link>{' '}
-                    gelesen und bin mit der Verarbeitung meiner Angaben und Unterlagen zur Durchführung des Auftrags einverstanden.
+                    zur Kenntnis genommen.
                   </span>
                 </label>
                 {e['finish.datenschutz'] ? <p className="field__error form-grid__full">{e['finish.datenschutz']}</p> : null}
-                {/* Vorzeitiger Leistungsbeginn (§ 356 Abs. 4 BGB): beide Erklärungen Pflicht (Entscheidung des Inhabers) – Wortlaut vom Inhaber */}
+                {/* Vorzeitiger Leistungsbeginn (§ 356 Abs. 4 BGB): freiwillig (Express: Pflicht) – Wortlaut der Erklärungen vom Inhaber */}
                 {withdrawalInfo ? (
                   <fieldset className="fieldset form-grid__full early-start">
-                    <legend>Beginn der Bearbeitung</legend>
+                    <legend>Sofortiger Bearbeitungsbeginn{draft.bearbeitung && draft.bearbeitung !== 'standard' ? '' : ' (freiwillig)'}</legend>
                     <p className="muted">
-                      Damit wir sofort mit Ihrem Auftrag beginnen können, benötigen wir die folgenden Erklärungen. Einzelheiten in der{' '}
+                      Ohne diese Erklärung beginnen wir mit der Bearbeitung erst nach Ablauf der 14-tägigen Widerrufsfrist.
+                      {draft.bearbeitung && draft.bearbeitung !== 'standard' ? ' Für die Express-Bearbeitung ist sie erforderlich.' : ''} Einzelheiten in der{' '}
                       <Link href={NOTICE_PATH} target="_blank">
                         Widerrufsbelehrung
                       </Link>
@@ -1104,26 +1105,33 @@ export function OrderWizard({
                         id={fieldId('finish.vorzeitigerBeginn')}
                         type="checkbox"
                         checked={!!draft.finish.vorzeitigerBeginn}
-                        onChange={(ev) => update('finish', 'vorzeitigerBeginn', ev.target.checked)}
+                        onChange={(ev) => {
+                          update('finish', 'vorzeitigerBeginn', ev.target.checked);
+                          if (!ev.target.checked) update('finish', 'widerrufErlischt', false);
+                        }}
                         aria-invalid={!!e['finish.vorzeitigerBeginn']}
                       />
                       <span>{EARLY_START_TEXT}</span>
                     </label>
                     {e['finish.vorzeitigerBeginn'] ? <p className="field__error">{e['finish.vorzeitigerBeginn']}</p> : null}
-                    <label className={`check${e['finish.widerrufErlischt'] ? ' check--error' : ''}`}>
-                      <input
-                        id={fieldId('finish.widerrufErlischt')}
-                        type="checkbox"
-                        checked={!!draft.finish.widerrufErlischt}
-                        onChange={(ev) => update('finish', 'widerrufErlischt', ev.target.checked)}
-                        aria-invalid={!!e['finish.widerrufErlischt']}
-                      />
-                      <span>{LOSS_ACK_TEXT}</span>
-                    </label>
-                    {e['finish.widerrufErlischt'] ? <p className="field__error">{e['finish.widerrufErlischt']}</p> : null}
-                    <p className="muted">
-                      <strong>Hinweis zum Wertersatz:</strong> {VALUE_HINT_TEXT}
-                    </p>
+                    {draft.finish.vorzeitigerBeginn ? (
+                      <>
+                        <label className={`check${e['finish.widerrufErlischt'] ? ' check--error' : ''}`}>
+                          <input
+                            id={fieldId('finish.widerrufErlischt')}
+                            type="checkbox"
+                            checked={!!draft.finish.widerrufErlischt}
+                            onChange={(ev) => update('finish', 'widerrufErlischt', ev.target.checked)}
+                            aria-invalid={!!e['finish.widerrufErlischt']}
+                          />
+                          <span>{LOSS_ACK_TEXT}</span>
+                        </label>
+                        {e['finish.widerrufErlischt'] ? <p className="field__error">{e['finish.widerrufErlischt']}</p> : null}
+                        <p className="muted">
+                          <strong>Hinweis zum Wertersatz:</strong> {VALUE_HINT_TEXT}
+                        </p>
+                      </>
+                    ) : null}
                   </fieldset>
                 ) : null}
                 <div className="form-grid__full">
@@ -1205,7 +1213,17 @@ export function OrderWizard({
                 rows={[
                   ...(isEvbRequired(service, wahl) ? [['eVB-Nummer', draft.finish.evb] as [string, string]] : []),
                   ...(def.sepa ? [['SEPA-Mandat', `${draft.finish.kontoinhaber} · ${formatIban(draft.finish.iban)}`] as [string, string]] : []),
-                  ['Vollmacht & Datenschutz', 'bestätigt'],
+                  ['Vollmacht & Datenschutzhinweise', 'bestätigt'],
+                  ...(withdrawalInfo
+                    ? [
+                        [
+                          'Bearbeitungsbeginn',
+                          draft.finish.vorzeitigerBeginn && draft.finish.widerrufErlischt
+                            ? 'sofort (vorzeitiger Beginn verlangt)'
+                            : 'nach Ablauf der 14-tägigen Widerrufsfrist',
+                        ] as [string, string],
+                      ]
+                    : []),
                 ]}
               />
               <div className="pay-info">
@@ -1213,9 +1231,9 @@ export function OrderWizard({
                 <p>
                   {payOnline
                     ? 'Nach dem Absenden geht es direkt zur sicheren Bezahlseite unseres Zahlungsdienstleisters.'
-                    : 'Die Zahlungsdetails erhalten Sie nach Prüfung Ihrer Unterlagen – erst dann wird bezahlt.'}
+                    : 'Die Online-Zahlung ist derzeit noch nicht freigeschaltet. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.'}
                 </p>
-                <PaymentMarks label="Möglich mit" />
+                {payOnline ? <PaymentMarks label="Möglich mit" /> : null}
               </div>
               {/* Identität und Anschrift des Unternehmers vor Vertragsschluss (Art. 246a § 1 EGBGB) */}
               <p className="wizard__note">
@@ -1226,7 +1244,11 @@ export function OrderWizard({
               </p>
               {withdrawalInfo ? (
                 <p className="wizard__note">
-                  Ihnen steht ein gesetzliches Widerrufsrecht zu. Einzelheiten und das Muster-Widerrufsformular finden Sie in der{' '}
+                  Vor Ihrer Bestellung: Ablauf des Vertragsschlusses, Preise, Zahlung, Leistungsbeginn und Gewährleistung finden Sie in den{' '}
+                  <Link href="/kundeninformationen" target="_blank">
+                    Kundeninformationen
+                  </Link>
+                  . Ihnen steht ein gesetzliches Widerrufsrecht zu. Einzelheiten und das Muster-Widerrufsformular finden Sie in der{' '}
                   <Link href={NOTICE_PATH} target="_blank">
                     Widerrufsbelehrung
                   </Link>

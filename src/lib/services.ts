@@ -13,7 +13,7 @@ export const DOCUMENTS: Record<DocumentKind, { label: string; short: string; hin
   ausweis: {
     label: 'Personalausweis oder Reisepass mit Meldebescheinigung',
     short: 'Ausweis',
-    hint: 'Vorder- und Rückseite. Bei Firmen zusätzlich Gewerbeanmeldung oder Handelsregisterauszug.',
+    hint: 'Vorder- und Rückseite. Für die Zulassung nicht benötigte Angaben wie Zugangsnummer (CAN) und Seriennummer dürfen Sie schwärzen. Bei Firmen zusätzlich Gewerbeanmeldung oder Handelsregisterauszug.',
   },
   zb1: {
     label: 'Zulassungsbescheinigung Teil I (Fahrzeugschein)',

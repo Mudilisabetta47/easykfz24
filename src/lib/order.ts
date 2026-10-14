@@ -202,8 +202,8 @@ export function validateOrder(
     wishPlace?: (ags: string) => WishPlace | null;
     /** Digitale Vollmacht aktiv: Geburtsort ist dann für Privatpersonen Pflicht (außer Abmeldung) */
     requireBirthPlace?: boolean;
-    /** Website-Bestellung (Entscheidung des Inhabers 14.10.2026): beide Erklärungen zum vorzeitigen Beginn sind Pflicht */
-    requireEarlyStart?: boolean;
+    /** Website-Bestellung mit erreichbarer Widerrufsbelehrung: Erklärungen zum vorzeitigen Beginn werden angeboten (freiwillig, außer bei Express) */
+    earlyStartOffered?: boolean;
   } = {},
 ): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
   const parsed = orderInputSchema.safeParse(raw);
@@ -355,11 +355,12 @@ export function validateOrder(
   }
   if (!f.vollmacht) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
   if (!f.datenschutz) errors['finish.datenschutz'] = 'Bitte die Datenschutzhinweise bestätigen';
-  // Website: beide Erklärungen Pflicht. Sonst (Verwaltung): wer den vorzeitigen Beginn verlangt, bestätigt auch das Erlöschen.
-  if (opts.requireEarlyStart && f.vorzeitigerBeginn !== true)
-    errors['finish.vorzeitigerBeginn'] = 'Bitte stimmen Sie dem Beginn der Dienstleistung vor Ablauf der Widerrufsfrist zu';
-  if ((opts.requireEarlyStart || f.vorzeitigerBeginn === true) && f.widerrufErlischt !== true)
-    errors['finish.widerrufErlischt'] = 'Bitte bestätigen Sie den Hinweis zum Erlöschen des Widerrufsrechts';
+  // Vorzeitiger Leistungsbeginn ist freiwillig (ohne ihn Bearbeitung erst nach Ablauf der Widerrufsfrist, technisch gesperrt).
+  // Wer ihn verlangt, bestätigt auch das Erlöschen. Express (bevorzugte Bearbeitung) setzt den sofortigen Beginn voraus.
+  if (opts.earlyStartOffered && bearbeitung !== 'standard' && input.holder.typ === 'privat' && f.vorzeitigerBeginn !== true)
+    errors['finish.vorzeitigerBeginn'] = 'Express setzt den sofortigen Bearbeitungsbeginn voraus – bitte zustimmen oder Standard-Bearbeitung wählen';
+  if (f.vorzeitigerBeginn === true && f.widerrufErlischt !== true)
+    errors['finish.widerrufErlischt'] = 'Bitte bestätigen Sie zusätzlich den Hinweis zum Erlöschen des Widerrufsrechts';
 
   if (Object.keys(errors).length > 0 || !art || !antrieb || !typ || !zustellung) return { ok: false, errors };
 

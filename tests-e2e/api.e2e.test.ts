@@ -1523,25 +1523,24 @@ describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
 });
 
 describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe', () => {
-  it('Website-Bestellung ohne beide Erklärungen zum vorzeitigen Beginn wird abgelehnt (Pflicht)', async () => {
-    const data = orderData({ service: 'abmeldung', email: `ohne.zustimmung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` });
-    const form = new FormData();
-    form.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: true, widerrufErlischt: false } }));
-    form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
-    form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
-    const ip = `10.6.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
-    const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
-    assert.equal(r.status, 422);
-    assert.ok(String(JSON.stringify(r.json)).includes('finish.widerrufErlischt'));
-    assert.ok(!String(JSON.stringify(r.json)).includes('finish.vorzeitigerBeginn'));
-    const none = new FormData();
-    none.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: false, widerrufErlischt: false } }));
-    none.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
-    none.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
-    const ip2 = `10.8.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
-    const r2 = await anon.req('POST', '/api/auftrag', { form: none, headers: { 'x-forwarded-for': ip2, 'cf-connecting-ip': ip2 } });
-    assert.equal(r2.status, 422);
-    assert.ok(String(JSON.stringify(r2.json)).includes('finish.vorzeitigerBeginn'));
+  it('vorzeitiger Beginn freiwillig: ohne Erklärungen angenommen; Erklärung 1 ohne 2 und Express ohne Erklärung abgelehnt', async () => {
+    const send = async (finish: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+      const data = orderData({ service: 'abmeldung', email: `vb.${Date.now()}.${Math.random()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` });
+      const form = new FormData();
+      form.set('data', JSON.stringify({ ...data, ...extra, finish: { ...data.finish, ...finish } }));
+      form.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+      form.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+      const ip = `10.6.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+      return anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    };
+    const half = await send({ vorzeitigerBeginn: true, widerrufErlischt: false });
+    assert.equal(half.status, 422);
+    assert.ok(JSON.stringify(half.json).includes('finish.widerrufErlischt'));
+    const express = await send({ vorzeitigerBeginn: false, widerrufErlischt: false }, { bearbeitung: 'express' });
+    assert.equal(express.status, 422);
+    assert.ok(JSON.stringify(express.json).includes('finish.vorzeitigerBeginn'));
+    const none = await send({ vorzeitigerBeginn: false, widerrufErlischt: false });
+    assert.equal(none.status, 200, JSON.stringify(none.json));
   });
 
   it('Website-Bestellung legt die Bestellbestätigung an, sendet aber ohne KUNDENMAILS nichts; Freigabe/Testmail mit Rechteprüfung', async () => {

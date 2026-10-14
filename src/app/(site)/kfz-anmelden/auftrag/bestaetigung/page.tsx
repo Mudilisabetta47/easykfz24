@@ -49,12 +49,16 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
 
         <h2>So geht es weiter</h2>
         <ol className="confirm__steps">
-          <li>Wir prüfen Ihre Angaben und Unterlagen. Fehlt etwas, sehen Sie den Hinweis in der Statusabfrage und wir melden uns.</li>
+          <li>
+            Haben Sie den sofortigen Bearbeitungsbeginn verlangt, prüfen wir Ihre Angaben und Unterlagen sofort – sonst nach Ablauf der 14-tägigen
+            Widerrufsfrist. Fehlt etwas, sehen Sie den Hinweis in der Statusabfrage und wir melden uns. Ihre Bestellbestätigung mit allen Angaben erhalten Sie
+            per E-Mail.
+          </li>
           <li>
             Senden Sie uns die unterschriebene <Link href={`/kfz-anmelden/vollmacht${number ? `?nr=${number}` : ''}`}>Vollmacht</Link> und die
             Originale per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}. Bitte die Auftragsnummer beilegen.
           </li>
-          <li>Sobald alles vollständig ist, reichen wir den Vorgang bei der zuständigen Zulassungsbehörde ein.</li>
+          <li>Sobald alles vollständig ist und Ihre Zahlung eingegangen ist, reichen wir den Vorgang bei der zuständigen Zulassungsbehörde ein.</li>
         </ol>
         <p className="muted">
           Fragen zu Ihrem Auftrag? {PROVIDER.phone ? (

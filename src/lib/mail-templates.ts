@@ -153,6 +153,7 @@ export interface OrderMailData {
 /** Pflichtangaben zum Vertrag (RECHTLICH ZU PRÜFEN) */
 export function orderContractInfo(d: OrderMailData): string[] {
   return [
+    'Mit dieser Bestellbestätigung nehmen wir Ihren Auftrag an; der Vertrag ist damit geschlossen.',
     `Vertragspartner ist die ${PROVIDER_NAME}, ${PROVIDER_ADDRESS}. ${BRAND_NOTE}`,
     `Leistung: Übernahme des beauftragten Zulassungsvorgangs („${d.serviceTitle}“) gegenüber der zuständigen Zulassungsbehörde im Rahmen der erteilten Vollmacht.`,
     'Preise: Servicepauschale und Zusatzleistungen inkl. gesetzlicher MwSt. Amtliche Gebühren der Zulassungsbehörde sind nicht enthalten und werden ohne Aufschlag nach Beleg weiterberechnet.',
@@ -187,7 +188,7 @@ export function orderConfirmationMail(ctx: MailContext, d: OrderMailData): Mail 
           ? 'Ihre Zahlung ist bereits bestätigt.'
           : d.payUrl
             ? 'Die Zahlung ist noch offen. Sie können sie über den sicheren Zahlungslink unten abschließen.'
-            : 'Die Zahlung ist noch offen. Die Zahlungsdetails erhalten Sie gesondert von uns.',
+            : 'Die Zahlung ist noch offen. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung mit den Zahlungsdetails. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.',
     },
     { kind: 'h', text: 'Vertragsinformationen' },
     ...orderContractInfo(d).map((t): Block => ({ kind: 'p', text: t })),
@@ -211,6 +212,7 @@ export function orderConfirmationMail(ctx: MailContext, d: OrderMailData): Mail 
     kind: 'small',
     text: `Den aktuellen Bearbeitungsstand sehen Sie jederzeit in der Statusabfrage (Auftragsnummer und E-Mail-Adresse): ${statusUrl(ctx)}`,
   });
+  blocks.push({ kind: 'small', text: `Kundeninformationen: ${ctx.baseUrl}/kundeninformationen · Datenschutzerklärung: ${ctx.baseUrl}/datenschutz` });
   return render(ctx, {
     subject: `Auftragsbestätigung ${ctx.number} – EasyKFZ24`,
     preheader: `Ihr Auftrag ${ctx.number} ist bei uns eingegangen.`,

@@ -65,8 +65,8 @@ export async function POST(req: Request) {
     expressOffer: await getExpressOffer(),
     wishPlace: placeByAgs,
     requireBirthPlace: poaCreationEnabled(),
-    // Pflicht, sobald die Widerrufsbelehrung erreichbar ist (ohne sie ist der Checkout ohnehin gesperrt)
-    requireEarlyStart: withdrawalMode() === 'aktiv',
+    // Erklärungen zum vorzeitigen Beginn werden angeboten, sobald die Widerrufsbelehrung erreichbar ist (freiwillig, außer Express)
+    earlyStartOffered: withdrawalMode() === 'aktiv',
   });
   if (!result.ok) return fail(422, 'Bitte prüfen Sie die markierten Angaben.', result.errors);
   const order = result.order;
