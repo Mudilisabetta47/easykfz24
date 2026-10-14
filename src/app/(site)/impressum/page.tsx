@@ -86,10 +86,19 @@ export default function ImpressumPage() {
               </div>
             </dl>
           ) : (
-            <p>
-              Die Gesellschaft befindet sich in Gründung und ist noch nicht im Handelsregister eingetragen. Zuständiges Registergericht ist das{' '}
-              {p.registerCourt}. Die Registernummer wird nach der Eintragung an dieser Stelle ergänzt.
-            </p>
+            <>
+              <dl className="legal__facts">
+                <div>
+                  <dt>Registergericht</dt>
+                  <dd>{p.registerCourt}</dd>
+                </div>
+                <div>
+                  <dt>Registernummer</dt>
+                  <dd>wird nachgereicht</dd>
+                </div>
+              </dl>
+              <p>Die Gesellschaft befindet sich in Gründung und ist noch nicht im Handelsregister eingetragen.</p>
+            </>
           )}
         </section>
 

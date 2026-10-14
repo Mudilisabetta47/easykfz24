@@ -70,7 +70,12 @@ const control = async (p: string, body: unknown) => (await fetch(`${base}${p}`, 
 const staff = { name: 'Test', role: 'verwaltung' as const };
 const owner = { name: 'Inhaber', role: 'inhaber' as const };
 /** Wie im OS: Vorschau holen, Prüfsumme bestätigen, anfordern */
+/** Kundenaufträge: kostenpflichtige Anforderung erst nach bestätigter Zahlung (Testaufträge bleiben unbezahlt) */
+async function markPaid(orderId: number) {
+  await (await getDb()).run("UPDATE orders SET payment_status = 'bezahlt' WHERE id = ? AND is_test = 0", orderId);
+}
 async function request(orderId: number, actor: { name: string; role: 'verwaltung' | 'inhaber' } = staff, sepa = false) {
+  await markPaid(orderId);
   const pv = await poa.previewPoa(orderId, actor, { sepa });
   return poa.requestPoa(orderId, actor, { sepa, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
 }
@@ -229,7 +234,7 @@ describe('Ablauf gegen den Testnachbau', () => {
     // Auftragsstatus und Zahlung bleiben unberührt
     const o = await orders.getOrder(orderId);
     assert.equal(o?.status, 'neu');
-    assert.equal(o?.payment_status, 'offen');
+    assert.equal(o?.payment_status, 'bezahlt', 'Zahlungsstand unverändert (vor der Anforderung bestätigt)');
   });
 
   it('Kunde sieht den bestätigten Stand in der Statusabfrage (nur mit Auftragsnummer + E-Mail)', async () => {
@@ -316,9 +321,20 @@ describe('Ablauf gegen den Testnachbau', () => {
 });
 
 describe('Bestätigung, Testmodus und Doppelklick', () => {
+  it('Kundenauftrag ohne bestätigte Zahlung: keine kostenpflichtige Anforderung', async () => {
+    const d = await orders.createOrder(validated(), []);
+    const before = fake.processes.size;
+    const pv = await poa.previewPoa(d.id, staff, { sepa: false });
+    const r = await poa.requestPoa(d.id, staff, { sepa: false, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
+    assert.ok(!r.ok && r.code === 'denied' && /bestätigter Zahlung/.test(r.error), JSON.stringify(r));
+    assert.equal(fake.processes.size, before);
+    assert.equal(await poa.latestPoa(d.id), null);
+  });
+
   it('ohne bestätigte Vorschau (Prüfsumme) wird nichts angelegt', async () => {
     const d = await orders.createOrder(validated(), []);
     const before = fake.processes.size;
+    await markPaid(d.id);
     const r = await poa.requestPoa(d.id, staff, { sepa: false, fingerprint: '' });
     assert.ok(!r.ok && r.code === 'changed');
     assert.equal(fake.processes.size, before);
@@ -329,6 +345,7 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
     const d = await orders.createOrder(validated(), []);
     const pv = await poa.previewPoa(d.id, staff, { sepa: false });
     assert.ok(pv.ok && pv.preview.fingerprint.length === 64 && !pv.preview.sepa.chosen && pv.preview.sepa.available);
+    await markPaid(d.id);
     const r = await poa.requestPoa(d.id, staff, { sepa: true, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
     assert.ok(!r.ok && r.code === 'changed');
   });
@@ -365,6 +382,7 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
     assert.ok(pv.ok);
     const fp = pv.ok ? pv.preview.fingerprint : '';
     const before = fake.processes.size;
+    await markPaid(d.id);
     const [x, y] = await Promise.all([poa.requestPoa(d.id, staff, { sepa: false, fingerprint: fp }), poa.requestPoa(d.id, staff, { sepa: false, fingerprint: fp })]);
     assert.ok(x.ok || y.ok);
     assert.equal(fake.processes.size, before + 1, 'genau ein Vorgang beim Partner');
@@ -466,6 +484,14 @@ describe('Freigabe: nur eine vom Partner bestätigte Unterschrift zählt (Partne
       assert.equal(poaGate(s, { ...signed, ready: false }).signed, false, 'signiert, aber unvollständig');
       for (const st of ['offen', 'abgelehnt', 'verfallen', 'fehlgeschlagen'] as const) assert.equal(poaGate(s, { ...signed, status: st }).signed, false, st);
     }
+  });
+
+  it('Übermittlung (Verknüpfung, Webhook): signiert, aber ohne abgelegtes PDF ist ein Problem; Abmeldung braucht keins', async () => {
+    const { submissionProblems } = await import('../src/lib/power-of-attorney.ts');
+    const signed = poaGate('halterwechsel', { status: 'signiert', ready: true, sendEmail: true, note: '', createError: '' });
+    assert.ok(submissionProblems({ releasedAt: 'x', poa: signed, isTest: false, poaArchived: false }).some((p) => /nicht im Dokumentenmanager abgelegt/.test(p)));
+    assert.deepEqual(submissionProblems({ releasedAt: 'x', poa: signed, isTest: false, poaArchived: true }), []);
+    assert.deepEqual(submissionProblems({ releasedAt: 'x', poa: poaGate('abmeldung', null), isTest: false, poaArchived: false }), []);
   });
 
   it('Checkliste: für QES-pflichtige Vorgänge nie ein Papier-Häkchen für die Vollmacht (Abmeldung unverändert)', () => {

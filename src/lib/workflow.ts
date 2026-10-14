@@ -8,7 +8,7 @@ import type { DisplayStatus } from './kfz-status.ts';
 import type { ValidatedOrder } from './order.ts';
 import { DOCUMENTS, isEvbRequired, isPreviousPlateRequired, requiredDocuments, SERVICES, type DocumentKind, type ServiceId } from './services.ts';
 import type { StatusId } from './status.ts';
-import { POA_SERVICES, submissionProblems, type PoaGate } from './power-of-attorney.ts';
+import { POA_ARCHIVE_MISSING, POA_SERVICES, submissionProblems, type PoaGate } from './power-of-attorney.ts';
 
 export const STAGES = ['neu', 'dokumente', 'zahlung_bestaetigt', 'bereit', 'beim_partner', 'in_bearbeitung', 'abgeschlossen'] as const;
 export const SIDE_STAGES = ['rueckfrage', 'fehler', 'storniert'] as const;
@@ -141,6 +141,8 @@ export interface IssueInput {
   kfz_order_id?: string;
   /** Testauftrag des Inhabers – nie an Partner oder Behörde */
   isTest?: boolean;
+  /** Signierte Vollmacht als PDF im Dokumentenmanager (Kategorie „Vollmacht“) abgelegt – undefined = nicht ermittelt */
+  poaArchived?: boolean;
 }
 
 /** Statusstände, die nur nach einer Übergabe an Partner bzw. Behörde erreichbar sind */
@@ -202,7 +204,7 @@ export function orderIssues(o: IssueInput): Issue[] {
   // Beim Partner bzw. der Behörde, obwohl intern nicht freigegeben, ohne bestätigte QES oder als Testauftrag (z. B. direkt im
   // Partnerportal eingereicht): echte externe Stände bleiben stehen, werden aber sofort als Fehler markiert
   if (o.kfz_order_id || o.kfz_display || AT_PARTNER.includes(o.status)) {
-    const problems = submissionProblems({ releasedAt: o.released_at ?? '', poa: o.poa ?? { required: false, signed: true, label: '' }, isTest: !!o.isTest });
+    const problems = submissionProblems({ releasedAt: o.released_at ?? '', poa: o.poa ?? { required: false, signed: true, label: '' }, isTest: !!o.isTest, poaArchived: o.poaArchived });
     if (problems.length) out.push({ level: 'fehler', code: 'extern_ohne_freigabe', text: `Beim Partner bzw. der Behörde, aber: ${problems.join('; ')}`, fix: 'freigabe' });
   }
   if (o.kfz_display === 'fehlgeschlagen') out.push({ level: 'fehler', code: 'kfz_fehler', text: `kfz-api.de meldet ${o.kfz_status || 'Fehler/Ablehnung'}`, fix: 'kfz' });
@@ -227,6 +229,7 @@ export function releaseBlockers(o: IssueInput): string[] {
   // QES-Pflicht: ohne Partnerstand (z. B. Liste ohne Vollmachtsdaten) gilt sie als nicht erfüllt
   const poa = o.poa ?? { required: POA_SERVICES.includes(o.service), signed: false, label: 'Stand unbekannt' };
   if (poa.required && !poa.signed) blockers.push(`Digitale Vollmacht nicht vom Partner als unterschrieben und vollständig bestätigt (${poa.label})`);
+  else if (poa.required && o.poaArchived !== true) blockers.push(POA_ARCHIVE_MISSING);
   const codes = securityCodesFor(o.service, o.data.plate.wahl === 'behalten');
   for (const c of codes) if (!o.regChecks?.[`code_${c}`]) blockers.push(`${SECURITY_CODES[c].label} nicht bestätigt`);
   return [...new Set(blockers)];

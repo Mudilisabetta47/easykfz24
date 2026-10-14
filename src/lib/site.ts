@@ -33,6 +33,11 @@ export const PROVIDER = {
 
 /** Firma wie im Rechtsverkehr zu führen: bis zur Eintragung mit Zusatz „i. G.“ (in Gründung) */
 export const PROVIDER_NAME = PROVIDER.register ? PROVIDER.firm : `${PROVIDER.firm} i. G.`;
+/** Registerangabe für Impressum, Mails und Belege – ohne Eintragung ausdrücklich „wird nachgereicht“ (nie erfunden) */
+export const REGISTER_NUMBER_TEXT = PROVIDER.register ? PROVIDER.register.number : 'wird nachgereicht';
+export const REGISTER_LINE = PROVIDER.register
+  ? `${PROVIDER.register.court} ${PROVIDER.register.number}`
+  : `Registergericht: ${PROVIDER.registerCourt} · Registernummer: wird nachgereicht (Gesellschaft in Gründung)`;
 export const PROVIDER_ADDRESS = `${PROVIDER.street}, ${PROVIDER.zip} ${PROVIDER.city}`;
 /** Telefon als tel:-Link (international, nur Ziffern) */
 export const telHref = (phone: string) => `tel:+49${phone.replace(/\D/g, '').replace(/^0/, '')}`;

@@ -97,7 +97,7 @@ export default async function KundeninformationenPage() {
         </p>
         <p>
           {poaCreationEnabled()
-            ? 'Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie uns die Vollmacht online mit qualifizierter elektronischer Signatur: Sie erhalten per E-Mail einen Link unseres Partners kfz-api.de und identifizieren sich über Nect. Die im Auftrag genannten Originale senden Sie uns per Post.'
+            ? 'Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie uns die Vollmacht online mit qualifizierter elektronischer Signatur: Nach Zahlungseingang erhalten Sie per E-Mail einen Link unseres Partners kfz-api.de und identifizieren sich mit Ihrem Personalausweis über Nect. Dafür entstehen Ihnen keine zusätzlichen Kosten. Wir reichen Ihren Antrag erst ein, wenn die unterschriebene Vollmacht vorliegt. Die im Auftrag genannten Originale senden Sie uns per Post.'
             : 'Die unterschriebene Vollmacht und die im Auftrag genannten Originale senden Sie uns per Post.'} Über die Dauer der behördlichen Bearbeitung entscheidet
           die Zulassungsbehörde; eine bestimmte Bearbeitungsdauer sagen wir nicht zu. Papiere und Kennzeichen erhalten Sie per DHL oder UPS oder holen sie nach
           Terminabsprache in unserer Geschäftsstelle ab.

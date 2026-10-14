@@ -2,7 +2,7 @@
 // keine Fahrzeug-, Halter- oder Kennzeichendaten (die sieht der Kunde nach Anmeldung in der Statusabfrage).
 
 import { DISPLAY, type DisplayStatus } from './kfz-status.ts';
-import { BRAND_NOTE, PROVIDER, PROVIDER_ADDRESS, PROVIDER_CONTACT } from './site.ts';
+import { BRAND_NOTE, PROVIDER, PROVIDER_ADDRESS, PROVIDER_CONTACT, REGISTER_LINE } from './site.ts';
 
 /** Logo als gehostetes PNG (E-Mail-Programme zeigen kein SVG); ohne Bilder erscheint der Alternativtext „EasyKFZ24“ */
 function logoUrl(statusUrl: string): string {
@@ -16,7 +16,7 @@ function logoUrl(statusUrl: string): string {
 }
 
 /** Anbieterangaben im Fuß jeder Kundenmail: Marke und rechtlicher Anbieter getrennt */
-const LEGAL_LINE = `${BRAND_NOTE} ${PROVIDER_ADDRESS} · ${PROVIDER_CONTACT} · Geschäftsführer: ${PROVIDER.managingDirector} · Sitz: ${PROVIDER.seat}${PROVIDER.register ? ` · ${PROVIDER.register.court} ${PROVIDER.register.number}` : ''}`;
+const LEGAL_LINE = `${BRAND_NOTE} ${PROVIDER_ADDRESS} · ${PROVIDER_CONTACT} · Geschäftsführer: ${PROVIDER.managingDirector} · Sitz: ${PROVIDER.seat}} · ${REGISTER_LINE}`;
 
 export interface StatusMail {
   subject: string;

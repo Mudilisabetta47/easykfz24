@@ -147,6 +147,12 @@ describe('EasyKFZ24 OS Enterprise', () => {
       new Date().toISOString(),
       new Date().toISOString(),
     );
+    // signiertes PDF aus dem Partner-Dashboard im Dokumentenmanager (Kategorie „Vollmacht“)
+    await (await getDb()).run(
+      "INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at, category) VALUES ('ent-poa', ?, 'sonstiges', 'vollmacht.pdf', 'application/pdf', 10, 'x/vollmacht.pdf', 'x', ?, 'Vollmacht')",
+      first.id,
+      new Date().toISOString(),
+    );
     // zweiter Auftrag mit anderer FIN läuft parallel – kein Doppelzulassungs-Konflikt
     const r2 = await actions.actRelease(first.id, true, ACTOR);
     assert.deepEqual(r2, { ok: true });

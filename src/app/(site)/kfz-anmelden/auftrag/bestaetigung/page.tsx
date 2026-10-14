@@ -96,9 +96,9 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
           </li>
           {digitalPoa ? (
             <li>
-              Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie die Vollmacht online: Sie erhalten per E-Mail einen Link unseres Partners
-              kfz-api.de, identifizieren sich über Nect und unterschreiben mit qualifizierter elektronischer Signatur. Den Link finden Sie auch in der
-              Statusabfrage. Im Auftrag genannte Originale senden Sie bitte per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}.
+              Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie die Vollmacht online: Nach Zahlungseingang erhalten Sie per E-Mail einen Link
+              unseres Partners kfz-api.de, identifizieren sich mit Ihrem Personalausweis über Nect und unterschreiben mit qualifizierter elektronischer
+              Signatur – ohne zusätzliche Kosten. Den Link finden Sie dann auch in der Statusabfrage. Im Auftrag genannte Originale senden Sie bitte per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}.
             </li>
           ) : (
             <li>

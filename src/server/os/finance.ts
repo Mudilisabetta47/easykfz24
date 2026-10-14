@@ -3,6 +3,7 @@
 // Es werden keine Umsätze oder Zahlungen erfunden: Buchungen entstehen nur aus Stripe-Webhooks oder
 // aus einer ausdrücklichen Eingabe in der Verwaltung.
 
+import { REGISTER_LINE } from '../../lib/site.ts';
 import { z } from 'zod';
 import { plateSignCount, type PriceBreakdown } from '../../lib/pricing.ts';
 import { PLATE_FINISHES, plateFinishOf, type PlateFinish } from '../../lib/plates.ts';
@@ -439,7 +440,8 @@ export async function issueInvoice(orderId: number, actor: string, note = ''): P
     vat,
     gross,
     JSON.stringify(lines),
-    JSON.stringify(company),
+    // Registerangabe im Beleg festhalten; ohne Eintragung ausdrücklich „wird nachgereicht“ (nie erfunden)
+    JSON.stringify({ ...company, register: company.register?.trim() || REGISTER_LINE }),
     JSON.stringify(buyer),
     company.taxMode === 'kleinunternehmer' ? 'kleinunternehmer' : `regel_${company.vatRate}`,
     note.slice(0, 500),

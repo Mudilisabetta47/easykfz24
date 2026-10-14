@@ -102,7 +102,21 @@ async function readyExceptPoa(id: number) {
     id,
   );
 }
-async function requestSigned(id: number, ready = true) {
+/** Signierte Vollmacht als PDF im Dokumentenmanager ablegen (wie aus dem POWR-Dashboard geladen) */
+async function archivePoa(id: number) {
+  await (
+    await getDb()
+  ).run(
+    "INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at, category) VALUES (?, ?, 'sonstiges', 'vollmacht-signiert.pdf', 'application/pdf', 10, ?, 'x', ?, 'Vollmacht')",
+    `poa${id}x${Date.now()}`,
+    id,
+    `syn/${id}.pdf`,
+    new Date().toISOString(),
+  );
+}
+async function requestSigned(id: number, ready = true, archive = true) {
+  const db = await getDb();
+  await db.run("UPDATE orders SET payment_status = 'bezahlt' WHERE id = ? AND is_test = 0", id);
   process.env.VOLLMACHT_DIGITAL = '1';
   try {
     const pv = await poa.previewPoa(id, staff, { sepa: false });
@@ -114,6 +128,7 @@ async function requestSigned(id: number, ready = true) {
   const rec = (await poa.latestPoa(id))!;
   await control('/__test/set', { id: rec.process_id, status: 'signiert', ready, missing: ready ? [] : ['Ort'] });
   await poa.verifyPoa(rec.id, { force: true });
+  if (archive && ready) await archivePoa(id);
   return rec;
 }
 const webhook = async (body: Record<string, unknown>, eventId: string, secret = 'submission-test-secret') => {
@@ -177,6 +192,18 @@ describe('QES-Pflicht unabhängig vom Schalter VOLLMACHT_DIGITAL', () => {
     await control('/__test/set', { id: rec.process_id, status: 'signiert', ready: true, missing: [], note: '' });
     await poa.verifyPoa(rec.id, { force: true });
     assert.equal(process.env.VOLLMACHT_DIGITAL, undefined, 'Schalter weiterhin aus');
+    // signiert + vollständig, aber das signierte PDF ist noch nicht abgelegt (Nachweis § 4 Abs. 6): weiterhin gesperrt
+    const noArchive = await oa.actRelease(d.id, true, owner);
+    assert.ok(!noArchive.ok && /nicht im Dokumentenmanager abgelegt/.test(noArchive.error), JSON.stringify(noArchive));
+    const db = await getDb();
+    await db.run(
+      "INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at, category) VALUES (?, ?, 'sonstiges', 'falsch.png', 'image/png', 10, 'syn/x.png', 'x', ?, 'Vollmacht')",
+      `png${d.id}`,
+      d.id,
+      new Date().toISOString(),
+    );
+    assert.ok(!(await oa.actRelease(d.id, true, owner)).ok, 'nur ein PDF zählt als Nachweis');
+    await archivePoa(d.id);
     const ok = await oa.actRelease(d.id, true, owner);
     assert.ok(ok.ok, JSON.stringify(ok));
   });

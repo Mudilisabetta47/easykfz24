@@ -6,6 +6,17 @@ import { poaGate, submissionProblems, type PoaGate, type PoaStatus } from '../..
 import type { ServiceId } from '../../lib/services.ts';
 import { getDb } from '../db.ts';
 
+/** Signierte Vollmacht als aktuelles PDF in der Kategorie „Vollmacht“ am Auftrag (nicht gelöscht, nicht ersetzt) */
+export async function poaArchived(orderId: number): Promise<boolean> {
+  const r = await (
+    await getDb()
+  ).first<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM documents WHERE order_id = ? AND category = 'Vollmacht' AND mime = 'application/pdf' AND deleted_at = '' AND superseded_at = ''",
+    orderId,
+  );
+  return !!r?.n;
+}
+
 export interface SubmissionState {
   releasedAt: string;
   isTest: boolean;
@@ -26,5 +37,10 @@ export async function submissionState(orderId: number): Promise<SubmissionState 
   );
   const poa = poaGate(o.service, p ? { status: p.status, ready: !!p.ready, sendEmail: !!p.send_email, note: p.note, createError: p.create_error } : null);
   const isTest = !!o.is_test;
-  return { releasedAt: o.released_at, isTest, poa, problems: submissionProblems({ releasedAt: o.released_at, poa, isTest }) };
+  return {
+    releasedAt: o.released_at,
+    isTest,
+    poa,
+    problems: submissionProblems({ releasedAt: o.released_at, poa, isTest, poaArchived: poa.required ? await poaArchived(orderId) : undefined }),
+  };
 }

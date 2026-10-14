@@ -7,7 +7,7 @@
 // - Formulierungen zum vorzeitigen Leistungsbeginn (siehe orderContractInfo).
 
 import { formatEuro } from './format.ts';
-import { BRAND_NOTE, PROVIDER, PROVIDER_ADDRESS, PROVIDER_CONTACT, PROVIDER_NAME } from './site.ts';
+import { BRAND_NOTE, PROVIDER, PROVIDER_ADDRESS, PROVIDER_CONTACT, PROVIDER_NAME, REGISTER_LINE } from './site.ts';
 import { EARLY_START_TEXT, LOSS_ACK_TEXT, VALUE_HINT_TEXT } from './withdrawal.ts';
 
 export const MAIL_KINDS = [
@@ -59,9 +59,7 @@ export const PROVIDER_LINES = [
   PROVIDER_ADDRESS,
   PROVIDER_CONTACT,
   `Geschäftsführer: ${PROVIDER.managingDirector} · Sitz: ${PROVIDER.seat}`,
-  PROVIDER.register
-    ? `${PROVIDER.register.court} ${PROVIDER.register.number}`
-    : 'Die Gesellschaft befindet sich in Gründung (noch nicht im Handelsregister eingetragen).',
+  REGISTER_LINE,
   BRAND_NOTE,
 ];
 

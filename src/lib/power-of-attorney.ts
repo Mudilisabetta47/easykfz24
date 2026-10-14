@@ -140,13 +140,21 @@ export function poaGate(service: ServiceId, latest: { status: PoaStatus | '' | n
  * Was einer Übermittlung an Partner bzw. Behörde entgegensteht (für Verknüpfung, Webhook-Prüfung und OS-Warnung).
  * Leere Liste = Freigabe und – soweit nötig – bestätigte QES liegen vor.
  */
-export function submissionProblems(p: { releasedAt: string; poa: PoaGate; isTest: boolean }): string[] {
+export function submissionProblems(p: { releasedAt: string; poa: PoaGate; isTest: boolean; poaArchived?: boolean }): string[] {
   const out: string[] = [];
   if (p.isTest) out.push('Testauftrag – keine Übermittlung an Partner oder Behörde');
   if (!p.releasedAt) out.push('keine interne Freigabe zur Übermittlung');
   if (p.poa.required && !p.poa.signed) out.push(`QES-Vollmacht nicht vom Partner bestätigt (${p.poa.label})`);
+  else if (p.poa.required && p.poaArchived === false) out.push(POA_ARCHIVE_MISSING);
   return out;
 }
+
+/**
+ * Nachweis der QES-Vollmacht (Partnervertrag § 4 Abs. 6: zwei Jahre revisionssicher, dem Antrag zuordenbar): Die API liefert das
+ * signierte PDF nicht – es wird aus dem POWR-Dashboard geladen und im Dokumentenmanager des Auftrags als PDF in der Kategorie
+ * „Vollmacht“ abgelegt (Löschsperre greift). Ohne diese Ablage keine Freigabe.
+ */
+export const POA_ARCHIVE_MISSING = 'Signierte Vollmacht (PDF aus dem POWR-Dashboard) nicht im Dokumentenmanager abgelegt – Kategorie „Vollmacht“';
 
 /** Rücksprung-Parameter streng prüfen: nur Ziffern (int64), bekannter Hinweis; alles andere wird ignoriert */
 export function parseReturnParams(q: { powerOfAttorneyId?: string | string[]; status?: string | string[] }): { processId: number | null; hint: ReturnHint | null } {

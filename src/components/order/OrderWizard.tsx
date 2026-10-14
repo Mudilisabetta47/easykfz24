@@ -1077,7 +1077,7 @@ export function OrderWizard({
                       beantragen.
                       {service === 'abmeldung'
                         ? ''
-                        : ' Die erforderliche Vollmacht erteile ich online: Ich erhalte per E-Mail einen Link, identifiziere mich und unterschreibe mit qualifizierter elektronischer Signatur (über unseren Partner kfz-api.de mit Nect).'}
+                        : ' Die erforderliche Vollmacht erteile ich online: Nach Zahlungseingang erhalte ich per E-Mail einen Link, identifiziere mich mit meinem Personalausweis und unterschreibe mit qualifizierter elektronischer Signatur (über unseren Partner kfz-api.de mit Nect). Dafür entstehen mir keine zusätzlichen Kosten.'}
                     </span>
                   ) : (
                     <span>

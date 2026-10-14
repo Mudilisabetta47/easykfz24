@@ -491,6 +491,9 @@ export async function requestPoa(orderId: number, actor: PoaActor, opts: { sepa:
   const order = await getOrder(orderId);
   const wait = order ? earlyStartWait(order) : null;
   if (wait) return { ok: false, error: waitMessage(wait.until), code: 'denied' };
+  // Kundenaufträge: kostenpflichtiger Vorgang erst nach bestätigter Zahlung (Testaufträge werden nie bezahlt – eigene Freigabe)
+  if (order && !order.is_test && order.payment_status !== 'bezahlt')
+    return { ok: false, error: 'Erst nach bestätigter Zahlung anfordern – der Vorgang beim Partner ist kostenpflichtig (6,95 € netto).', code: 'denied' };
   const p = await prepare(orderId, opts.sepa);
   if (p.kind === 'error') return { ok: false, error: p.error, reasons: p.reasons };
   if (p.kind === 'reuse') return { ok: true, poa: viewOf(p.rec), reused: true };

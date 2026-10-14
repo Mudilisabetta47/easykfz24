@@ -17,6 +17,7 @@ import { getExpressOffer } from '../express.ts';
 import { placeByAgs, wishCodeCheck } from '../regions.ts';
 import { earlyStartWait, waitMessage } from '../../lib/withdrawal-period.ts';
 import { poaGate, type PoaStatus } from '../../lib/power-of-attorney.ts';
+import { poaArchived } from './submission.ts';
 
 export interface Actor {
   id: number;
@@ -78,6 +79,7 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
     paidCents: paid?.n ? (paid.sum ?? 0) : null,
     kfz_order_id: extra?.kfz_order_id ?? '',
     isTest: !!extra?.is_test,
+    poaArchived: await poaArchived(o.id),
     poa: poaGate(
       o.service,
       poa ? { status: poa.status, ready: !!poa.ready, sendEmail: !!poa.send_email, note: poa.note, createError: poa.create_error } : null,
