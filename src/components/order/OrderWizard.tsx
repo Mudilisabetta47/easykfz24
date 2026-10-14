@@ -92,6 +92,7 @@ export function OrderWizard({
   plateKind = null,
   wish = '',
   payOnline = false,
+  bankTransferDays = null,
   bundle = false,
   plateOffer,
   expressOffer,
@@ -108,6 +109,8 @@ export function OrderWizard({
   plateKind?: 'e' | 'h' | null;
   wish?: string;
   payOnline?: boolean;
+  /** Überweisung (Vorkasse) angeboten: Zahlungsziel in Tagen; null = nicht angeboten */
+  bankTransferDays?: number | null;
   bundle?: boolean;
   /** Schilderpreise aus dem Finanzcenter (Carbon null = nicht im Angebot) */
   plateOffer?: PlateOffer;
@@ -1231,7 +1234,9 @@ export function OrderWizard({
                 <p>
                   {payOnline
                     ? 'Nach dem Absenden geht es direkt zur sicheren Bezahlseite unseres Zahlungsdienstleisters.'
-                    : 'Die Online-Zahlung ist derzeit noch nicht freigeschaltet. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.'}
+                    : bankTransferDays
+                      ? `Zahlung per Überweisung (Vorkasse): Bankverbindung, Verwendungszweck (Ihre Auftragsnummer) und Zahlungsziel (${bankTransferDays} Tage) erhalten Sie direkt nach dem Absenden auf der Bestätigungsseite und mit der Bestellbestätigung per E-Mail. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.`
+                      : 'Die Online-Zahlung ist derzeit noch nicht freigeschaltet. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.'}
                 </p>
                 {payOnline ? <PaymentMarks label="Möglich mit" /> : null}
               </div>

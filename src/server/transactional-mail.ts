@@ -204,6 +204,9 @@ export async function queueOrderConfirmation(orderId: number): Promise<QueueResu
   const data = JSON.parse(o.data_json) as { holder?: { typ?: string }; finish?: { vorzeitigerBeginnAt?: string } };
   const wait = earlyStartWait({ created_at: o.created_at, data: { holder: { typ: data.holder?.typ ?? '' }, finish: data.finish ?? {} } }, Date.parse(o.created_at));
   const withdrawalOn = withdrawalMode() === 'aktiv';
+  // Überweisung (Vorkasse), solange keine Online-Zahlung angeboten wird und eine IBAN hinterlegt ist
+  const { bankTransferRequest } = await import('./bank-transfer.ts');
+  const transfer = o.payment_status === 'offen' ? await bankTransferRequest({ number: o.number, total_cents: JSON.parse(o.price_json).totalCents, created_at: o.created_at }) : null;
   return queueCustomerMail({
     orderId,
     kind: 'bestellung',
@@ -221,6 +224,7 @@ export async function queueOrderConfirmation(orderId: number): Promise<QueueResu
         formUrl: withdrawalOn ? `${ctx.baseUrl}${WITHDRAW_PATH}` : null,
         earlyStartAt: data.finish?.vorzeitigerBeginnAt ?? null,
         serviceStartFrom: wait ? wait.until.toISOString() : null,
+        bankTransfer: transfer,
       }),
   });
 }

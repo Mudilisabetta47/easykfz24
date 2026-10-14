@@ -148,6 +148,26 @@ export interface OrderMailData {
   earlyStartAt: string | null;
   /** Verbraucher ohne verlangten vorzeitigen Beginn: frühester Bearbeitungsbeginn (nach Ablauf der Widerrufsfrist) */
   serviceStartFrom?: string | null;
+  /** Zahlung per Überweisung (Vorkasse): Bankverbindung aus den Unternehmensdaten, Verwendungszweck = Auftragsnummer */
+  bankTransfer?: { recipient: string; iban: string; bic: string; bankName: string; reference: string; amountCents: number; dueDate: string } | null;
+}
+
+const dayDe = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}.${m}.${y}`;
+};
+
+/** Zahlungsaufforderung per Überweisung als Zeilen (Mail, Status, Bestätigung) */
+export function bankTransferRows(b: NonNullable<OrderMailData['bankTransfer']>): [string, string][] {
+  return [
+    ['Empfänger', b.recipient],
+    ['IBAN', b.iban],
+    ...(b.bic ? ([['BIC', b.bic]] as [string, string][]) : []),
+    ...(b.bankName ? ([['Bank', b.bankName]] as [string, string][]) : []),
+    ['Betrag', formatEuro(b.amountCents)],
+    ['Verwendungszweck', b.reference],
+    ['Zahlbar bis', dayDe(b.dueDate)],
+  ];
 }
 
 /** Pflichtangaben zum Vertrag (RECHTLICH ZU PRÜFEN) */
@@ -188,8 +208,11 @@ export function orderConfirmationMail(ctx: MailContext, d: OrderMailData): Mail 
           ? 'Ihre Zahlung ist bereits bestätigt.'
           : d.payUrl
             ? 'Die Zahlung ist noch offen. Sie können sie über den sicheren Zahlungslink unten abschließen.'
-            : 'Die Zahlung ist noch offen. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung mit den Zahlungsdetails. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.',
+            : d.bankTransfer
+              ? 'Bitte überweisen Sie den Gesamtbetrag unter Angabe der Auftragsnummer als Verwendungszweck. Ihre Zahlung gilt als eingegangen, sobald sie auf unserem Konto gutgeschrieben ist; Sie erhalten dann eine Zahlungsbestätigung. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.'
+              : 'Die Zahlung ist noch offen. Nach Prüfung Ihrer Unterlagen erhalten Sie von uns per E-Mail eine Zahlungsaufforderung mit den Zahlungsdetails. Bei der Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.',
     },
+    ...(d.paymentStatus === 'offen' && !d.payUrl && d.bankTransfer ? [{ kind: 'table' as const, rows: bankTransferRows(d.bankTransfer) }] : []),
     { kind: 'h', text: 'Vertragsinformationen' },
     ...orderContractInfo(d).map((t): Block => ({ kind: 'p', text: t })),
   ];
@@ -233,6 +256,7 @@ const METHOD_LABEL: Record<string, string> = {
   klarnasliceit: 'Klarna',
   klarnapaynow: 'Klarna',
   banktransfer: 'Überweisung',
+  ueberweisung: 'Überweisung',
   directdebit: 'SEPA-Lastschrift',
   paybybank: 'Pay by Bank',
   trustly: 'Trustly',

@@ -1377,3 +1377,14 @@
   grid-column: 2 / -1;
   font-size: 13px;
 }
+
+/* Zahlungsaufforderung per Überweisung auf der Bestätigungsseite */
+.confirm__pay {
+  display: grid;
+  gap: 12px;
+  margin-block: 20px;
+  padding: 20px 22px;
+}
+.confirm__pay h2 {
+  margin: 0;
+}

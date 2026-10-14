@@ -412,6 +412,8 @@ describe('Auftrags-Endpunkte', () => {
     await expect(sb, 'POST', `orders/${ids.b}/action`, 422, { type: 'shipment', carrier: 'post', tracking: 'x' });
     await expect(sb, 'POST', A, 403, { type: 'payment', status: 'bezahlt' });
     await expect(bh, 'POST', A, 422, { type: 'payment', status: 'irgendwas' });
+    // Zahlungseingang nur mit Buchungsreferenz (nachvollziehbare Verbuchung)
+    await expect(bh, 'POST', A, 422, { type: 'payment', status: 'bezahlt', ref: '' });
     await expect(bh, 'POST', A, 422, { type: 'adjustPrice', percent: 200, reason: 'x' });
     await expect(bh, 'POST', A, 422, { type: 'adjustPrice', percent: 10, reason: '' });
     await expect(bh, 'POST', A, 422, { type: 'adjustPrice', voucher: 'GIBTSNICHT', reason: '' });

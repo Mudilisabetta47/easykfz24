@@ -4,6 +4,7 @@ import { OFFICIAL_FEES_NOTE } from '../../../lib/pricing.config.ts';
 import { BRAND_NOTE, PROVIDER, PROVIDER_NAME } from '../../../lib/site.ts';
 import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../../../lib/withdrawal.ts';
 import { customerPaymentsOpen } from '../../../server/checkout.ts';
+import { bankTransferAccount } from '../../../server/bank-transfer.ts';
 
 // Zahlungsabschnitt hängt vom Laufzeit-Schalter ab (Zahlungspause) – je Aufruf rendern
 export const dynamic = 'force-dynamic';
@@ -16,8 +17,9 @@ export const metadata: Metadata = {
 };
 
 /** Informationen vor Vertragsschluss (Art. 246a, 246c EGBGB) – Stand 14.10.2026, anwaltlich zu bestätigen */
-export default function KundeninformationenPage() {
+export default async function KundeninformationenPage() {
   const online = customerPaymentsOpen();
+  const transfer = online ? null : await bankTransferAccount();
   return (
     <>
       <header className="page-head page-head--compact">
@@ -71,6 +73,12 @@ export default function KundeninformationenPage() {
           <p>
             Die Zahlung erfolgt online über unseren Zahlungsdienstleister Mollie. Nach dem Absenden werden Sie zur Bezahlseite weitergeleitet; dort wählen Sie
             eine der angebotenen Zahlungsmethoden. Die Servicepauschale ist mit Vertragsschluss fällig.
+          </p>
+        ) : transfer ? (
+          <p>
+            Die Zahlung erfolgt per Überweisung (Vorkasse). Bankverbindung, Verwendungszweck (Ihre Auftragsnummer) und Betrag erhalten Sie nach dem Absenden auf
+            der Bestätigungsseite und mit der Bestellbestätigung per E-Mail. Der Betrag ist innerhalb von {transfer.termDays} Tagen nach Vertragsschluss zu
+            zahlen. Ihre Zahlung gilt als eingegangen, sobald sie auf unserem Konto gutgeschrieben ist; Sie erhalten dann eine Bestätigung per E-Mail.
           </p>
         ) : (
           <p>

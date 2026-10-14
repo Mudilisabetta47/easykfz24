@@ -138,11 +138,22 @@ export async function actShipment(id: number, carrier: string, tracking: string,
 export async function actPayment(id: number, status: string, ref: string, actor: Actor): Promise<R> {
   const before = await getOrder(id);
   if (!before) return { ok: false, error: 'Auftrag nicht gefunden' };
+  // Zahlungseingang nur nachvollziehbar verbuchen: Referenz aus dem Kontoauszug (z. B. Buchungsdatum, Auftraggeber) ist Pflicht
+  if (status === 'bezahlt' && status !== before.payment_status && ref.trim().length < 3)
+    return { ok: false, error: 'Bitte die Buchungsreferenz des Zahlungseingangs angeben (z. B. Buchungsdatum und Auftraggeber laut Kontoauszug).' };
   const r = await setPaymentStatus(id, status, ref, actor.name);
   if (!r.ok) return r;
   if (status !== before.payment_status) {
-    await recordManualPayment(id, status, before.total_cents, ref, actor.name);
-    if (status === 'bezahlt') await emitSafe({ type: 'payment.paid', orderId: id, actor: actor.name, payload: { manual: true, ref }, dedupeKey: `payment.paid:${id}:manuell:${now()}` });
+    const method = status === 'bezahlt' ? 'ueberweisung' : '';
+    const paymentId = await recordManualPayment(id, status, before.total_cents, ref, actor.name, method);
+    if (status === 'bezahlt') {
+      await emitSafe({ type: 'payment.paid', orderId: id, actor: actor.name, payload: { manual: true, ref }, dedupeKey: `payment.paid:${id}:manuell:${now()}` });
+      // Zahlungsbestätigung an den Kunden (ohne KUNDENMAILS=1 nur protokolliert)
+      const { queuePaymentConfirmed } = await import('../transactional-mail.ts');
+      await queuePaymentConfirmed(id, `manuell:${paymentId ?? now()}`, before.total_cents, method, now()).catch((e) =>
+        console.error('[zahlung] Bestätigung nicht angelegt:', (e as Error).message),
+      );
+    }
     if (status === 'erstattet') await emitSafe({ type: 'payment.refunded', orderId: id, actor: actor.name, payload: { ref }, dedupeKey: `payment.refunded:${id}:${now()}` });
   }
   return { ok: true };

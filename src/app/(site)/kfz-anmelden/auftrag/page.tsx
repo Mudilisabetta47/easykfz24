@@ -10,6 +10,7 @@ import { withdrawalMode } from '../../../../server/withdrawal.ts';
 import { poaCreationEnabled } from '../../../../server/power-of-attorney.ts';
 import { CHECKOUT_CLOSED_MESSAGE, checkoutState, customerPaymentsOpen } from '../../../../server/checkout.ts';
 import { PROVIDER, telHref } from '../../../../lib/site.ts';
+import { bankTransferAccount } from '../../../../server/bank-transfer.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,7 @@ export default async function AuftragPage({
             vehicleType={fahrzeug.slice(0, 20)}
             plateKind={art === 'e' || art === 'h' ? art : null}
             payOnline={customerPaymentsOpen()}
+            bankTransferDays={(await bankTransferAccount())?.termDays ?? null}
             bundle={paket === '1'}
             wishPlace={place}
             withdrawalInfo={withdrawalMode() !== 'aus'}

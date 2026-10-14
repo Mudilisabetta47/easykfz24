@@ -7,6 +7,7 @@ import { isServiceId, SERVICES } from '../../../../../lib/services.ts';
 import { PROVIDER, SITE, telHref } from '../../../../../lib/site.ts';
 import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../../../../../lib/withdrawal.ts';
 import { withdrawalMode } from '../../../../../server/withdrawal.ts';
+import { bankTransferAccount } from '../../../../../server/bank-transfer.ts';
 
 export const metadata: Metadata = { title: 'Auftrag eingegangen', robots: { index: false } };
 
@@ -14,6 +15,7 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
   const { nr = '', l = '', r = '', zahlung = '' } = await searchParams;
   const number = normalizeOrderNumber(nr);
   const def = isServiceId(l) ? SERVICES[l] : null;
+  const transfer = zahlung === 'ok' ? null : await bankTransferAccount();
 
   return (
     <div className="shell shell--narrow confirm">
@@ -36,6 +38,42 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
           {def ? ` Leistung: ${def.title}.` : ''}
         </p>
 
+        {transfer && number ? (
+          <div className="card confirm__pay">
+            <h2>Zahlung per Überweisung</h2>
+            <p>Bitte überweisen Sie den Gesamtbetrag aus Ihrer Bestellbestätigung innerhalb von {transfer.termDays} Tagen:</p>
+            <dl className="status-facts">
+              <div>
+                <dt>Empfänger</dt>
+                <dd>{transfer.recipient}</dd>
+              </div>
+              <div>
+                <dt>IBAN</dt>
+                <dd>{transfer.iban}</dd>
+              </div>
+              {transfer.bic ? (
+                <div>
+                  <dt>BIC</dt>
+                  <dd>{transfer.bic}</dd>
+                </div>
+              ) : null}
+              {transfer.bankName ? (
+                <div>
+                  <dt>Bank</dt>
+                  <dd>{transfer.bankName}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>Verwendungszweck</dt>
+                <dd>{number}</dd>
+              </div>
+            </dl>
+            <p className="muted">
+              Ihre Zahlung gilt als eingegangen, sobald sie auf unserem Konto gutgeschrieben ist; Sie erhalten dann eine Bestätigung per E-Mail. Bei der
+              Zulassungsbehörde reichen wir Ihren Vorgang erst nach Zahlungseingang ein.
+            </p>
+          </div>
+        ) : null}
         {zahlung === 'ok' ? (
           <p className="alert alert--ok">Vielen Dank – Ihre Zahlung wurde übermittelt. Die Bestätigung erscheint in wenigen Minuten in der Statusabfrage.</p>
         ) : null}

@@ -100,6 +100,10 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
       {
         p: 'Von Mollie erhalten wir unter anderem den Zahlungsstatus, die verwendete Zahlungsmethode und eine Transaktionsreferenz, um Zahlungen einem Auftrag zuzuordnen und Erstattungen bearbeiten zu können. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO. Für eigene Zahlungsdatenverarbeitungen von Mollie gelten deren Datenschutzhinweise: https://www.mollie.com/de/privacy.',
       },
+      { h3: 'Zahlung per Überweisung' },
+      {
+        p: 'Bieten wir die Zahlung per Überweisung an, überweisen Sie den Betrag auf unser Geschäftskonto. Zur Zuordnung und Verbuchung des Zahlungseingangs verarbeiten wir die mit der Überweisung übermittelten Angaben (Name und IBAN des Kontoinhabers, Betrag, Verwendungszweck, Buchungsdatum) und vermerken den Zahlungseingang mit einer Buchungsreferenz bei Ihrem Auftrag. Rechtsgrundlagen sind Art. 6 Abs. 1 lit. b und c DSGVO.',
+      },
       { h3: 'Zahlungsmethoden' },
       {
         p: 'Auf der Bezahlseite von Mollie können Sie – je nach Verfügbarkeit, Betrag und Endgerät – folgende Zahlungsmethoden wählen: Kredit- oder Debitkarte, SEPA-Überweisung, Pay by Bank, Apple Pay und Google Pay. Welche Zahlungsmethode Sie nutzen, entscheiden Sie selbst. Je nach Wahl werden die für die Zahlung erforderlichen Daten an den jeweiligen Anbieter übermittelt. Rechtsgrundlage ist jeweils Art. 6 Abs. 1 lit. b DSGVO.',

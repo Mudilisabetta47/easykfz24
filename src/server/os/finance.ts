@@ -19,18 +19,21 @@ type R<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 /* ---------- Zahlungsbuchungen ---------- */
 
-export async function recordManualPayment(orderId: number, status: string, amountCents: number, ref: string, actor: string): Promise<void> {
+export async function recordManualPayment(orderId: number, status: string, amountCents: number, ref: string, actor: string, method = ''): Promise<number | null> {
   const kind = status === 'erstattet' ? 'erstattung' : status === 'bezahlt' ? 'zahlung' : 'korrektur';
-  await (await getDb()).run(
-    "INSERT INTO payments (order_id, at, provider, provider_ref, kind, status, amount_cents, fee_cents, method, note, created_by) VALUES (?, ?, 'manuell', '', ?, ?, ?, NULL, '', ?, ?)",
+  const r = await (await getDb()).run(
+    "INSERT INTO payments (order_id, at, provider, provider_ref, kind, status, amount_cents, fee_cents, method, note, created_by) VALUES (?, ?, 'manuell', ?, ?, ?, ?, NULL, ?, ?, ?)",
     orderId,
     now(),
+    ref,
     kind,
     status,
     status === 'erstattet' ? -amountCents : status === 'bezahlt' ? amountCents : 0,
+    method,
     ref ? `Referenz: ${ref}` : status === 'offen' ? 'Zahlungsstatus zurückgesetzt' : '',
     actor,
   );
+  return r.lastRowId ?? null;
 }
 
 interface StripeSession {

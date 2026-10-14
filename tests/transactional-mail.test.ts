@@ -318,3 +318,77 @@ describe('Statusmails, Vollmacht, Wiederholung, Testmail', () => {
     assert.match(m.subject, /^\[TEST\] Zahlung bestätigt – Auftrag EK-2026-TEST/);
   });
 });
+
+describe('Zahlung per Überweisung (Vorkasse) – Testdaten, keine echten Bankdaten', () => {
+  // Test-IBAN aus der IBAN-Spezifikation (Beispielkonto), keine echte Bankverbindung
+  const TEST_IBAN = 'DE89 3704 0044 0532 0130 00';
+  const company = async (iban: string) => {
+    const { getCompany, setCompany } = await import('../src/server/os/company.ts');
+    const c = await getCompany(true);
+    const r = await setCompany(
+      { ...c, name: 'MONVEX UG (haftungsbeschränkt) i. G.', iban, bic: iban ? 'COBADEFFXXX' : '', bankName: iban ? 'Testbank' : '', paymentTermDays: 14 },
+      'Test',
+    );
+    assert.ok(r.ok, JSON.stringify(r));
+  };
+  const paused = async <T>(fn: () => Promise<T>) => {
+    process.env.ZAHLUNG_PAUSE = '1';
+    try {
+      return await fn();
+    } finally {
+      process.env.ZAHLUNG_PAUSE = '0';
+    }
+  };
+
+  it('ohne IBAN keine Überweisung; mit Online-Zahlung keine Überweisung', async () => {
+    const { bankTransferAccount } = await import('../src/server/bank-transfer.ts');
+    await company('');
+    assert.equal(await paused(() => bankTransferAccount()), null);
+    await company(TEST_IBAN);
+    assert.equal(await bankTransferAccount(), null, 'Online-Zahlung aktiv → keine Überweisung');
+    const acc = await paused(() => bankTransferAccount());
+    assert.deepEqual([acc?.iban, acc?.termDays], ['DE89 3704 0044 0532 0130 00', 14]);
+  });
+
+  it('Bestellbestätigung enthält Bankverbindung, Betrag, Verwendungszweck = Auftragsnummer und Zahlungsziel', async () => {
+    enable();
+    await company(TEST_IBAN);
+    const o = await orders.createOrder(order('ueberweisung@example.test'), []);
+    await paused(() => mail.queueOrderConfirmation(o.id));
+    const m = sent.at(-1)!;
+    assert.deepEqual(m.to, ['ueberweisung@example.test']);
+    for (const t of ['Bitte überweisen Sie den Gesamtbetrag', 'DE89 3704 0044 0532 0130 00', 'COBADEFFXXX', `Verwendungszweck: ${o.number}`, 'Zahlbar bis'])
+      assert.ok(m.text.includes(t), t);
+    assert.ok(!m.text.includes('Jetzt sicher bezahlen'));
+  });
+
+  it('Verbuchung im OS: ohne Buchungsreferenz abgelehnt; mit Referenz bezahlt, nachvollziehbar gebucht, Zahlungsbestätigung an den Kunden', async () => {
+    enable();
+    await company(TEST_IBAN);
+    const actions = await import('../src/server/os/order-actions.ts');
+    const o = await orders.createOrder(order('verbuchung@example.test'), []);
+    const actor = { id: 0, name: 'Inhaber' };
+    const no = await actions.actPayment(o.id, 'bezahlt', '', actor);
+    assert.equal(no.ok, false);
+    assert.equal((await orders.getOrder(o.id))!.payment_status, 'offen', 'ohne Referenz bleibt der Auftrag offen');
+    assert.deepEqual(await actions.actPayment(o.id, 'bezahlt', '14.10.2026 Gutschrift Erika Test', actor), { ok: true });
+    assert.equal((await orders.getOrder(o.id))!.payment_status, 'bezahlt');
+    const row = await (
+      await db()
+    ).first<{ provider: string; provider_ref: string; method: string; amount_cents: number; created_by: string }>(
+      "SELECT provider, provider_ref, method, amount_cents, created_by FROM payments WHERE order_id = ? AND kind = 'zahlung'",
+      o.id,
+    );
+    assert.deepEqual({ ...row }, {
+      provider: 'manuell',
+      provider_ref: '14.10.2026 Gutschrift Erika Test',
+      method: 'ueberweisung',
+      amount_cents: (await orders.getOrder(o.id))!.total_cents,
+      created_by: 'Inhaber',
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const confirm = sent.filter((m) => m.to[0] === 'verbuchung@example.test').at(-1)!;
+    assert.match(confirm.subject, /Zahlung bestätigt/);
+    assert.ok(confirm.text.includes('Überweisung'));
+  });
+});

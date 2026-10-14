@@ -7,7 +7,9 @@ import { clientIp, limits } from '../../../server/limits.ts';
 import { lookupStatus, type PublicStatus } from '../../../server/orders.ts';
 import { customerPaymentsOpen } from '../../../server/checkout.ts';
 
-export type StatusState = { result?: PublicStatus; error?: string; nr?: string; email?: string; payOnline?: boolean };
+import type { BankTransferRequest } from '../../../server/bank-transfer.ts';
+
+export type StatusState = { result?: PublicStatus; error?: string; nr?: string; email?: string; payOnline?: boolean; bankTransfer?: BankTransferRequest | null };
 
 export async function lookupAction(_prev: StatusState, form: FormData): Promise<StatusState> {
   const nrRaw = String(form.get('nr') ?? '').slice(0, 40);
@@ -23,5 +25,9 @@ export async function lookupAction(_prev: StatusState, form: FormData): Promise<
 
   const result = await lookupStatus(nr, email.value);
   if (!result) return { ...keep, error: 'Zu dieser Kombination aus Auftragsnummer und E-Mail-Adresse wurde kein Auftrag gefunden.' };
-  return { ...keep, result, payOnline: customerPaymentsOpen() };
+  // Überweisung (Vorkasse): Zahlungsaufforderung nur für offene Aufträge und nur nach erfolgreicher Abfrage (Nr. + E-Mail)
+  const { bankTransferRequest } = await import('../../../server/bank-transfer.ts');
+  const bankTransfer =
+    result.paymentStatus === 'offen' ? await bankTransferRequest({ number: result.number, total_cents: result.totalCents, created_at: result.createdAt }) : null;
+  return { ...keep, result, payOnline: customerPaymentsOpen(), bankTransfer };
 }

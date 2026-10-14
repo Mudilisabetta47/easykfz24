@@ -96,6 +96,16 @@ export function StatusLookup({ initialNr }: { initialNr: string }) {
                   ) : null}
                 </dd>
               </div>
+              {r.paymentStatus === 'offen' && state.bankTransfer ? (
+                <div>
+                  <dt>Zahlung per Überweisung</dt>
+                  <dd>
+                    {state.bankTransfer.recipient} · IBAN {state.bankTransfer.iban}
+                    {state.bankTransfer.bic ? ` · BIC ${state.bankTransfer.bic}` : ''} · Betrag {formatEuro(state.bankTransfer.amountCents)} · Verwendungszweck{' '}
+                    {state.bankTransfer.reference} · zahlbar bis {state.bankTransfer.dueDate.split('-').reverse().join('.')}
+                  </dd>
+                </div>
+              ) : null}
               {r.delivery === 'versand' && r.carrier ? (
                 <div>
                   <dt>Versand</dt>
