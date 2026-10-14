@@ -24,9 +24,12 @@ const secrets = JSON.parse(fs.readFileSync(path.join(stateDir, '..', 'secrets.js
 const blank = { STRIPE_SECRET_KEY: '', RESEND_API_KEY: '', MAIL_FROM: '', SMTP_URL: '', KFZ_API_BASE_URL: '', KFZ_API_LOGIN: '', KFZ_API_PASSWORD: '', PLATE_AVAILABILITY_URL: '' };
 const log = (...a) => console.log('•', ...a);
 
+// Nur in dieser lokalen Laufzeit: Checkout wie im Produktivbetrieb freigegeben (Sicherheitsschalter, src/server/checkout.ts)
+const legalEnv = { WIDERRUF_AKTIV: '1', BESTELLUNG_AKTIV: '1', ZAHLUNG_PAUSE: '0' };
+
 function startWorker(cwd, port, logName) {
   const envFile = path.join(stateDir, '..', `${logName}.env`);
-  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, PUBLIC_BASE_URL: `http://127.0.0.1:${port}` }).map(([k, v]) => `${k}=${v}`).join('\n'));
+  fs.writeFileSync(envFile, Object.entries({ ...blank, ...secrets, ...legalEnv, PUBLIC_BASE_URL: `http://127.0.0.1:${port}` }).map(([k, v]) => `${k}=${v}`).join('\n'));
   const p = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', stateDir, '--env-file', envFile], { cwd, env: { ...process.env, ...blank }, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = fs.createWriteStream(path.join(stateDir, '..', `${logName}.log`));
   p.stdout.pipe(out);
@@ -142,7 +145,8 @@ try {
   const h = await waitUp(base);
   await check(`Gesundheit nach Upgrade (${JSON.stringify(h.database ?? h)})`, async () => {
     const d = h.database ?? h;
-    assert.equal(d.schema ?? d.schemaVersion, 6);
+    // vollständig migriert: tatsächliche Version = vom neuen Stand erwartete Version
+    assert.equal(d.schema ?? d.schemaVersion, d.expected);
   });
   let cookie = '';
   const os = async (method, p2, body) => {
@@ -223,7 +227,7 @@ try {
     const r = await os('GET', 'system/diagnose');
     assert.equal(r.status, 200, r.text);
     assert.equal(r.json.storage.ok, true);
-    assert.equal(r.json.database.schema, 6);
+    assert.equal(r.json.database.schema, h.expected ?? h.database?.expected);
   });
 } finally {
   await stop(p);

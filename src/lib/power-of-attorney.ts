@@ -117,10 +117,11 @@ export function adminState(p: { status: PoaStatus | null; ready: boolean; sendEm
 }
 
 /**
- * Freigabe-Voraussetzung (Partnervertrag POWR § 3: qualifiziert elektronisch signierte Vollmacht, außer Außerbetriebsetzung).
- * Pflicht, sobald die digitale Vollmacht eingeschaltet ist ODER für den Auftrag bereits ein digitaler Vorgang existiert.
- * Erfüllt ist sie NUR durch den vom Partner abgefragten Stand (GET): signiert UND readyForApplication – eine Bestätigung
- * im Checkout, der Rücksprung-Hinweis oder ein Häkchen in der Checkliste genügen nie.
+ * Freigabe-Voraussetzung (Partnervertrag POWR § 3: Vollmacht mit qualifizierter elektronischer Signatur bzw. Siegel, außer bei
+ * der Außerbetriebsetzung). Gilt für jede Zulassung, Ummeldung und Wiederzulassung – unabhängig davon, ob die digitale
+ * Vollmacht gerade eingeschaltet ist (ohne sie gibt es eben keinen Weg zur Freigabe). Erfüllt NUR durch den über die
+ * Partner-Schnittstelle (GET) abgeglichenen Stand: signiert UND readyForApplication. Eine Bestätigung im Checkout, der
+ * Rücksprung-Parameter, ein Webhook oder ein Häkchen in der Checkliste genügen nie.
  */
 export interface PoaGate {
   required: boolean;
@@ -128,11 +129,23 @@ export interface PoaGate {
   /** Stand für die Meldung (ADMIN_LABEL oder „kein Vorgang“) */
   label: string;
 }
-export function poaGate(service: ServiceId, digitalOn: boolean, latest: { status: PoaStatus | '' | null; ready: boolean; sendEmail: boolean; note: string; createError: string } | null): PoaGate {
-  const required = POA_SERVICES.includes(service) && (digitalOn || latest !== null);
-  if (!latest) return { required, signed: false, label: 'noch keine digitale Vollmacht angefordert' };
+export function poaGate(service: ServiceId, latest: { status: PoaStatus | '' | null; ready: boolean; sendEmail: boolean; note: string; createError: string } | null): PoaGate {
+  const required = POA_SERVICES.includes(service);
+  if (!latest) return { required, signed: false, label: 'keine digitale Vollmacht vorhanden' };
   const state = adminState({ ...latest, status: latest.status || null });
   return { required, signed: latest.status === 'signiert' && latest.ready, label: ADMIN_LABEL[state] };
+}
+
+/**
+ * Was einer Übermittlung an Partner bzw. Behörde entgegensteht (für Verknüpfung, Webhook-Prüfung und OS-Warnung).
+ * Leere Liste = Freigabe und – soweit nötig – bestätigte QES liegen vor.
+ */
+export function submissionProblems(p: { releasedAt: string; poa: PoaGate; isTest: boolean }): string[] {
+  const out: string[] = [];
+  if (p.isTest) out.push('Testauftrag – keine Übermittlung an Partner oder Behörde');
+  if (!p.releasedAt) out.push('keine interne Freigabe zur Übermittlung');
+  if (p.poa.required && !p.poa.signed) out.push(`QES-Vollmacht nicht vom Partner bestätigt (${p.poa.label})`);
+  return out;
 }
 
 /** Rücksprung-Parameter streng prüfen: nur Ziffern (int64), bekannter Hinweis; alles andere wird ignoriert */

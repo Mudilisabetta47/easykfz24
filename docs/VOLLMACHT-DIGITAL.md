@@ -1,6 +1,6 @@
 # Digitale Vollmacht & automatische Rückleitung
 
-Stand: 13.10.2026 (Testmodus und Zeitsteuerung ergänzt) · Partner: kfz-api.de „Vollmacht für Dritte mit Nect“ (OpenAPI `/spec/api.yaml` 2.3.0)
+Stand: 15.10.2026 (Testaufträge, QES-Pflicht für alle Übermittlungswege, Aufbewahrung ergänzt) · Partner: kfz-api.de „Vollmacht für Dritte mit Nect“ (OpenAPI `/spec/api.yaml` 2.3.0)
 
 ## Dokumentierte Fakten (Grundlage der Umsetzung)
 
@@ -79,20 +79,57 @@ und der letzten Prüfung, Hinweisen des Partners, früheren Versuchen und „Sta
 | Betriebsart | Bedingung | Wer kann anfordern |
 |---|---|---|
 | **aus** (Standard) | keine Vollmacht-Variable gesetzt – oder kein Partner-Zugang (`KFZ_API_*`) | niemand; nur Abgleich bereits vorhandener Vorgänge |
-| Testmodus | Partner-Zugang **und ausdrücklich** `VOLLMACHT_TESTMODUS=1` | nur der **Inhaber**, nur für den Auftrag mit **Testfreigabe** |
+| Testmodus | Partner-Zugang **und ausdrücklich** `VOLLMACHT_TESTMODUS=1` | nur der **Inhaber**, nur für einen **Testauftrag** (TEST-…) mit **Testfreigabe** |
 | aktiv | Partner-Zugang und `VOLLMACHT_DIGITAL=1` (geht dem Testmodus vor) | alle mit Recht „Aufträge bearbeiten“ |
 
-**Testfreigabe** (OS → Auftrag → Digitale Vollmacht, nur Inhaber): gilt für genau einen Auftrag, 24 Stunden, und wird beim
+**Testaufträge** (OS → Auftragscenter → „Testaufträge“, nur Inhaber, nur im Testmodus): Der Inhaber öffnet ein Testfenster
+(120 Minuten, höchstens 3 Testaufträge) und legt darin Testaufträge an – der Kunden-Checkout bleibt gesperrt. Testaufträge
+haben eine eigene Nummernfolge `TEST-JJJJ-NNNNN`, sind im OS rot gekennzeichnet, erscheinen nicht in Listen, Dashboard oder
+Kundenstamm und laufen durch keine Automatisierung. Gesperrt sind Zahlung (auch Mollie), Rechnung, Freigabe zur Übermittlung,
+Verknüpfung mit kfz-api.de und jede Kundenmail. Das Anlegen fordert **keine** Vollmacht an. Widerrufsfrist-Sperre gilt
+unverändert (Zustimmung zum vorzeitigen Beginn nur, wenn ausdrücklich angehakt). Echte Kundenaufträge werden im Testmodus
+nie verwendet (keine Testfreigabe, keine Anforderung).
+
+**Testfreigabe** (OS → Testauftrag → Digitale Vollmacht, nur Inhaber, nur für Testaufträge): gilt für genau einen Auftrag, 24 Stunden, und wird beim
 ersten Anfordern an diesen Versuch gebunden. Wiederholungen desselben Versuchs (gleiche Referenz) und der Abgleich bleiben
 möglich; ein weiterer kostenpflichtiger Versuch (V2) braucht eine neue Freigabe. Eine neue Freigabe ersetzt die alte;
 „zurückziehen“ beendet sie. Alles steht im Auftragsverlauf und im Protokoll. Kunden sehen davon nichts; das Bestellformular
 bleibt unverändert (kein Geburtsort-Pflichtfeld).
 
+## Übermittlung an Partner und Behörde (Partnervertrag POWR § 3)
+
+- Zulassung, Ummeldung (Halterwechsel, Umzug) und Wiederzulassung brauchen eine **qualifiziert signierte Vollmacht** –
+  **unabhängig** vom Schalter `VOLLMACHT_DIGITAL`. Erfüllt ist das nur durch den per `GET` beim Partner abgeglichenen Stand
+  `signiert` **und** `readyForApplication`. Checkout-Bestätigung, Rücksprung-Parameter, Webhook-Inhalte und Häkchen zählen nie;
+  die Checkliste enthält für diese Vorgänge kein Papier-Häkchen „Vollmacht im Original“ mehr.
+- Ausnahme Abmeldung (Außerbetriebsetzung): keine QES nötig, Papiervollmacht-Häkchen bleibt.
+- Freigabe zur Übermittlung: zusätzlich gesperrt ohne bestätigte QES und für Testaufträge.
+- Manuelle Verknüpfung eines kfz-api.de-Vorgangs (Recht „KFZ-API bearbeiten“): nur mit interner Freigabe und – soweit nötig –
+  bestätigter QES; nie für Testaufträge. Lösen bleibt möglich.
+- Eingehende Webhooks: echter externer Stand wird immer protokolliert und übernommen (Status, Belege), aber nichts als erfüllt
+  markiert (keine Freigabe, kein Vollmachtsstand). Fehlen Freigabe oder QES oder ist es ein Testauftrag: Eintrag „WARNUNG …“
+  im Verlauf, kritische OS-Benachrichtigung „Beim Partner ohne Freigabe/QES“ (einmal je Stand) und Fehler am Auftrag
+  (`extern_ohne_freigabe`, auch in der Liste).
+- Website: Ohne eingeschaltete digitale Vollmacht nimmt der Checkout nur Abmeldungen an (sonst entstünden bezahlte Aufträge,
+  die nicht übermittelt werden dürfen).
+
+## Nachweis der QES und Aufbewahrung (Partnervertrag § 4 Abs. 6)
+
+- Gespeichert werden Vorgangsnummer, Stand, `readyForApplication`, Zeitpunkte (angefordert, abgeglichen, Statuswechsel),
+  anfordernde Person und jeder Statuswechsel samt Partner-Hinweis im Auftragsverlauf.
+- **Offen:** Das signierte PDF liefert die API nicht. Bis zu einer verlässlichen Vereinbarung mit POWR (Aufbewahrung durch
+  POWR für MONVEX bzw. Abruf/Download) liegt der QES-Nachweis selbst **nicht** bei EasyKFZ24.
+- Löschsperre: Unterlagen, Auftragsangaben, Korrespondenz und Vollmachtsnachweise übermittelter Anträge (Freigabe oder
+  kfz-api.de-Vorgang) werden mindestens 2 Jahre nach der letzten Änderung weder endgültig gelöscht noch anonymisiert; die
+  DSGVO-Prüfung nennt je Auftrag das Datum, ab dem erneut geprüft wird (keine unbefristete Aufbewahrung). Bei der
+  Anonymisierung übriger Aufträge werden Nachrichten (Text **und** HTML) geleert und Partner-Hinweise/Links der
+  Vollmachtsvorgänge entfernt.
+
 ## Schalter (Umgebungsvariablen)
 
 | Variable | Wirkung | Vorgabe |
 |---|---|---|
-| `VOLLMACHT_TESTMODUS=1` | Testmodus: nur Inhaber, nur für einen freigegebenen Auftrag; Bestellformular unverändert | aus |
+| `VOLLMACHT_TESTMODUS=1` | Testmodus: Testaufträge des Inhabers, Anforderung nur mit Testfreigabe; Bestellformular unverändert | aus |
 | `VOLLMACHT_DIGITAL=1` | Anfordern neuer Vorgänge für alle geeigneten Aufträge + Pflichtfeld Geburtsort | aus |
 | `VOLLMACHT_EMAIL_SENDEN=0` | Partner schickt **keine** E-Mail | Partner sendet |
 | `VOLLMACHT_RUECKSPRUNG_URL` | im Dashboard hinterlegte Adresse | `https://easykfz24.de/vollmacht/abschluss` |
@@ -118,25 +155,40 @@ V2 ohne neue Freigabe gesperrt, abgelaufene Freigabe gesperrt, Zurückziehen · 
 Cron in workerd (`wrangler dev`, geplanter Lauf): offener Vorgang abgeglichen → „unterschrieben“ samt Verlaufseintrag;
 `/api/intern/zeitplan` von außen 404 · Unit-Tests 204/204 · E2E Node und Worker je 60/60 · Produktions-Build.
 
+## Getestet (15.10.2026, Testnachbau, nur synthetische Daten)
+
+Testauftrag (nur Inhaber, nur Testmodus, nur offenes Fenster, höchstens 3, TEST-Nummer, keine Anforderung/Mail/Kundenstamm) ·
+unberechtigter Zugriff (alle anderen Rollen 403, ohne Sitzung 401) · Testauftrag ohne Zahlung, Rechnung, Freigabe,
+Verknüpfung, Mollie · Testfreigabe nur für Testaufträge, echte Aufträge im Testmodus gesperrt · Vollmacht signiert /
+unvollständig / abgelehnt / fehlgeschlagen / Identifizierung abgebrochen · fehlende QES trotz abgehakter Checkliste, Zahlung
+und Sicherheitscodes (Schalter aus) · Abmeldung ohne QES · manuelle Verknüpfung · Webhook mit falscher Signatur, mit
+manipulierten Zusatzfeldern, ohne Freigabe/QES (Warnung, OS-Meldung, Fehler am Auftrag), nach Freigabe ohne Warnung ·
+Lösch- und Anonymisierungssperre inkl. Nachrichten · Migration v10 → v11 (SQL vorab und zur Laufzeit) · Unit 283/283 ·
+E2E Node und Worker je 70/70 · Produktions-Build.
+
 ## Erster echter Test (Testmodus) – Ablauf
 
-Voraussetzungen: dieser Stand ist veröffentlicht; KBA-/Produktionsfreigabe bei kfz-api.de ist erfolgt (laut Dashboard
-geplant 14.10.2026, 08:00 Uhr); OS → KFZ-API-Center → „Verbindungstest“ zeigt „Verbindung und Anmeldung in Ordnung“;
-in Cloudflare (Worker easykfz24 → Einstellungen → Variablen) **`VOLLMACHT_TESTMODUS=1`** gesetzt – erst nach ausdrücklicher
-Zustimmung des Inhabers; nach dem Test wieder entfernen.
+Voraussetzungen (alle vom Inhaber, nichts davon automatisch):
+- KOPA-Schlüssel und Produktionsfreigabe durch POWR liegen vor (Partnervertrag § 1 Abs. 3, § 2); OS → KFZ-API-Center →
+  „Verbindungstest“ zeigt „Verbindung und Anmeldung in Ordnung“.
+- Kosten bekannt und akzeptiert: ein Vorgang 6,95 € netto (8,27 € brutto), auch wenn die Unterschrift scheitert.
+- In Cloudflare (Worker easykfz24 → Einstellungen → Variablen) **`VOLLMACHT_TESTMODUS=1`** gesetzt; `BESTELLUNG_AKTIV`
+  bleibt 0, `VOLLMACHT_DIGITAL` bleibt aus. Nach dem Test wieder entfernen.
 
-1. OS → Neuer Auftrag: **eigener** Auftrag, Privatperson, Angaben genau wie im **Personalausweis** (Name, Geburtsdatum,
-   Anschrift), eigene E-Mail, FIN des eigenen Fahrzeugs; Leistung nicht „Abmeldung“. IBAN nur, wenn das Kfz-Steuer-Mandat mitgetestet werden soll.
-2. Im Auftrag „Digitale Vollmacht“: Geburtsort (wie im Ausweis) speichern.
-3. „Testfreigabe für diesen Auftrag erteilen“ (nur Inhaber).
-4. „Digitale Vollmacht vorbereiten“ → Vorschau prüfen (Angaben, SEPA ja/nein, 6,95 € netto / 8,27 € brutto, Hinweise) →
-   Haken → „Jetzt kostenpflichtig anfordern“ (einmal).
-5. Partner-E-Mail mit Unterschriftslink (Marke EasyKFZ24) öffnen, bei Nect mit Personalausweis identifizieren, unterschreiben.
-6. Rückleitung auf `https://easykfz24.de/vollmacht/abschluss?powerOfAttorneyId=…&status=…` prüfen (Anzeige nur aus Server-Abfrage).
-7. OS: „Stand jetzt abfragen“ → „unterschrieben“ (bzw. „Angaben unvollständig“ ohne `readyForApplication`).
-8. Statusabfrage (Auftragsnummer + E-Mail) zeigt den Vollmachtsstand getrennt von Zahlung und Bearbeitung.
-9. Nach spätestens 10 Minuten: OS → Einstellungen → Automatisierungen → „Vollmacht-Abgleich“ zeigt Läufe des Cron-Triggers.
-10. Testfreigabe zurückziehen; Testauftrag stornieren (es wird kein Zulassungsantrag gestellt); `VOLLMACHT_TESTMODUS` wieder entfernen.
+1. OS → Auftragscenter → „Testaufträge“ → „Testfenster öffnen“ (120 Minuten).
+2. „+ Testauftrag anlegen“: Privatperson = einwilligende Testperson (z. B. Inhaber), Angaben genau wie im Personalausweis
+   (Name, Geburtsdatum, **Geburtsort**, Anschrift), eigene E-Mail, FIN des eigenen Fahrzeugs; Leistung Zulassung, Ummeldung
+   oder Wiederzulassung. Beide Häkchen zum vorzeitigen Beginn setzen (sonst Widerrufsfrist-Sperre). Keine Daten Dritter.
+3. Testauftrag öffnen (rot „TESTAUFTRAG“) → „Digitale Vollmacht“ → „Testfreigabe für diesen Auftrag erteilen“ (24 h, ein Versuch).
+4. „Digitale Vollmacht vorbereiten“ → Vorschau prüfen (Angaben, SEPA nein, Kosten, Hinweise) → Haken → „Jetzt kostenpflichtig
+   anfordern“ – **genau einmal**. Das ist der einzige kostenpflichtige Schritt.
+5. Link-E-Mail des Partners öffnen, bei Nect identifizieren und unterschreiben (Abbruch ist ebenfalls ein gültiges Testergebnis).
+6. Rückleitung auf `https://easykfz24.de/vollmacht/abschluss?powerOfAttorneyId=…` – Anzeige nur aus der Server-Abfrage.
+7. OS: „Stand jetzt abfragen“ → „unterschrieben“ bzw. „Angaben unvollständig“/„abgelehnt“; Verlauf prüfen.
+8. Prüfen, dass „Zur Übermittlung freigeben“ für den Testauftrag gesperrt bleibt.
+9. Nach spätestens 10 Minuten: Automatisierung „Vollmacht-Abgleich“ zeigt Läufe des Cron-Triggers.
+10. Testfreigabe zurückziehen, Testfenster schließen, Testauftrag stornieren, `VOLLMACHT_TESTMODUS` in Cloudflare entfernen.
+11. Ergebnis und den Weg zum signierten PDF (Portal/POWR) dokumentieren – Voraussetzung für `VOLLMACHT_DIGITAL=1`.
 
 ## Vor dem Einschalten für alle Kunden (Checkliste)
 

@@ -15,10 +15,19 @@ export function partnerRetentionCutoff(at = Date.now()): string {
 export const RETAINED_ORDER_SQL = "((o.released_at != '' OR o.kfz_order_id != '') AND o.updated_at > ?)";
 
 export async function retainedOrderIds(customerId: number): Promise<number[]> {
+  return (await retainedOrders(customerId)).map((r) => r.id);
+}
+
+/** Aufträge unter Aufbewahrung mit dem Tag, ab dem sie erneut geprüft werden können (keine unbefristete Aufbewahrung) */
+export async function retainedOrders(customerId: number): Promise<{ id: number; number: string; until: string }[]> {
   const rows = await (
     await getDb()
-  ).all<{ id: number }>(`SELECT o.id FROM orders o WHERE o.customer_id = ? AND ${RETAINED_ORDER_SQL}`, customerId, partnerRetentionCutoff());
-  return rows.map((r) => r.id);
+  ).all<{ id: number; number: string; updated_at: string }>(
+    `SELECT o.id, o.number, o.updated_at FROM orders o WHERE o.customer_id = ? AND ${RETAINED_ORDER_SQL}`,
+    customerId,
+    partnerRetentionCutoff(),
+  );
+  return rows.map((r) => ({ id: r.id, number: r.number, until: new Date(Date.parse(r.updated_at) + PARTNER_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10) }));
 }
 
 export async function documentRetained(docId: string): Promise<boolean> {

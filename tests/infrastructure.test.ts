@@ -97,10 +97,9 @@ describe('Admin-Sitzung', () => {
 });
 
 describe('Unterlagen-Checkliste', () => {
-  it('enthält immer „Vollmacht im Original“', () => {
-    for (const s of ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung', 'abmeldung'] as const) {
-      assert.ok(buildChecklist(s, null).some((i) => i.key === 'vollmacht_original' && i.required), s);
-    }
+  it('„Vollmacht im Original“ nur bei der Abmeldung – sonst zählt allein die vom Partner bestätigte QES (releaseBlockers)', () => {
+    for (const s of ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung'] as const) assert.ok(!buildChecklist(s, null).some((i) => i.key === 'vollmacht_original'), s);
+    assert.ok(buildChecklist('abmeldung', null).some((i) => i.key === 'vollmacht_original' && i.required));
   });
   it('passt sich Leistung und Kennzeichenwahl an', () => {
     const behalten = buildChecklist('umzug', 'behalten').map((i) => i.key);

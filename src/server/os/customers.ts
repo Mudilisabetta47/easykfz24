@@ -6,7 +6,7 @@ import type { ValidatedOrder } from '../../lib/order.ts';
 import { getDb, q } from '../db.ts';
 import { deleteBlobs } from '../blobs.ts';
 import { emitSafe } from './events.ts';
-import { PARTNER_RETENTION_DAYS, retainedOrderIds } from './partner-retention.ts';
+import { PARTNER_RETENTION_DAYS, retainedOrderIds, retainedOrders } from './partner-retention.ts';
 
 const now = () => new Date().toISOString();
 export const normEmail = (e: string) => e.trim().toLowerCase();
@@ -59,11 +59,12 @@ async function nextNumber(id: number): Promise<string> {
  */
 export async function linkOrderToCustomer(orderId: number, opts: { emitEvents?: boolean } = {}): Promise<{ customerId: number; created: boolean; orders: number } | null> {
   const db = await getDb();
-  const o = await db.first<{ id: number; customer_id: number | null; email: string; data_json: string; assigned_plate: string; previous_plate: string; created_at: string }>(
-    'SELECT id, customer_id, email, data_json, assigned_plate, previous_plate, created_at FROM orders WHERE id = ?',
+  const o = await db.first<{ id: number; customer_id: number | null; email: string; data_json: string; assigned_plate: string; previous_plate: string; created_at: string; is_test: number }>(
+    'SELECT id, customer_id, email, data_json, assigned_plate, previous_plate, created_at, is_test FROM orders WHERE id = ?',
     orderId,
   );
-  if (!o) return null;
+  // Testaufträge nie mit dem Kundenstamm verbinden
+  if (!o || o.is_test) return null;
   if (o.customer_id) return { customerId: o.customer_id, created: false, orders: 0 };
   const d = JSON.parse(o.data_json) as ValidatedOrder;
   const h = d.holder;
@@ -528,10 +529,12 @@ export async function erasureCheck(id: number): Promise<{ blockers: string[]; re
   const blockers: string[] = [];
   if (open?.n) blockers.push(`${open.n} laufende(r) Auftrag/Aufträge – erst abschließen oder stornieren`);
   const retained: string[] = [];
-  const kept = await retainedOrderIds(id);
+  const kept = await retainedOrders(id);
   if (kept.length)
     retained.push(
-      `Auftragsangaben, Unterlagen und Vollmachtsnachweise von ${kept.length} an den Zulassungspartner übermittelten Auftrag/Aufträgen – Aufbewahrung mindestens ${Math.round(PARTNER_RETENTION_DAYS / 366)} Jahre ab Antragstellung (Partnervertrag POWR § 4 Abs. 6); werden danach erneut geprüft`,
+      `Auftragsangaben, Unterlagen, Vollmachtsnachweise und Korrespondenz von ${kept.length} an den Zulassungspartner übermittelten Auftrag/Aufträgen (${kept
+        .map((k) => `${k.number} bis ${k.until}`)
+        .join(', ')}) – Aufbewahrung mindestens ${Math.round(PARTNER_RETENTION_DAYS / 366)} Jahre ab Antragstellung (Partnervertrag POWR § 4 Abs. 6); danach erneut prüfen und anonymisieren`,
     );
   if (invoices?.n) retained.push(`${invoices.n} Rechnung(en)/Gutschrift(en) inkl. Rechnungsanschrift – Aufbewahrung 8 bzw. 10 Jahre (§ 147 AO, § 14b UStG)`);
   if (paid?.n) retained.push(`Buchungsrelevante Auftragsdaten (Nummer, Leistung, Betrag, Zahlungsstatus) von ${paid.n} Auftrag/Aufträgen`);
@@ -575,7 +578,16 @@ export async function anonymizeCustomer(id: number, actor: string): Promise<R> {
   }
   stmts.push(
     ...docs.map((d) => q("UPDATE documents SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at = ''", at, `${actor} (DSGVO)`, d.id)),
-    q("UPDATE messages SET body = '', to_addr = '' WHERE customer_id = ?", id),
+    // Nachrichteninhalte (Text und HTML-Fassung) leeren – außer Korrespondenz zu Aufträgen unter Aufbewahrung
+    kept.size
+      ? q(
+          `UPDATE messages SET body = '', html = '', to_addr = '' WHERE customer_id = ? AND (order_id IS NULL OR order_id NOT IN (${[...kept].map(() => '?').join(', ')}))`,
+          id,
+          ...kept,
+        )
+      : q("UPDATE messages SET body = '', html = '', to_addr = '' WHERE customer_id = ?", id),
+    // Vollmachtsvorgänge der anonymisierten Aufträge: Stand und Zeitpunkte bleiben, personenbezogene Hinweise und Link nicht
+    ...orders.map((o) => q("UPDATE power_of_attorneys SET signature_url = '', note = '', missing_json = '[]', blocking_json = '[]' WHERE order_id = ?", o.id)),
     q('DELETE FROM customer_contacts WHERE customer_id = ?', id),
     q('DELETE FROM customer_locations WHERE customer_id = ?', id),
     q(

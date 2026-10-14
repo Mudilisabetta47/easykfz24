@@ -20,6 +20,7 @@ export const NOTIFY_KINDS = [
   'system',
   'widerruf',
   'vollmacht',
+  'freigabe_verstoss',
 ] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
@@ -44,6 +45,7 @@ export const NOTIFY_META: Record<NotifyKind, { label: string; priority: NotifyPr
   system: { label: 'System', priority: 'info', permission: 'settings.manage', group: 'system' },
   widerruf: { label: 'Widerruf eingegangen', priority: 'kritisch', permission: 'orders.read', group: 'auftraege' },
   vollmacht: { label: 'Digitale Vollmacht: neuer Stand', priority: 'normal', permission: 'orders.read', group: 'auftraege' },
+  freigabe_verstoss: { label: 'Beim Partner ohne Freigabe bzw. ohne bestätigte QES', priority: 'kritisch', permission: 'orders.read', group: 'api' },
 };
 
 export interface NotifyPrefs {

@@ -40,14 +40,14 @@ export async function dashboardData(userId: number, range = 30) {
   const prevSince = new Date(Date.now() - 2 * r * 86_400_000).toISOString();
   const t0 = Date.now();
   const [byStatusRows, series, prevSeries, done, kfzOutcome, hooks, hookStats, newCustomers, tasks, failedPays, abandoned, oldOpen] = await Promise.all([
-    db.all<{ status: StatusId; n: number }>('SELECT status, COUNT(*) AS n FROM orders GROUP BY status'),
-    db.all<{ created_at: string; total_cents: number; status: string }>('SELECT created_at, total_cents, status FROM orders WHERE created_at >= ?', since),
-    db.first<{ n: number; g: number | null }>("SELECT COUNT(*) AS n, SUM(total_cents) AS g FROM orders WHERE created_at >= ? AND created_at < ? AND status != 'storniert'", prevSince, since),
+    db.all<{ status: StatusId; n: number }>('SELECT status, COUNT(*) AS n FROM orders WHERE is_test = 0 GROUP BY status'),
+    db.all<{ created_at: string; total_cents: number; status: string }>('SELECT created_at, total_cents, status FROM orders WHERE is_test = 0 AND created_at >= ?', since),
+    db.first<{ n: number; g: number | null }>("SELECT COUNT(*) AS n, SUM(total_cents) AS g FROM orders WHERE is_test = 0 AND created_at >= ? AND created_at < ? AND status != 'storniert'", prevSince, since),
     db.all<{ created_at: string; done_at: string }>(
-      "SELECT o.created_at, MIN(e.at) AS done_at FROM orders o JOIN events e ON e.order_id = o.id AND e.type = 'status' AND e.to_status = 'zugelassen' WHERE o.created_at >= ? GROUP BY o.id",
+      "SELECT o.created_at, MIN(e.at) AS done_at FROM orders o JOIN events e ON e.order_id = o.id AND e.type = 'status' AND e.to_status = 'zugelassen' WHERE o.is_test = 0 AND o.created_at >= ? GROUP BY o.id",
       new Date(Date.now() - 365 * 86_400_000).toISOString(),
     ),
-    db.all<{ kfz_display: string; n: number }>("SELECT kfz_display, COUNT(*) AS n FROM orders WHERE kfz_display IN ('abgeschlossen', 'fehlgeschlagen') GROUP BY kfz_display"),
+    db.all<{ kfz_display: string; n: number }>("SELECT kfz_display, COUNT(*) AS n FROM orders WHERE is_test = 0 AND kfz_display IN ('abgeschlossen', 'fehlgeschlagen') GROUP BY kfz_display"),
     db.all<{ outcome: string; n: number }>('SELECT outcome, COUNT(*) AS n FROM kfz_webhook_events WHERE received_at >= ? GROUP BY outcome', since),
     db.first<{ total: number; deliveries: number | null; last: string | null }>('SELECT COUNT(*) AS total, SUM(deliveries) AS deliveries, MAX(received_at) AS last FROM kfz_webhook_events'),
     db.first<{ day: number; week: number; month: number }>(
@@ -65,7 +65,7 @@ export async function dashboardData(userId: number, range = 30) {
     ),
     db.first<{ n: number }>("SELECT COUNT(DISTINCT p.order_id) AS n FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.status = 'abgebrochen' AND o.payment_status = 'offen' AND p.at >= ?", since),
     db.first<{ n: number; cents: number | null }>(
-      "SELECT COUNT(*) AS n, SUM(total_cents) AS cents FROM orders WHERE payment_status = 'offen' AND status != 'storniert' AND created_at < ?",
+      "SELECT COUNT(*) AS n, SUM(total_cents) AS cents FROM orders WHERE is_test = 0 AND payment_status = 'offen' AND status != 'storniert' AND created_at < ?",
       new Date(Date.now() - 7 * 86_400_000).toISOString(),
     ),
   ]);
@@ -160,7 +160,7 @@ export async function dashboardData(userId: number, range = 30) {
     tasks,
     problems: problems.slice(0, 30),
     recent: await db.all<{ id: number; number: string; holder_name: string; service: string; status: string; created_at: string; total_cents: number; kfz_display: string; payment_status: string }>(
-      'SELECT id, number, holder_name, service, status, created_at, total_cents, kfz_display, payment_status FROM orders ORDER BY created_at DESC, id DESC LIMIT 8',
+      'SELECT id, number, holder_name, service, status, created_at, total_cents, kfz_display, payment_status FROM orders WHERE is_test = 0 ORDER BY created_at DESC, id DESC LIMIT 8',
     ),
     recentEvents: await db.all<{ event_id: string; received_at: string; outcome: string; order_id: number | null; status: string; derived_status: string; error: string; deliveries: number }>(
       'SELECT event_id, received_at, outcome, order_id, status, derived_status, error, deliveries FROM kfz_webhook_events ORDER BY received_at DESC LIMIT 8',

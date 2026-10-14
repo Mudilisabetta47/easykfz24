@@ -137,6 +137,16 @@ describe('EasyKFZ24 OS Enterprise', () => {
     const o = await orders.getOrder(first.id);
     for (const item of o!.checklistItems) await actions.actChecklist(first.id, item.key, true, ACTOR);
     for (const key of ['code_zb1', 'code_zb2', 'code_plaketten']) await actions.actRegCheck(first.id, key, true, ACTOR);
+    // Halterwechsel: ohne vom Partner bestätigte QES-Vollmacht keine Freigabe (Partnervertrag § 3)
+    const noQes = await actions.actRelease(first.id, true, ACTOR);
+    assert.ok(!noQes.ok && /Digitale Vollmacht nicht vom Partner/.test(noQes.error));
+    // Stand wie nach dem Abgleich über die Partner-Schnittstelle (Ablauf selbst: tests/power-of-attorney.test.ts)
+    await (await getDb()).run(
+      "INSERT INTO power_of_attorneys (order_id, attempt, external_order_id, process_id, status, ready, created_at, updated_at) VALUES (?, 1, 'T-V1', 4711, 'signiert', 1, ?, ?)",
+      first.id,
+      new Date().toISOString(),
+      new Date().toISOString(),
+    );
     // zweiter Auftrag mit anderer FIN läuft parallel – kein Doppelzulassungs-Konflikt
     const r2 = await actions.actRelease(first.id, true, ACTOR);
     assert.deepEqual(r2, { ok: true });

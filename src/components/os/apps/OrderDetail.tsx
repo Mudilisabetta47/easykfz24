@@ -60,6 +60,8 @@ export interface OrderBundle {
     tracking_number: string;
     payment_status: PaymentStatus;
     kfz_display: string;
+    /** 1 = Testauftrag des Inhabers */
+    is_test?: number;
     data: ValidatedOrder;
     price: PriceBreakdown;
     checklist: ChecklistState;
@@ -163,6 +165,11 @@ export function OrderDetailView({ id, initialTab, onBack, onChanged, onDuplicate
         </button>
         <div className="os-detail__title">
           <h2 className="os-mono">{o.number}</h2>
+          {o.is_test ? (
+            <p className="os-flash is-error" role="note">
+              TESTAUFTRAG – keine Kundenbestellung: keine Zahlung, Freigabe, Übermittlung an Partner/Behörde oder Kundenmail.
+            </p>
+          ) : null}
           <p className="os-muted">
             {SERVICES[o.service].title} ·{' '}
             {data.customer ? (
@@ -634,7 +641,9 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
   const poa = data.poas[0] ?? null;
   const needed = POA_SERVICE_IDS.includes(o.service);
   const release = data.poaTest.release;
-  const allowedMode = data.poaMode === 'aktiv' ? data.canWrite : data.poaMode === 'test' && data.poaTest.isInhaber && !!release?.active;
+  // Testaufträge: immer nur Inhaber mit Testfreigabe genau dieses Auftrags; echte Aufträge nur bei VOLLMACHT_DIGITAL=1
+  const allowedMode =
+    data.poaMode === 'aus' ? false : o.is_test ? data.poaTest.isInhaber && !!release?.active && release.orderId === o.id : data.poaMode === 'aktiv' && data.canWrite;
   const canRequest = allowedMode && needed && o.data.holder.typ === 'privat' && (!poa || ['abgelehnt', 'abgelaufen', 'fehler'].includes(poa.state));
   const [confirming, setConfirming] = useState(false);
   const run = async (path: string, success: string, confirmText?: string, body: Record<string, unknown> = {}) => {
@@ -788,7 +797,7 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
           }}
         />
       ) : null}
-      {data.poaMode === 'test' && needed ? <PoaTestRelease data={data} busy={busy} run={run} /> : null}
+      {data.poaMode !== 'aus' && needed && data.order.is_test ? <PoaTestRelease data={data} busy={busy} run={run} /> : null}
     </Panel>
   );
 }

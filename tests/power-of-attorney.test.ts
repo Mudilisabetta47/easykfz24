@@ -377,9 +377,14 @@ describe('Bestätigung, Testmodus und Doppelklick', () => {
     process.env.VOLLMACHT_TESTMODUS = '1';
     try {
       assert.equal(poa.poaMode(), 'test');
-      const mine = await orders.createOrder(validated(), []);
-      const other = await orders.createOrder(validated(), []);
+      const mine = await orders.createOrder(validated(), [], { test: { actor: 'Inhaber' } });
+      const other = await orders.createOrder(validated(), [], { test: { actor: 'Inhaber' } });
+      const real = await orders.createOrder(validated(), []);
       const before = fake.processes.size;
+      // echte Kundenaufträge: weder Testfreigabe noch Anforderung im Testmodus
+      const gReal = await poa.setTestRelease(real.id, true, owner);
+      assert.ok(!gReal.ok && /nur für Testaufträge/.test(gReal.error));
+      assert.ok(!(await request(real.id, owner)).ok);
       // ohne Freigabe: niemand
       assert.ok(!(await request(mine.id, owner)).ok);
       assert.ok(!(await poa.previewPoa(mine.id, owner, { sepa: false })).ok, 'auch keine Vorschau ohne Freigabe');
@@ -452,29 +457,26 @@ const { buildChecklist } = await import('../src/lib/checklist.ts');
 describe('Freigabe: nur eine vom Partner bestätigte Unterschrift zählt (Partnervertrag § 3)', () => {
   const poaBlocker = async (id: number) => releaseBlockers(await oa.issueInput((await orders.getOrder(id))!)).find((b) => /Digitale Vollmacht/.test(b));
 
-  it('Regel: Abmeldung ohne QES; ohne Vorgang und ausgeschaltet keine Pflicht; sonst nur signiert + vollständig', () => {
+  it('Regel: Abmeldung ohne QES; sonst immer Pflicht (unabhängig vom Schalter) und nur signiert + vollständig', () => {
     const signed = { status: 'signiert' as const, ready: true, sendEmail: true, note: '', createError: '' };
-    assert.equal(poaGate('abmeldung', true, null).required, false);
+    assert.equal(poaGate('abmeldung', null).required, false);
     for (const s of ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung'] as const) {
-      assert.deepEqual([poaGate(s, true, null).required, poaGate(s, true, null).signed], [true, false], s);
-      assert.equal(poaGate(s, false, null).required, false, `${s}: Papierweg, solange ausgeschaltet`);
-      assert.equal(poaGate(s, false, signed).required, true, `${s}: ein digitaler Vorgang existiert → Pflicht bleibt`);
-      assert.equal(poaGate(s, true, signed).signed, true);
-      assert.equal(poaGate(s, true, { ...signed, ready: false }).signed, false, 'signiert, aber unvollständig');
-      for (const st of ['offen', 'abgelehnt', 'verfallen', 'fehlgeschlagen'] as const) assert.equal(poaGate(s, true, { ...signed, status: st }).signed, false, st);
+      assert.deepEqual([poaGate(s, null).required, poaGate(s, null).signed], [true, false], s);
+      assert.equal(poaGate(s, signed).signed, true);
+      assert.equal(poaGate(s, { ...signed, ready: false }).signed, false, 'signiert, aber unvollständig');
+      for (const st of ['offen', 'abgelehnt', 'verfallen', 'fehlgeschlagen'] as const) assert.equal(poaGate(s, { ...signed, status: st }).signed, false, st);
     }
   });
 
-  it('Checkliste: im digitalen Modus kein Papier-Häkchen für die Vollmacht (Abmeldung unverändert)', () => {
-    assert.ok(!buildChecklist('neuzulassung', 'neu', { digitalPoa: true }).some((i) => i.key === 'vollmacht_original'));
-    assert.ok(buildChecklist('abmeldung', null, { digitalPoa: true }).some((i) => i.key === 'vollmacht_original'));
-    assert.ok(buildChecklist('neuzulassung', 'neu').some((i) => i.key === 'vollmacht_original'));
+  it('Checkliste: für QES-pflichtige Vorgänge nie ein Papier-Häkchen für die Vollmacht (Abmeldung unverändert)', () => {
+    for (const s of ['neuzulassung', 'halterwechsel', 'umzug', 'wiederzulassung'] as const) assert.ok(!buildChecklist(s, 'neu').some((i) => i.key === 'vollmacht_original'), s);
+    assert.ok(buildChecklist('abmeldung', null).some((i) => i.key === 'vollmacht_original'));
   });
 
   it('Checkout-Bestätigung allein (finish.vollmacht) sperrt die Freigabe; erst der Partnerstand „signiert + vollständig“ hebt sie auf', async () => {
     const d = await orders.createOrder(validated(), []);
     assert.equal((await orders.getOrder(d.id))!.data.finish.vollmacht, true, 'Kunde hat im Checkout bestätigt');
-    assert.match((await poaBlocker(d.id)) ?? '', /noch keine digitale Vollmacht angefordert/);
+    assert.match((await poaBlocker(d.id)) ?? '', /keine digitale Vollmacht vorhanden/);
     const r = await request(d.id);
     assert.ok(r.ok);
     const rec = (await poa.latestPoa(d.id))!;

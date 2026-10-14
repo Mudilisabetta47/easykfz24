@@ -13,7 +13,18 @@ import { PLATE_FINISH, PLATE_FINISHES, type PlateOffer } from '../../../lib/plat
 import { PROCESSING, PROCESSING_LEVELS, type ExpressOffer } from '../../../lib/express.ts';
 import { Dialog } from '../shared.tsx';
 
-export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<string, unknown> | null; onClose: () => void; onCreated: (id: number, number: string, warnings: string[]) => void }) {
+export function OrderForm({
+  initial,
+  test,
+  onClose,
+  onCreated,
+}: {
+  initial?: Record<string, unknown> | null;
+  /** Testauftrag des Inhabers (TEST-…): eigener Endpunkt, keine Kundenbestellung */
+  test?: boolean;
+  onClose: () => void;
+  onCreated: (id: number, number: string, warnings: string[]) => void;
+}) {
   const [d, setD] = useState<OrderInput>(() => {
     const base = emptyDraft('halterwechsel');
     if (!initial) return base;
@@ -52,8 +63,8 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
     setError(null);
     setErrors({});
     try {
-      const r = await osFetch<{ ok: true; id: number; number: string; warnings: string[] }>('orders', { method: 'POST', body: { data: d } });
-      onCreated(r.id, r.number, r.warnings);
+      const r = await osFetch<{ ok: true; id: number; number: string; warnings?: string[] }>(test ? 'testauftraege' : 'orders', { method: 'POST', body: { data: d } });
+      onCreated(r.id, r.number, r.warnings ?? []);
     } catch (e) {
       if (e instanceof OsError && e.data.fields) setErrors(e.data.fields as Record<string, string>);
       setError((e as Error).message);
@@ -64,7 +75,7 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
 
   return (
     <Dialog
-      title={initial ? 'Auftrag duplizieren' : 'Neuer Auftrag'}
+      title={test ? 'Testauftrag anlegen (nur Inhaber)' : initial ? 'Auftrag duplizieren' : 'Neuer Auftrag'}
       onClose={onClose}
       wide
       footer={
@@ -82,12 +93,19 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
               Abbrechen
             </button>
             <button type="button" className="os-btn" onClick={() => void submit()} disabled={busy}>
-              {busy ? 'Wird geprüft …' : 'Auftrag anlegen'}
+              {busy ? 'Wird geprüft …' : test ? 'Testauftrag anlegen' : 'Auftrag anlegen'}
             </button>
           </span>
         </>
       }
     >
+      {test ? (
+        <p className="os-flash is-error" role="note">
+          TESTAUFTRAG – keine Kundenbestellung. Beim Anlegen wird nichts angefordert, bezahlt, übermittelt oder gemailt. Eine echte, kostenpflichtige
+          Vollmacht entsteht erst nach der Testfreigabe genau dieses Auftrags und der bestätigten Vorschau mit Kosten. Nur echte Angaben der einwilligenden
+          Testperson (wie im Ausweis), keine Daten Dritter.
+        </p>
+      ) : null}
       <div className="os-formgrid">
         <fieldset>
           <legend>Leistung</legend>
@@ -265,6 +283,18 @@ export function OrderForm({ initial, onClose, onCreated }: { initial?: Record<st
             <label className={`os-check-field${errors['finish.vollmacht'] ? ' has-error' : ''}`}>
               <input type="checkbox" checked={!!d.finish.vollmacht} onChange={(e) => set('finish', 'vollmacht', e.target.checked)} /> Vollmacht liegt vor
             </label>
+            {test ? (
+              <>
+                <label className="os-check-field">
+                  <input type="checkbox" checked={!!d.finish.vorzeitigerBeginn} onChange={(e) => set('finish', 'vorzeitigerBeginn', e.target.checked)} /> Testperson verlangt den
+                  Beginn vor Ablauf der Widerrufsfrist
+                </label>
+                <label className="os-check-field">
+                  <input type="checkbox" checked={!!d.finish.widerrufErlischt} onChange={(e) => set('finish', 'widerrufErlischt', e.target.checked)} /> Testperson kennt das
+                  Erlöschen des Widerrufsrechts
+                </label>
+              </>
+            ) : null}
             <label className={`os-check-field${errors['finish.datenschutz'] ? ' has-error' : ''}`}>
               <input type="checkbox" checked={!!d.finish.datenschutz} onChange={(e) => set('finish', 'datenschutz', e.target.checked)} /> Kunde wurde über den Datenschutz informiert
             </label>

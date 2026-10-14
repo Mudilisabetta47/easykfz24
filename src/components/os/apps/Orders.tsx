@@ -12,7 +12,7 @@ import type { OrderListRow } from '../../../server/os/order-query.ts';
 import { dateTime, euro, osFetch, relTime, useOsData } from '../api.ts';
 import { useOs } from '../context.ts';
 import { IRefresh, ISearch } from '../icons.tsx';
-import { Chips, dateOnly, ExportMenu, IssueDot, isOverdue, PlateBadge, PRIORITY_LABEL, PriorityBadge, ProcessingBadge, StaffSelect, StageBadge, staffName, useStaff } from '../shared.tsx';
+import { Chips, dateOnly, Dialog, ExportMenu, IssueDot, isOverdue, PlateBadge, PRIORITY_LABEL, PriorityBadge, ProcessingBadge, StaffSelect, StageBadge, staffName, useStaff } from '../shared.tsx';
 import { Empty, ErrorBox, KfzState, Loading, StatusBadge, useFlash } from '../ui.tsx';
 import { OrderDetailView } from './OrderDetail.tsx';
 import { OrderForm } from './OrderForm.tsx';
@@ -46,14 +46,16 @@ function toQuery(f: Filters, extra: Record<string, string | number | undefined> 
 }
 
 export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>; nonce: number }) {
-  const { can } = useOs();
+  const { can, session } = useOs();
+  const isOwner = session.user.role === 'inhaber';
+  const [testPanel, setTestPanel] = useState(false);
   const [view, setView] = useState<'liste' | 'kanban' | 'express'>(params?.view === 'express' ? 'express' : 'liste');
   const [f, setF] = useState<Filters>(() => ({ ...EMPTY, status: typeof params?.status === 'string' ? params.status : EMPTY.status }));
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selected, setSelected] = useState<number | null>((params?.orderId as number) ?? null);
   const [tab, setTab] = useState<string | undefined>(params?.tab as string | undefined);
   const [checked, setChecked] = useState<Set<number>>(new Set());
-  const [form, setForm] = useState<{ initial: Record<string, unknown> | null } | null>(null);
+  const [form, setForm] = useState<{ initial: Record<string, unknown> | null; test?: boolean } | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const flash = useFlash();
   const staff = useStaff();
@@ -133,6 +135,11 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
         {can('orders.write') ? (
           <button type="button" className="os-btn os-btn--sm" onClick={() => setForm({ initial: null })}>
             + Neuer Auftrag
+          </button>
+        ) : null}
+        {isOwner ? (
+          <button type="button" className="os-btn os-btn--ghost os-btn--sm" onClick={() => setTestPanel(true)} title="Digitale Vollmacht testen, ohne den Kunden-Checkout zu öffnen">
+            Testaufträge
           </button>
         ) : null}
       </div>
@@ -317,13 +324,26 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
           </section>
         </div>
       )}
+      {testPanel ? (
+        <TestOrdersPanel
+          onClose={() => setTestPanel(false)}
+          onCreate={() => setForm({ initial: null, test: true })}
+          onOpen={(id) => {
+            setTestPanel(false);
+            setSelected(id);
+            setView('liste');
+          }}
+        />
+      ) : null}
       {form ? (
         <OrderForm
           initial={form.initial}
+          test={form.test}
           onClose={() => setForm(null)}
           onCreated={(id, number, warnings) => {
             setForm(null);
-            flash.show(!warnings.length, `Auftrag ${number} angelegt${warnings.length ? ` – ${warnings.join(' ')}` : ''}`);
+            setTestPanel(false);
+            flash.show(!warnings.length, `${form.test ? 'Testauftrag' : 'Auftrag'} ${number} angelegt${warnings.length ? ` – ${warnings.join(' ')}` : ''}`);
             setSelected(id);
             setView('liste');
             void list.reload(true);
@@ -331,6 +351,94 @@ export function OrdersApp({ params, nonce }: { params?: Record<string, unknown>;
         />
       ) : null}
     </div>
+  );
+}
+
+/* ---------- Testaufträge (nur Inhaber) ---------- */
+
+interface TestOrderInfo {
+  allowed: boolean;
+  reason: string | null;
+  window: { openedBy: string; openedAt: string; expiresAt: string; created: number } | null;
+  minutes: number;
+  maxPerWindow: number;
+  orders: OrderListRow[];
+}
+
+function TestOrdersPanel({ onClose, onCreate, onOpen }: { onClose: () => void; onCreate: () => void; onOpen: (id: number) => void }) {
+  const info = useOsData<TestOrderInfo>('testauftraege');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const toggle = async (offen: boolean) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await osFetch('testauftraege/fenster', { method: 'POST', body: { offen } });
+      setMsg({ ok: true, text: offen ? 'Testfenster geöffnet' : 'Testfenster geschlossen' });
+      void info.reload(true);
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const d = info.data;
+  return (
+    <Dialog title="Testaufträge (nur Inhaber)" onClose={onClose} wide>
+      <p className="os-muted os-small">
+        Zum Prüfen der digitalen Vollmacht, ohne den Kunden-Checkout zu öffnen. Testaufträge (TEST-…) werden nie bezahlt, freigegeben, an Partner oder Behörde
+        übermittelt oder per Mail an Kunden verschickt. Eine echte, kostenpflichtige Vollmacht entsteht erst nach der Testfreigabe genau eines Testauftrags und
+        der bestätigten Vorschau mit Kosten.
+      </p>
+      {info.error ? <ErrorBox message={info.error} onRetry={() => void info.reload()} /> : !d ? <Loading /> : null}
+      {d ? (
+        <>
+          {!d.allowed ? (
+            <p className="os-flash is-error" role="status">
+              {d.reason}
+            </p>
+          ) : d.window ? (
+            <p className="os-flash" role="status">
+              Testfenster offen bis {dateTime(d.window.expiresAt)} · {d.window.created} von {d.maxPerWindow} Testaufträgen angelegt
+            </p>
+          ) : (
+            <p className="os-muted">Kein Testfenster offen. Es gilt {d.minutes} Minuten für höchstens {d.maxPerWindow} Testaufträge.</p>
+          )}
+          {msg ? <p className={`os-flash${msg.ok ? '' : ' is-error'}`}>{msg.text}</p> : null}
+          <div className="os-row">
+            {d.allowed && !d.window ? (
+              <button type="button" className="os-btn os-btn--sm" disabled={busy} onClick={() => void toggle(true)}>
+                Testfenster öffnen ({d.minutes} Min.)
+              </button>
+            ) : null}
+            {d.window ? (
+              <>
+                <button type="button" className="os-btn os-btn--sm" disabled={busy || d.window.created >= d.maxPerWindow} onClick={onCreate}>
+                  + Testauftrag anlegen
+                </button>
+                <button type="button" className="os-btn os-btn--ghost os-btn--sm" disabled={busy} onClick={() => void toggle(false)}>
+                  Testfenster schließen
+                </button>
+              </>
+            ) : null}
+          </div>
+          <h3 className="os-h3">Bisherige Testaufträge</h3>
+          {d.orders.length ? (
+            <ul className="os-list" role="list">
+              {d.orders.map((o) => (
+                <li key={o.id}>
+                  <button type="button" className="os-list__item" onClick={() => onOpen(o.id)}>
+                    <strong>{o.number}</strong> · {SERVICES[o.service].title} · {STATUSES[o.status].label} · {dateTime(o.created_at)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="os-muted">Noch keine Testaufträge.</p>
+          )}
+        </>
+      ) : null}
+    </Dialog>
   );
 }
 

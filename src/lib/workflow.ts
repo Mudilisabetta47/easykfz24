@@ -8,7 +8,7 @@ import type { DisplayStatus } from './kfz-status.ts';
 import type { ValidatedOrder } from './order.ts';
 import { DOCUMENTS, isEvbRequired, isPreviousPlateRequired, requiredDocuments, SERVICES, type DocumentKind, type ServiceId } from './services.ts';
 import type { StatusId } from './status.ts';
-import type { PoaGate } from './power-of-attorney.ts';
+import { POA_SERVICES, submissionProblems, type PoaGate } from './power-of-attorney.ts';
 
 export const STAGES = ['neu', 'dokumente', 'zahlung_bestaetigt', 'bereit', 'beim_partner', 'in_bearbeitung', 'abgeschlossen'] as const;
 export const SIDE_STAGES = ['rueckfrage', 'fehler', 'storniert'] as const;
@@ -137,7 +137,14 @@ export interface IssueInput {
   paidCents?: number | null;
   /** Digitale Vollmacht (QES): Pflicht und Partnerstand – siehe poaGate */
   poa?: PoaGate;
+  /** Vorgangsnummer bei kfz-api.de (verknüpft oder per Webhook gemeldet) */
+  kfz_order_id?: string;
+  /** Testauftrag des Inhabers – nie an Partner oder Behörde */
+  isTest?: boolean;
 }
+
+/** Statusstände, die nur nach einer Übergabe an Partner bzw. Behörde erreichbar sind */
+const AT_PARTNER: StatusId[] = ['bei_zulassungsstelle', 'zugelassen', 'versendet', 'abgeholt', 'abgeschlossen'];
 
 const ACTIVE: StatusId[] = ['neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle'];
 
@@ -182,6 +189,12 @@ export function orderIssues(o: IssueInput): Issue[] {
       out.push({ level: 'warnung', code: 'codes', text: `Sicherheitscodes nicht bestätigt: ${missingCodes.map((c) => SECURITY_CODES[c].label).join(', ')}`, fix: 'freigabe' });
     if (o.due_at && o.due_at < new Date().toISOString()) out.push({ level: 'warnung', code: 'frist', text: 'Bearbeitungsfrist überschritten', fix: 'frist' });
   }
+  // Beim Partner bzw. der Behörde, obwohl intern nicht freigegeben, ohne bestätigte QES oder als Testauftrag (z. B. direkt im
+  // Partnerportal eingereicht): echte externe Stände bleiben stehen, werden aber sofort als Fehler markiert
+  if (o.kfz_order_id || o.kfz_display || AT_PARTNER.includes(o.status)) {
+    const problems = submissionProblems({ releasedAt: o.released_at ?? '', poa: o.poa ?? { required: false, signed: true, label: '' }, isTest: !!o.isTest });
+    if (problems.length) out.push({ level: 'fehler', code: 'extern_ohne_freigabe', text: `Beim Partner bzw. der Behörde, aber: ${problems.join('; ')}`, fix: 'freigabe' });
+  }
   if (o.kfz_display === 'fehlgeschlagen') out.push({ level: 'fehler', code: 'kfz_fehler', text: `kfz-api.de meldet ${o.kfz_status || 'Fehler/Ablehnung'}`, fix: 'kfz' });
   if (o.kfz_display === 'angaben_erforderlich') out.push({ level: 'warnung', code: 'kfz_rueckfrage', text: 'Behörde benötigt weitere Angaben', fix: 'kfz' });
   if (o.status === 'zugelassen' && o.service !== 'abmeldung' && !o.assigned_plate) out.push({ level: 'fehler', code: 'kennzeichen', text: 'Zugelassen, aber kein Kennzeichen eingetragen', fix: 'kennzeichen' });
@@ -195,12 +208,15 @@ export function orderIssues(o: IssueInput): Issue[] {
  */
 export function releaseBlockers(o: IssueInput): string[] {
   const blockers: string[] = [];
+  if (o.isTest) blockers.push('Testauftrag – keine Übermittlung an Partner oder Behörde');
   if (o.status !== 'in_pruefung') blockers.push('Auftrag muss „In Prüfung“ sein');
   if (!isChecklistComplete(o.checklistItems, o.checklist)) blockers.push('Checkliste unvollständig');
   if (o.payment_status !== 'bezahlt') blockers.push('Zahlung nicht bestätigt');
   else if (o.paidCents != null && o.totalCents != null && o.paidCents < o.totalCents) blockers.push('Gezahlter Betrag liegt unter dem Auftragsbetrag – im Finanzcenter (Zahlungsabgleich) klären');
   for (const i of orderIssues(o)) if (i.level === 'fehler') blockers.push(i.text);
-  if (o.poa?.required && !o.poa.signed) blockers.push(`Digitale Vollmacht nicht vom Partner als unterschrieben und vollständig bestätigt (${o.poa.label})`);
+  // QES-Pflicht: ohne Partnerstand (z. B. Liste ohne Vollmachtsdaten) gilt sie als nicht erfüllt
+  const poa = o.poa ?? { required: POA_SERVICES.includes(o.service), signed: false, label: 'Stand unbekannt' };
+  if (poa.required && !poa.signed) blockers.push(`Digitale Vollmacht nicht vom Partner als unterschrieben und vollständig bestätigt (${poa.label})`);
   const codes = securityCodesFor(o.service, o.data.plate.wahl === 'behalten');
   for (const c of codes) if (!o.regChecks?.[`code_${c}`]) blockers.push(`${SECURITY_CODES[c].label} nicht bestätigt`);
   return [...new Set(blockers)];

@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 113;
+const EXPECTED_ROUTES = 116;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -56,6 +56,7 @@ const NEEDS_EXTERNAL: Record<string, string> = {
   'POST messages/testmail': 'E-Mail-Dienst (Resend) – Ablauf im Resend-Nachbau: tests/transactional-mail.test.ts',
   'POST orders/:id/vollmacht/vorschau': 'kfz-api.de-Zugang und vollständige Vollmachtsangaben – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/testfreigabe': 'Testmodus nur mit kfz-api.de-Zugang – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST testauftraege': 'Testauftrag nur bei VOLLMACHT_TESTMODUS=1 mit kfz-api.de-Zugang und offenem Testfenster – Ablauf: tests/submission-guard.test.ts',
 };
 const hits: Record<string, Set<string>> = Object.fromEntries(ROUTES.map((r) => [r.key, new Set<string>()]));
 const fivehundreds: string[] = [];
@@ -420,8 +421,9 @@ describe('Auftrags-Endpunkte', () => {
     await expect(sb, 'POST', A, 403, { type: 'adjustPrice', percent: 10, reason: 'x' });
     await expect(le, 'POST', A, 403, { type: 'kfzLink', kfzOrderId: '4711' });
     await expect(sb, 'POST', A, 422, { type: 'kfzLink', kfzOrderId: '../etc' });
-    await expect(sb, 'POST', A, 200, { type: 'kfzLink', kfzOrderId: 'E2E-4711' });
-    await expect(sb, 'POST', `orders/${ids.b}/action`, 422, { type: 'kfzLink', kfzOrderId: 'E2E-4711' });
+    // Verknüpfen heißt „beim Partner eingereicht“: ohne interne Freigabe und bestätigte QES-Vollmacht gesperrt
+    const noLink = await expect(sb, 'POST', A, 422, { type: 'kfzLink', kfzOrderId: 'E2E-4711' });
+    assert.match(String(noLink.json.error), /keine interne Freigabe.*QES-Vollmacht/);
     await expect(sb, 'POST', A, 422, { type: 'assign', assigneeId: 99999 });
     await expect(sb, 'POST', A, 200, { type: 'assign', assigneeId: ids.userSb });
     await expect(sb, 'POST', A, 422, { type: 'planning', priority: 'superwichtig' });
@@ -654,6 +656,8 @@ describe('KFZ-API', () => {
     assert.equal(tasks.filter((t) => t.order_id === ids.c && t.title.startsWith('Unterlagen anfordern')).length, 1, 'keine doppelte Aufgabe');
     const notes = (await vw.get('notifications?limit=200')).json.items as { kind: string; order_id: number }[];
     assert.equal(notes.filter((x) => x.order_id === ids.c && x.kind === 'behoerde_rueckfrage').length, 1);
+    // ids.c wurde extern gemeldet, ohne interne Freigabe und QES: sofortige, kritische Warnung
+    assert.ok(notes.some((x) => x.order_id === ids.c && x.kind === 'freigabe_verstoss'), 'Warnung „ohne Freigabe/QES“');
     assert.equal(notes.filter((x) => x.order_id === ids.c && x.kind === 'unterlagen_fehlen').length, 0, 'keine Doppelmeldung');
     const c = await expect(le, 'GET', `kfz/order/${ids.c}`, 200);
     assert.ok((c.json as unknown as { event_id: string }[]).some((e) => e.event_id === 'e2e-unbekannt'), 'Meldung nach Zuordnung am Auftrag');
@@ -666,7 +670,20 @@ describe('KFZ-API', () => {
     assert.equal(r.json.matched, false);
     const still = await expect(sb, 'POST', 'kfz/retry', 200, { eventId: 'e2e-retry' });
     assert.equal(still.json.matched, false, 'ohne Verknüpfung weiterhin offen');
-    await expect(sb, 'POST', `orders/${ids.b}/action`, 200, { type: 'kfzLink', kfzOrderId: '9002' });
+    // Abmeldung (keine QES nötig) nach vollständiger Freigabe verknüpfen
+    const ab = await expect(sb, 'POST', 'orders', 200, { data: orderData({ service: 'abmeldung', email: 'abm.link@example.de', fin: 'WVWZZZ1KZAW000901' }) });
+    const AB = `orders/${ab.json.id}/action`;
+    await expect(sb, 'POST', AB, 422, { type: 'kfzLink', kfzOrderId: '9002' }, 'invalid');
+    await expect(bh, 'POST', AB, 200, { type: 'payment', status: 'bezahlt', ref: 'E2E-BUCHUNG-9002' });
+    // Zahlung → „In Prüfung“ erledigt die Automatisierung; sonst von Hand
+    const cur = (await sb.get(`orders/${ab.json.id}`)).json.order as { status: string };
+    if (cur.status !== 'in_pruefung') await expect(sb, 'POST', AB, 200, { type: 'status', to: 'in_pruefung' });
+    const abd = await expect(sb, 'GET', `orders/${ab.json.id}`, 200);
+    for (const item of (abd.json.order as { checklistItems: { key: string }[] }).checklistItems) await expect(sb, 'POST', AB, 200, { type: 'checklist', key: item.key, checked: true });
+    for (const code of (abd.json.insights as { codes: string[] }).codes) await expect(sb, 'POST', AB, 200, { type: 'regCheck', key: `code_${code}`, value: true });
+    await expect(sb, 'POST', AB, 200, { type: 'release' });
+    await expect(sb, 'POST', AB, 200, { type: 'kfzLink', kfzOrderId: '9002' });
+    await expect(sb, 'POST', `orders/${ids.b}/action`, 422, { type: 'kfzLink', kfzOrderId: '9002' }, 'invalid');
     const done = await expect(sb, 'POST', 'kfz/retry', 200, { eventId: 'e2e-retry' });
     assert.equal(done.json.matched, true);
     await expect(sb, 'POST', 'kfz/retry', 422, { eventId: 'e2e-retry' });
@@ -1381,6 +1398,32 @@ describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
     assert.match(String(a.json.error), /keinen Vollmachtsvorgang/);
     const d = await expect(sb, 'GET', `orders/${ids.a}`, 200);
     assert.deepEqual([d.json.poas, d.json.poaEnabled, d.json.poaMode], [[], false, 'aus']);
+  });
+
+  it('Testaufträge: nur Inhaber, nur im eingeschalteten Testmodus – ohne Testmodus nichts anlegbar, Liste ohne Testaufträge', async () => {
+    for (const c of [vw, sb, bh, le]) {
+      await expect(c, 'GET', 'testauftraege', 403);
+      await expect(c, 'POST', 'testauftraege/fenster', 403, { offen: true });
+      await expect(c, 'POST', 'testauftraege', 403, { data: orderData() });
+    }
+    const st = await expect(owner, 'GET', 'testauftraege', 200);
+    assert.equal(st.json.allowed, false);
+    assert.match(String(st.json.reason), /VOLLMACHT_TESTMODUS/);
+    assert.deepEqual(st.json.orders, []);
+    const w = await expect(owner, 'POST', 'testauftraege/fenster', 422, { offen: true });
+    assert.match(String(w.json.error), /VOLLMACHT_TESTMODUS/);
+    await expect(owner, 'POST', 'testauftraege/fenster', 200, { offen: false });
+    const t = await expect(owner, 'POST', 'testauftraege', 422, { data: orderData() });
+    assert.match(String(t.json.error), /VOLLMACHT_TESTMODUS/);
+  });
+
+  it('Website: Zulassung, Ummeldung und Wiederzulassung ohne eingeschaltete digitale Vollmacht nicht online bestellbar', async () => {
+    const form = new FormData();
+    form.set('data', JSON.stringify(orderData({ service: 'halterwechsel', email: `qes.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` })));
+    const ip = '10.6.6.6';
+    const r = await anon.req('POST', '/api/auftrag', { form, headers: { 'x-forwarded-for': ip, 'cf-connecting-ip': ip } });
+    assert.equal(r.status, 422);
+    assert.match(String((r.json.errors as Record<string, string>)?.service), /nur die Abmeldung/);
   });
 
   it('Zeitsteuerung: interner Endpunkt ist von außen nicht aufrufbar; Versionskennung ohne Geheimnisse', async () => {

@@ -10,6 +10,7 @@
 // Antrag geht produktiv an das KBA. Anträge werden erst nach ausdrücklicher Freigabe angebunden.
 
 import { eventStmt, getOrder, touchStmt } from './orders.ts';
+import { submissionState } from './os/submission.ts';
 import { earlyStartWait, waitMessage } from '../lib/withdrawal-period.ts';
 import { emitSafe } from './os/events.ts';
 import { getDb, q, type Stmt } from './db.ts';
@@ -154,6 +155,8 @@ const WORKFLOW_TARGET: Partial<Record<DisplayStatus, StatusId>> = {
 interface Applied {
   display: DisplayStatus | null;
   previousDisplay: string;
+  /** Übermittlung ohne interne Freigabe, ohne bestätigte QES oder als Testauftrag (externer Stand wird trotzdem protokolliert) */
+  problems: string[];
   /** Automatisch gesetzte Status-Schritte des Auftrags (für Automatisierungen und Benachrichtigungen) */
   transitions: { from: StatusId; to: StatusId }[];
 }
@@ -245,8 +248,20 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
       );
     }
   }
+  // Beim Partner eingereicht, obwohl intern nicht freigegeben bzw. ohne bestätigte QES: echte Meldung bleibt protokolliert,
+  // nichts wird als erfüllt markiert (Freigabe und Vollmachtsstand bleiben unverändert) – Warnung im Verlauf und im OS
+  const st = await submissionState(orderId);
+  const problems = st?.problems ?? [];
+  if (problems.length && (!order.kfz_order_id || display !== order.kfz_display))
+    stmts.push(
+      eventStmt(orderId, {
+        type: 'note',
+        message: `WARNUNG: kfz-api.de meldet einen Vorgang (${ev.rawStatus ?? ev.derivedStatus ?? '–'}), aber ${problems.join('; ')}. Externer Stand übernommen – bitte sofort prüfen.`,
+        actor: 'kfz-api.de',
+      }),
+    );
   stmts.push(touchStmt(orderId));
-  return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions } };
+  return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions, problems } };
 }
 
 /**
@@ -285,6 +300,14 @@ export async function notifyCustomer(orderId: number, display: DisplayStatus, ev
  * Automatisch gesetzte Status-Schritte laufen als order.status durch dieselben Regeln wie manuelle.
  */
 async function afterKfz(eventId: string, orderId: number, ev: KfzEvent, applied: Applied): Promise<void> {
+  if (applied.problems.length)
+    await emitSafe({
+      type: 'order.compliance',
+      orderId,
+      actor: 'kfz-api.de',
+      payload: { problems: applied.problems, display: applied.display ?? '', kfzOrderId: ev.orderId ?? '' },
+      dedupeKey: `compliance:${orderId}:${applied.display ?? ''}:${applied.problems.join('|')}`,
+    });
   await scheduleNotify(orderId, applied, eventId);
   await emitKfz(eventId, orderId, ev, applied);
   for (const t of applied.transitions) {
@@ -482,6 +505,10 @@ export async function linkKfzOrder(orderId: number, kfzOrderId: string): Promise
     const o = await getOrder(orderId);
     const wait = o ? earlyStartWait(o) : null;
     if (wait) return { ok: false, error: waitMessage(wait.until) };
+    // Nur nach interner Freigabe und – bei QES-Pflicht – vom Partner bestätigter Vollmacht; nie für Testaufträge
+    const st = await submissionState(orderId);
+    if (!st) return { ok: false, error: 'Auftrag nicht gefunden' };
+    if (st.problems.length) return { ok: false, error: `Verknüpfung nicht möglich: ${st.problems.join('; ')}` };
     const other = await db.first<{ number: string }>('SELECT number FROM orders WHERE kfz_order_id = ? AND id != ?', id, orderId);
     if (other) return { ok: false, error: `Vorgang ist bereits mit ${other.number} verknüpft` };
   }

@@ -53,11 +53,12 @@ export async function queueCustomerMail(input: {
   build: (ctx: MailContext) => Mail | Promise<Mail>;
 }): Promise<QueueResult> {
   const db = await getDb();
-  const o = await db.first<{ id: number; number: string; email: string; customer_id: number | null }>(
-    'SELECT id, number, email, customer_id FROM orders WHERE id = ?',
+  const o = await db.first<{ id: number; number: string; email: string; customer_id: number | null; is_test: number }>(
+    'SELECT id, number, email, customer_id, is_test FROM orders WHERE id = ?',
     input.orderId,
   );
   if (!o) return { queued: false, reason: 'Auftrag nicht gefunden' };
+  if (o.is_test) return { queued: false, reason: 'Testauftrag – keine Kundenmail' };
   if (!o.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) return { queued: false, reason: 'keine gültige E-Mail-Adresse' };
   if (await db.first('SELECT 1 AS x FROM messages WHERE dedupe_key = ?', input.dedupeKey)) return { queued: false, reason: 'bereits angelegt' };
   const mail = await input.build({ baseUrl: publicBaseUrl(), number: o.number });

@@ -292,7 +292,10 @@ const releaseActive = (r: PoaTestRelease | null): r is PoaTestRelease => !!r && 
 export async function setTestRelease(orderId: number, active: boolean, actor: PoaActor): Promise<{ ok: true; release: PoaTestRelease | null } | { ok: false; error: string }> {
   if (actor.role !== 'inhaber') return { ok: false, error: 'Nur der Inhaber kann eine Testfreigabe erteilen.' };
   const db = await getDb();
-  const order = await db.first<{ id: number; number: string; service: string; status: string; data_json: string }>('SELECT id, number, service, status, data_json FROM orders WHERE id = ?', orderId);
+  const order = await db.first<{ id: number; number: string; service: string; status: string; data_json: string; is_test: number }>(
+    'SELECT id, number, service, status, data_json, is_test FROM orders WHERE id = ?',
+    orderId,
+  );
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   const current = await getTestRelease();
   if (!active) {
@@ -303,7 +306,15 @@ export async function setTestRelease(orderId: number, active: boolean, actor: Po
   }
   const mode = poaMode();
   if (mode === 'aus') return { ok: false, error: poaOffReason() };
-  if (mode === 'aktiv') return { ok: false, error: 'Die digitale Vollmacht ist bereits für alle Aufträge freigeschaltet (VOLLMACHT_DIGITAL=1) – keine Testfreigabe nötig.' };
+  // Echte Kundenaufträge nie im Testablauf: Testfreigabe nur für Testaufträge (TEST-…), angelegt vom Inhaber
+  if (!order.is_test)
+    return {
+      ok: false,
+      error:
+        mode === 'aktiv'
+          ? 'Die digitale Vollmacht ist bereits für alle Aufträge freigeschaltet (VOLLMACHT_DIGITAL=1) – keine Testfreigabe nötig.'
+          : 'Testfreigabe nur für Testaufträge (TEST-…) – echte Kundenaufträge werden im Testmodus nicht verwendet.',
+    };
   if (order.status === 'storniert') return { ok: false, error: 'Der Auftrag ist storniert.' };
   if (!POA_SERVICES.includes(order.service as never)) return { ok: false, error: 'Für diese Leistung ist keine Vollmacht nötig.' };
   if ((JSON.parse(order.data_json) as ValidatedOrder).holder.typ !== 'privat') return { ok: false, error: 'Testfreigabe nur für Privatpersonen (Firmen brauchen Business Sign).' };
@@ -327,7 +338,10 @@ export async function setTestRelease(orderId: number, active: boolean, actor: Po
 async function creationAllowed(orderId: number, attempt: number, actor: PoaActor): Promise<string | null> {
   const mode = poaMode();
   if (mode === 'aus') return poaOffReason();
-  if (mode === 'aktiv') return null;
+  const isTest = !!(await (await getDb()).first<{ is_test: number }>('SELECT is_test FROM orders WHERE id = ?', orderId))?.is_test;
+  // Testaufträge immer nur mit eigener Testfreigabe des Inhabers (auch wenn die digitale Vollmacht allgemein aktiv ist)
+  if (mode === 'aktiv' && !isTest) return null;
+  if (!isTest) return 'Testmodus: Nur Testaufträge (TEST-…) – für echte Kundenaufträge wird im Testmodus keine Vollmacht angefordert.';
   if (actor.role !== 'inhaber') return 'Testmodus: Nur der Inhaber kann eine echte Vollmacht anfordern.';
   const r = await getTestRelease();
   if (!r || r.orderId !== orderId) return 'Testmodus: Für diesen Auftrag besteht keine Testfreigabe.';
@@ -642,7 +656,7 @@ export async function verifyPoa(recordId: number, opts: { force?: boolean; actor
     stmts.push(
       eventStmt(rec.order_id, {
         type: 'vollmacht',
-        message: `Digitale Vollmacht (Vorgang ${rec.process_id}): ${label} – bestätigt über die Partner-Schnittstelle${f.missing.length && f.status === 'signiert' ? ` · fehlende Halterfelder: ${f.missing.join(', ')}` : ''}${f.blocking.length ? ` · ${f.blocking.join(', ')}` : ''}`,
+        message: `Digitale Vollmacht (Vorgang ${rec.process_id}): ${label} – bestätigt über die Partner-Schnittstelle${f.missing.length && f.status === 'signiert' ? ` · fehlende Halterfelder: ${f.missing.join(', ')}` : ''}${f.blocking.length ? ` · ${f.blocking.join(', ')}` : ''}${f.note ? ` · Hinweis des Partners: ${f.note.slice(0, 300)}` : ''}`,
         actor: opts.actor ?? 'kfz-api.de (Abgleich)',
       }),
       touchStmt(rec.order_id),

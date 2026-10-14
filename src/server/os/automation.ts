@@ -529,7 +529,14 @@ async function claimAndRun(ruleId: string, runKey: string, eventId: number | nul
   await db.run('UPDATE automation_runs SET result = ?, detail = ? WHERE id = ?', out.result, out.detail.slice(0, 500), claim.id);
 }
 
+/** Testaufträge des Inhabers laufen nie durch Automatisierungen (keine Mails, Statuswechsel, Aufgaben) */
+async function isTestOrder(orderId: number | null | undefined): Promise<boolean> {
+  if (!orderId) return false;
+  return !!(await (await getDb()).first<{ is_test: number }>('SELECT is_test FROM orders WHERE id = ?', orderId))?.is_test;
+}
+
 export async function runAutomations(ev: OsEvent): Promise<void> {
+  if (await isTestOrder(ev.order_id)) return;
   const cfg = await config();
   for (const rule of RULES) {
     if (rule.trigger === 'zeitgesteuert' || !rule.run || !rule.trigger.includes(ev.type)) continue;
@@ -559,6 +566,7 @@ export async function runScheduledRules(force = false, only?: readonly string[])
     try {
       const items = await rule.scan({ params: c.params });
       for (const it of items) {
+        if (await isTestOrder(it.orderId)) continue;
         cases++;
         await claimAndRun(rule.id, it.key, null, it.orderId ?? null, it.exec);
       }

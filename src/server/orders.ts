@@ -40,6 +40,8 @@ export interface OrderRow {
   payment_status: PaymentStatus;
   /** Bearbeitungsstand laut kfz-api.de (leer, solange keine Meldung vorliegt) */
   kfz_display: string;
+  /** 1 = Testauftrag des Inhabers (TEST-…): keine Zahlung, Freigabe, Übermittlung oder Kundenmail */
+  is_test: number;
 }
 
 export interface OrderDetail extends OrderRow {
@@ -89,7 +91,7 @@ export interface UploadFile {
 }
 
 const LIST_COLUMNS =
-  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents, carrier, tracking_number, payment_status, kfz_display';
+  'id, number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, assigned_plate, iban, delivery, total_cents, carrier, tracking_number, payment_status, kfz_display, is_test';
 
 const now = () => new Date().toISOString();
 
@@ -119,6 +121,7 @@ export function touchStmt(orderId: number): Stmt {
 export async function createOrder(
   order: ValidatedOrder,
   files: UploadFile[],
+  opts: { test?: { actor: string } } = {},
 ): Promise<{ id: number; number: string; discountApplied: boolean; totalCents: number; paymentToken: string }> {
   const db = await getDb();
   const created = now();
@@ -134,15 +137,17 @@ export async function createOrder(
     for (const s of stored) await putBlob(s.storedName, s.f.bytes, s.f.type.mime);
 
     // Laufende Nummer atomar hochzählen (ein einziger Befehl – sicher auch bei gleichzeitigen Aufträgen).
+    // Testaufträge: eigene Folge TEST-JJJJ-NNNNN (eigener Zählerschlüssel), keine Lücke in den Kundennummern
+    const test = !!opts.test;
     const counter = await db.first<{ last: number }>(
       'INSERT INTO order_counters (year, last) VALUES (?, 1) ON CONFLICT(year) DO UPDATE SET last = last + 1 RETURNING last',
-      year,
+      test ? -year : year,
     );
     if (!counter) throw new Error('Auftragsnummer konnte nicht vergeben werden');
-    const number = formatOrderNumber(year, counter.last);
+    const number = test ? `TEST-${year}-${String(counter.last).padStart(5, '0')}` : formatOrderNumber(year, counter.last);
 
-    // Neukunde = noch kein (nicht stornierter) Auftrag mit dieser E-Mail-Adresse.
-    const existing = await db.first("SELECT 1 AS x FROM orders WHERE email = ? AND status != 'storniert' LIMIT 1", order.holder.email);
+    // Neukunde = noch kein (nicht stornierter, echter) Auftrag mit dieser E-Mail-Adresse.
+    const existing = await db.first("SELECT 1 AS x FROM orders WHERE email = ? AND status != 'storniert' AND is_test = 0 LIMIT 1", order.holder.email);
     // Preise mit den aktuellen Schilderpreisen aus dem Finanzcenter (gleiche Quelle wie die Website)
     const plateVersion = await currentPlateVersion();
     const expressVersion = await currentExpress();
@@ -171,8 +176,8 @@ export async function createOrder(
 
     await db.batch([
       q(
-        `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at, carrier, payment_token)
-         VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
+        `INSERT INTO orders (number, created_at, updated_at, status, service, email, holder_name, fin, previous_plate, iban, delivery, data_json, price_json, total_cents, checklist_json, consent_at, carrier, payment_token, is_test)
+         VALUES (?, ?, ?, 'neu', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)`,
         number,
         created,
         created,
@@ -189,6 +194,7 @@ export async function createOrder(
         created,
         order.plate.versanddienst ?? '',
         paymentToken,
+        test ? 1 : 0,
       ),
       ...stored.map((s) =>
         q(
@@ -205,10 +211,13 @@ export async function createOrder(
         ),
       ),
       q(
-        `INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (${idOf}, ?, 'created', NULL, 'neu', ?, '', 'Kunde')`,
+        `INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (${idOf}, ?, 'created', NULL, 'neu', ?, '', ?)`,
         number,
         created,
-        `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
+        test
+          ? 'TESTAUFTRAG angelegt (nur Inhaber) – keine Kundenbestellung: keine Zahlung, Freigabe, Übermittlung oder Kundenmail'
+          : `Auftrag online eingegangen (${files.length} Dokumente)${price.discountCents ? ', Neukundenrabatt angewendet' : ''}`,
+        test ? opts.test!.actor : 'Kunde',
       ),
     ]);
     const row = await db.first<{ id: number }>('SELECT id FROM orders WHERE number = ?', number);
@@ -236,7 +245,7 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
     data,
     price: JSON.parse(price_json) as PriceBreakdown,
     checklist: JSON.parse(checklist_json) as ChecklistState,
-    checklistItems: buildChecklist(row.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen, digitalPoa: process.env.VOLLMACHT_DIGITAL === '1' }),
+    checklistItems: buildChecklist(row.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen }),
   };
 }
 

@@ -374,6 +374,7 @@ export interface InvoiceLine {
 
 export async function issueInvoice(orderId: number, actor: string, note = ''): Promise<R<{ id: number; number: string }>> {
   const db = await getDb();
+  if ((await db.first<{ is_test: number }>('SELECT is_test FROM orders WHERE id = ?', orderId))?.is_test) return { ok: false, error: 'Testauftrag – keine Rechnung.' };
   const company = await getCompany(true);
   const missing = invoiceReadiness(company);
   if (missing.length) return { ok: false, error: `Unternehmensdaten unvollständig (Systemeinstellungen → Unternehmen): ${missing.join(', ')}` };

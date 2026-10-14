@@ -297,6 +297,7 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
   const mode: MollieKeyMode | null = opts.test ? (mollieTestAvailable() ? 'test' : null) : molliePaymentsEnabled() ? mollieMode() : null;
   if (!mode) return { ok: false, error: opts.test ? 'Kein Mollie-Testschlüssel eingerichtet (MOLLIE_TEST_API_KEY).' : 'Die Online-Zahlung ist nicht freigeschaltet.' };
   const db = await getDb();
+  if ((await db.first<{ is_test: number }>('SELECT is_test FROM orders WHERE id = ?', orderId))?.is_test) return { ok: false, error: 'Testauftrag – keine Zahlung.' };
   const order = await orderForPay(orderId);
   if (!order) return { ok: false, error: 'Auftrag nicht gefunden' };
   if (order.status === 'storniert') return { ok: false, error: 'Der Auftrag ist storniert.' };

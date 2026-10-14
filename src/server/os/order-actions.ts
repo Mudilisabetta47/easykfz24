@@ -38,8 +38,8 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
       o.fin,
       o.id,
     ),
-    db.first<{ released_at: string; due_at: string; reg_checks_json: string; kfz_status: string; total_cents: number }>(
-      'SELECT released_at, due_at, reg_checks_json, kfz_status, total_cents FROM orders WHERE id = ?',
+    db.first<{ released_at: string; due_at: string; reg_checks_json: string; kfz_status: string; total_cents: number; kfz_order_id: string; is_test: number }>(
+      'SELECT released_at, due_at, reg_checks_json, kfz_status, total_cents, kfz_order_id, is_test FROM orders WHERE id = ?',
       o.id,
     ),
     db.first<{ n: number; sum: number | null }>(
@@ -76,9 +76,10 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
     wishCode: wishCodeCheck(o.data),
     // Ohne gebuchte Zahlung (z. B. Altaufträge vor dem Zahlungsjournal) kein Betragsabgleich
     paidCents: paid?.n ? (paid.sum ?? 0) : null,
+    kfz_order_id: extra?.kfz_order_id ?? '',
+    isTest: !!extra?.is_test,
     poa: poaGate(
       o.service,
-      process.env.VOLLMACHT_DIGITAL === '1',
       poa ? { status: poa.status, ready: !!poa.ready, sendEmail: !!poa.send_email, note: poa.note, createError: poa.create_error } : null,
     ),
   };
@@ -148,6 +149,7 @@ export async function actShipment(id: number, carrier: string, tracking: string,
 export async function actPayment(id: number, status: string, ref: string, actor: Actor): Promise<R> {
   const before = await getOrder(id);
   if (!before) return { ok: false, error: 'Auftrag nicht gefunden' };
+  if (before.is_test) return { ok: false, error: 'Testauftrag – keine Zahlungsbuchung (es wird nichts bezahlt oder vorgetäuscht).' };
   // Zahlungseingang nur nachvollziehbar verbuchen: Referenz aus dem Kontoauszug (z. B. Buchungsdatum, Auftraggeber) ist Pflicht
   if (status === 'bezahlt' && status !== before.payment_status && ref.trim().length < 3)
     return { ok: false, error: 'Bitte die Buchungsreferenz des Zahlungseingangs angeben (z. B. Buchungsdatum und Auftraggeber laut Kontoauszug).' };
@@ -251,6 +253,7 @@ export async function actRelease(id: number, release: boolean, actor: Actor): Pr
     ]);
     return { ok: true };
   }
+  if (o.is_test) return { ok: false, error: 'Testauftrag – keine Freigabe zur Übermittlung an Partner oder Behörde.' };
   const wait = earlyStartWait(o);
   if (wait) return { ok: false, error: waitMessage(wait.until) };
   const blockers = releaseBlockers(await issueInput(o));

@@ -31,6 +31,7 @@ import {
   orderInsights,
 } from '../order-actions.ts';
 import { queryOrders, type OrderFilter } from '../order-query.ts';
+import { createTestOrder, setTestWindow, testOrderState } from '../test-orders.ts';
 import { listTasks } from '../tasks.ts';
 import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.ts';
 import { processingOf } from '../../../lib/express.ts';
@@ -57,6 +58,7 @@ function filterFrom(url: URL): OrderFilter {
     overdue: p.get('overdue') === '1',
     issues: p.get('issues') === '1',
     express: p.get('express') === '1',
+    test: p.get('test') === 'nur' ? 'nur' : undefined,
     limit: p.get('limit') ? Math.min(2000, Number(p.get('limit')) || 500) : 500,
   };
 }
@@ -302,6 +304,42 @@ export const orderRoutes: Route[] = [
       // Ungültige Angaben: 422 mit Fehlern je Feld (für die Markierung im Formular)
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, fields: r.fields ?? {} }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       await audit(c.audit, 'auftrag.angelegt', r.number);
+      return r;
+    },
+  },
+  {
+    // Testaufträge des Inhabers (digitale Vollmacht testen, Kunden-Checkout bleibt gesperrt): Stand, Fenster, Liste
+    method: 'GET',
+    path: 'testauftraege',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann Testaufträge verwalten.');
+      return { ...(await testOrderState({ name: c.actor.name, role: c.s.user.role })), orders: await queryOrders({ test: 'nur', limit: 50 }, c.actor.id) };
+    },
+  },
+  {
+    method: 'POST',
+    path: 'testauftraege/fenster',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann das Testfenster öffnen oder schließen.');
+      const open = c.body.offen === true;
+      const r = await setTestWindow(open, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, open ? 'testauftrag.fenster_geoeffnet' : 'testauftrag.fenster_geschlossen', '', r.window ? `bis ${r.window.expiresAt}` : '');
+      return r;
+    },
+  },
+  {
+    // Anlegen fordert keine Vollmacht an und löst keine Zahlung, Mail oder Übermittlung aus
+    method: 'POST',
+    path: 'testauftraege',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann Testaufträge anlegen.');
+      const r = await createTestOrder(c.body.data, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, fields: r.fields ?? {} }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'testauftrag.angelegt', r.number);
       return r;
     },
   },

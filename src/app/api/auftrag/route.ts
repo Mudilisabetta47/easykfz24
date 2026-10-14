@@ -16,6 +16,7 @@ import { getPlateOffer } from '../../../server/plates.ts';
 import { getExpressOffer } from '../../../server/express.ts';
 import { placeByAgs } from '../../../server/regions.ts';
 import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
+import { POA_SERVICES } from '../../../lib/power-of-attorney.ts';
 import { CHECKOUT_CLOSED_MESSAGE, checkoutState, customerPaymentsOpen } from '../../../server/checkout.ts';
 import { withdrawalMode } from '../../../server/withdrawal.ts';
 
@@ -71,6 +72,12 @@ export async function POST(req: Request) {
   });
   if (!result.ok) return fail(422, 'Bitte prüfen Sie die markierten Angaben.', result.errors);
   const order = result.order;
+  // Zulassung, Ummeldung, Wiederzulassung brauchen eine QES-Vollmacht (Partnervertrag § 3) – ohne eingeschaltete digitale
+  // Vollmacht keine Annahme, sonst entstünden bezahlte Aufträge, die nicht übermittelt werden dürfen
+  if (POA_SERVICES.includes(order.service) && !poaCreationEnabled())
+    return fail(422, 'Diese Leistung bieten wir online gerade noch nicht an.', {
+      service: 'Online derzeit nur die Abmeldung – für Zulassung, Ummeldung oder Wiederzulassung melden Sie sich bitte direkt bei uns.',
+    });
 
   const files: UploadFile[] = [];
   const counts: Record<string, number> = {};

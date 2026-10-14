@@ -695,6 +695,12 @@ export const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX messages_dedupe ON messages(dedupe_key) WHERE dedupe_key != '';
   CREATE INDEX messages_retry ON messages(state, next_attempt_at);
   `,
+  // v11: Testaufträge des Inhabers (digitale Vollmacht testen, ohne den Kunden-Checkout zu öffnen) – klar gekennzeichnet,
+  // eigene Nummernfolge TEST-JJJJ-NNNNN, nie Zahlung, Freigabe, Partnerübermittlung oder Kundenmail
+  `
+  ALTER TABLE orders ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX orders_is_test ON orders(is_test);
+  `,
 ];
 
 

@@ -10,6 +10,7 @@ import { allIn, getDb } from '../db.ts';
 import { plateFinishOf, type PlateFinish } from '../../lib/plates.ts';
 import { processingOf, type ProcessingLevel } from '../../lib/express.ts';
 import { wishCodeCheck } from '../regions.ts';
+import { poaGate, type PoaStatus } from '../../lib/power-of-attorney.ts';
 
 export interface OrderFilter {
   q?: string;
@@ -27,6 +28,8 @@ export interface OrderFilter {
   issues?: boolean;
   /** nur Express und Express Plus */
   express?: boolean;
+  /** Testaufträge des Inhabers: standardmäßig ausgeblendet („nur“ = ausschließlich Testaufträge) */
+  test?: 'nur';
   limit?: number;
 }
 
@@ -63,6 +66,7 @@ export interface OrderListRow {
   released_at: string;
   customer_id: number | null;
   source: string;
+  is_test: number;
   checklist: { done: number; total: number; complete: boolean };
   stage: Stage;
   issues: Issue[];
@@ -74,6 +78,8 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   const db = await getDb();
   const where: string[] = [];
   const params: (string | number)[] = [];
+  // Testaufträge nie mit echten Kundenbestellungen mischen
+  where.push(f.test === 'nur' ? 'o.is_test = 1' : 'o.is_test = 0');
   if (f.status === 'offen') where.push("o.status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle', 'zugelassen', 'versendet', 'abgeholt')");
   else if (f.status === 'laufend') where.push("o.status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')");
   else if (f.status && isStatusId(f.status)) {
@@ -130,11 +136,13 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   }
   params.push(Math.min(f.limit ?? 500, 2000));
   const rows = await db.all<
-    Omit<OrderListRow, 'checklist' | 'stage' | 'issues' | 'vehicle' | 'wish_plate' | 'plate_signs' | 'processing' | 'paid_at'> & { data_json: string; checklist_json: string; reg_checks_json: string }
+    Omit<OrderListRow, 'checklist' | 'stage' | 'issues' | 'vehicle' | 'wish_plate' | 'plate_signs' | 'processing' | 'paid_at'> & { data_json: string; checklist_json: string; reg_checks_json: string; poa_state: string | null }
   >(
     `SELECT o.id, o.number, o.created_at, o.updated_at, o.status, o.service, o.email, o.holder_name, o.fin, o.previous_plate, o.assigned_plate, o.delivery, o.total_cents,
-       o.payment_status, o.kfz_display, o.kfz_status, o.kfz_order_id, o.assignee_id, o.priority, o.due_at, o.follow_up_at, o.released_at, o.customer_id, o.source,
-       o.data_json, o.checklist_json, o.reg_checks_json
+       o.payment_status, o.kfz_display, o.kfz_status, o.kfz_order_id, o.assignee_id, o.priority, o.due_at, o.follow_up_at, o.released_at, o.customer_id, o.source, o.is_test,
+       o.data_json, o.checklist_json, o.reg_checks_json,
+       (SELECT p.status || ':' || p.ready || ':' || p.send_email || ':' || CASE WHEN p.create_error != '' THEN 1 ELSE 0 END FROM power_of_attorneys p
+         WHERE p.order_id = o.id ORDER BY p.attempt DESC, p.id DESC LIMIT 1) AS poa_state
      FROM orders o ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
      ORDER BY CASE o.priority WHEN 'dringend' THEN 0 WHEN 'hoch' THEN 1 ELSE 2 END, o.created_at DESC, o.id DESC LIMIT ?`,
     ...params,
@@ -160,7 +168,7 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   for (const r of rows) {
     const data = JSON.parse(r.data_json) as ValidatedOrder;
     const state = JSON.parse(r.checklist_json || '{}') as ChecklistState;
-    const items = buildChecklist(r.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen, digitalPoa: process.env.VOLLMACHT_DIGITAL === '1' });
+    const items = buildChecklist(r.service, data.plate.wahl, { hKennzeichen: !!data.vehicle.hKennzeichen });
     const complete = isChecklistComplete(items, state);
     let regChecks: Record<string, boolean> = {};
     try {
@@ -168,7 +176,12 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
     } catch {
       regChecks = {};
     }
+    const [pStatus, pReady, pMail, pErr] = (r.poa_state ?? '').split(':');
+    const poa = poaGate(r.service, r.poa_state ? { status: (pStatus || '') as PoaStatus | '', ready: pReady === '1', sendEmail: pMail === '1', note: '', createError: pErr === '1' ? 'x' : '' } : null);
     const issues = orderIssues({
+      poa,
+      kfz_order_id: r.kfz_order_id,
+      isTest: !!r.is_test,
       status: r.status,
       service: r.service,
       payment_status: r.payment_status,
@@ -190,7 +203,7 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
     if (f.issues && !issues.some((i) => i.level !== 'hinweis')) continue;
     const processing = processingOf(data);
     if (f.express && processing === 'standard') continue;
-    const { data_json: _d, checklist_json: _c, reg_checks_json: _r, ...rest } = r;
+    const { data_json: _d, checklist_json: _c, reg_checks_json: _r, poa_state: _p, ...rest } = r;
     out.push({
       ...rest,
       vehicle: `${data.vehicle.hersteller} ${data.vehicle.modell}`.trim(),

@@ -57,6 +57,11 @@ async function draftFor(ev: OsEvent): Promise<Draft | null> {
       const text = st === 'signiert' ? (p.ready ? 'Vollmacht unterschrieben' : 'Unterschrieben, Angaben unvollständig') : st === 'abgelehnt' ? 'Vollmacht abgelehnt' : st === 'verfallen' ? 'Vollmacht abgelaufen' : 'Technischer Fehler bei der Vollmacht';
       return { kind: 'vollmacht', title: text, text: label, priority: st === 'signiert' && p.ready ? 'normal' : 'wichtig' };
     }
+    case 'order.compliance': {
+      // Extern eingereicht ohne interne Freigabe, ohne bestätigte QES oder als Testauftrag – sofort prüfen
+      const problems = Array.isArray(ev.payload.problems) ? (ev.payload.problems as string[]).join('; ') : '';
+      return { kind: 'freigabe_verstoss', title: 'Beim Partner ohne Freigabe/QES – sofort prüfen', text: `${label}${problems ? ` · ${problems}` : ''}`, priority: 'kritisch' };
+    }
     case 'order.withdrawal':
       // Widerruf über die Online-Funktion: Frist für die Rückzahlung beachten (14 Tage ab Eingang)
       return { kind: 'widerruf', title: 'Widerruf eingegangen', text: `${label || `Vertrag: ${p.contract ?? ''}`} · Vorgang ${p.reference ?? ''}` };
