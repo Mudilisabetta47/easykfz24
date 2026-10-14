@@ -132,6 +132,19 @@ describe('Zahlung starten', () => {
     assert.equal(p._body.webhookUrl, 'https://easykfz24.de/api/zahlung/mollie');
     assert.equal(p._body.redirectUrl, `https://easykfz24.de/zahlung/${o.number}?t=${encodeURIComponent(o.paymentToken)}&rueckkehr=1`);
     assert.equal(p._body.locale, 'de_DE');
+    // Klarna: Rechnungsadresse und Bestellpositionen (vom Testnachbau nach den Mollie-Regeln geprüft: Summe, MwSt.)
+    assert.deepEqual(p._body.billingAddress, {
+      givenName: 'Erika',
+      familyName: 'Musterfrau',
+      streetAndNumber: 'Teststraße 1',
+      postalCode: '24937',
+      city: 'Flensburg',
+      country: 'DE',
+      email: 'erika@example.test',
+    });
+    const lines = p._body.lines as { totalAmount: { value: string }; vatRate: string }[];
+    assert.ok(lines.length >= 1 && lines.every((l) => l.vatRate === '19.00'));
+    assert.equal(Math.round(lines.reduce((s, l) => s + Number(l.totalAmount.value) * 100, 0)), total);
     assert.match(String(p._key), new RegExp(`^${o.number}-Z1-`), 'Idempotency-Key je Versuch');
     // lokal: keine Webhook-Adresse (Mollie erreicht localhost nicht)
     const o2 = await orders.createOrder(order(), []);
@@ -451,5 +464,56 @@ describe('Separater Testschlüssel bei Live-Hauptschlüssel (MOLLIE_TEST_API_KEY
     } finally {
       reset();
     }
+  });
+});
+
+describe('Klarna-Angaben (Bestellpositionen, Rechnungsadresse)', () => {
+  it('Positionen inkl. Rabatt und Schildern: Summe = Zahlungsbetrag, MwSt. nach Mollie-Formel', async () => {
+    const { mollieLines } = await import('../src/lib/mollie.ts');
+    const l = mollieLines(
+      'EK-2026-00001',
+      [
+        { key: 'service', label: 'Servicepauschale Neuzulassung', cents: 8999 },
+        { key: 'schilder', label: 'Kennzeichenschilder (2 Stück)', cents: 2598, qty: 2, unitCents: 1299 },
+        { key: 'versand', label: 'Versand mit DHL', cents: 690 },
+        { key: 'rabatt', label: 'Neukundenrabatt', cents: -1000 },
+      ],
+      11287,
+      19,
+    );
+    assert.deepEqual(
+      l.map((x) => [x.type, x.quantity, x.unitPrice.value, x.totalAmount.value, x.vatAmount.value]),
+      [
+        ['digital', 1, '89.99', '89.99', '14.37'],
+        ['physical', 2, '12.99', '25.98', '4.15'],
+        ['shipping_fee', 1, '6.90', '6.90', '1.10'],
+        ['discount', 1, '-10.00', '-10.00', '-1.60'],
+      ],
+    );
+  });
+
+  it('Summe passt nicht: eine Gesamtposition statt Abbruch; Kleinunternehmer 0 %', async () => {
+    const { mollieLines } = await import('../src/lib/mollie.ts');
+    const l = mollieLines('EK-2026-00002', [{ key: 'service', label: 'X', cents: 100 }], 2499, 0);
+    assert.deepEqual(
+      l.map((x) => [x.description, x.totalAmount.value, x.vatRate, x.vatAmount.value]),
+      [['EasyKFZ24 Auftrag EK-2026-00002', '24.99', '0.00', '0.00']],
+    );
+  });
+
+  it('Rechnungsadresse: Firma mit Ansprechperson; fehlende Pflichtangabe → keine Adresse (Klarna wird dann nicht angeboten)', async () => {
+    const { mollieBillingAddress } = await import('../src/lib/mollie.ts');
+    const firm = mollieBillingAddress({
+      typ: 'firma',
+      firmenname: 'Muster GmbH',
+      ansprechpartner: 'Max von Muster',
+      strasse: 'Weg',
+      hausnummer: '2',
+      plz: '28195',
+      ort: 'Bremen',
+      email: 'a@b.de',
+    });
+    assert.deepEqual([firm?.organizationName, firm?.givenName, firm?.familyName], ['Muster GmbH', 'Max von', 'Muster']);
+    assert.equal(mollieBillingAddress({ typ: 'privat', vorname: 'A', nachname: 'B', strasse: '', plz: '1', ort: 'C', email: 'a@b.de' }), null);
   });
 });

@@ -23,6 +23,8 @@ import { eventStmt, touchStmt } from './orders.ts';
 import { emitSafe } from './os/events.ts';
 import {
   centsToValue,
+  mollieBillingAddress,
+  mollieLines,
   isMollieStatus,
   isPaymentId,
   keyMode,
@@ -248,6 +250,25 @@ function webhookUrlFor(base: string): string | undefined {
   }
 }
 
+/** Bestellpositionen und Rechnungsadresse für Klarna (lib/mollie.ts); MwSt.-Satz aus den Firmendaten (Kleinunternehmer: 0 %) */
+async function klarnaData(orderId: number, number: string, amountCents: number): Promise<{ lines?: unknown[]; billingAddress?: unknown }> {
+  try {
+    const row = await (await getDb()).first<{ data_json: string; price_json: string }>('SELECT data_json, price_json FROM orders WHERE id = ?', orderId);
+    if (!row) return {};
+    const data = JSON.parse(row.data_json) as { holder?: Parameters<typeof mollieBillingAddress>[0] };
+    const price = JSON.parse(row.price_json) as { lines?: { key: string; label: string; cents: number; qty?: number; unitCents?: number }[] };
+    const { getCompany } = await import('./os/company.ts');
+    const c = await getCompany();
+    const rate = c.taxMode === 'kleinunternehmer' ? 0 : c.vatRate || 19;
+    const billingAddress = data.holder ? mollieBillingAddress(data.holder) : null;
+    if (!billingAddress) return {};
+    return { lines: mollieLines(number, price.lines ?? [], amountCents, rate), billingAddress };
+  } catch (e) {
+    console.error('[zahlung] Klarna-Angaben nicht ermittelbar:', (e as Error).message);
+    return {};
+  }
+}
+
 // ---------- Zahlung starten ----------
 
 export type StartResult = { ok: true; checkoutUrl: string; reused: boolean } | { ok: false; error: string; paid?: boolean };
@@ -305,6 +326,8 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
   }
 
   const origin = new URL(base).origin;
+  // Pflichtangaben für Klarna (Bestellpositionen, Rechnungsadresse) – fehlt etwas, bleibt die Zahlung mit den übrigen Zahlarten möglich
+  const extra = await klarnaData(orderId, order.number, rec.amount_cents);
   const body = {
     amount: { currency: 'EUR', value: centsToValue(rec.amount_cents) },
     description: `EasyKFZ24 Auftrag ${order.number}`,
@@ -312,6 +335,7 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
     ...(webhookUrlFor(base) ? { webhookUrl: webhookUrlFor(base) } : {}),
     locale: 'de_DE',
     metadata: { order: order.number, attempt },
+    ...extra,
   };
   const r = await api(mode, 'POST', '/payments', body, rec.idempotency_key);
   if (r.kind !== 'ok') {

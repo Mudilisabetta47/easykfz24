@@ -106,6 +106,27 @@ export function createFakeMollie() {
           return error(res, 422, 'Unprocessable Entity', 'The amount is invalid', 'amount');
         if (!b.description) return error(res, 422, 'Unprocessable Entity', 'The description is required', 'description');
         if (!b.redirectUrl) return error(res, 422, 'Unprocessable Entity', 'The redirect URL is required', 'redirectUrl');
+        // Bestellpositionen und Rechnungsadresse (Pflicht für Klarna) – Prüfregeln laut docs.mollie.com „Create payment“
+        if (b.lines !== undefined) {
+          const cents = (v) => (typeof v === 'string' && /^-?\d{1,9}\.\d{2}$/.test(v) ? Math.round(Number(v) * 100) : NaN);
+          if (!Array.isArray(b.lines) || !b.lines.length) return error(res, 422, 'Unprocessable Entity', 'The lines are invalid', 'lines');
+          let sum = 0;
+          for (const [i, l] of b.lines.entries()) {
+            const unit = cents(l.unitPrice?.value), total = cents(l.totalAmount?.value), vat = cents(l.vatAmount?.value), rate = Number(l.vatRate);
+            if (!l.description || !Number.isInteger(l.quantity) || l.quantity < 1 || [unit, total, vat, rate].some(Number.isNaN))
+              return error(res, 422, 'Unprocessable Entity', `Line ${i} is invalid`, `lines.${i}`);
+            if (unit * l.quantity !== total) return error(res, 422, 'Unprocessable Entity', `Line ${i}: totalAmount does not match`, `lines.${i}.totalAmount`);
+            if (Math.round((total * rate) / (100 + rate)) !== vat) return error(res, 422, 'Unprocessable Entity', `Line ${i}: vatAmount does not match`, `lines.${i}.vatAmount`);
+            sum += total;
+          }
+          if (sum !== cents(b.amount.value)) return error(res, 422, 'Unprocessable Entity', 'The sum of the lines does not match the amount', 'lines');
+        }
+        if (b.billingAddress !== undefined) {
+          const a = b.billingAddress;
+          for (const k of ['givenName', 'familyName', 'streetAndNumber', 'postalCode', 'city', 'country', 'email'])
+            if (typeof a?.[k] !== 'string' || !a[k]) return error(res, 422, 'Unprocessable Entity', `The billing address is invalid (${k})`, `billingAddress.${k}`);
+          if (!/^[A-Z]{2}$/.test(a.country)) return error(res, 422, 'Unprocessable Entity', 'The billing country is invalid', 'billingAddress.country');
+        }
         if (b.webhookUrl && /localhost|127\.0\.0\.1/.test(b.webhookUrl))
           return error(res, 422, 'Unprocessable Entity', 'The webhook URL is invalid because it is unreachable from Mollie', 'webhookUrl');
         if (mode.failNextPost) {

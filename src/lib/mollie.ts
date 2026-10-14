@@ -95,3 +95,95 @@ export const MOLLIE_METHOD_MARKS: Record<string, { name: string; logo: string }[
   trustly: [{ name: 'Trustly', logo: '/brands/mollie/trustly.svg' }],
   directdebit: [{ name: 'SEPA-Lastschrift', logo: '/brands/mollie/direct-debit.svg' }],
 };
+
+// ---------- Bestellpositionen und Rechnungsadresse (Pflicht für Klarna) ----------
+// Laut docs.mollie.com (Create payment, gelesen am 14.10.2026): `lines` und `billingAddress` (givenName, familyName,
+// streetAndNumber, postalCode, city, country, email) sind für Klarna Pflicht. Da die Zahlart erst auf der Mollie-Bezahlseite
+// gewählt wird, werden sie bei jeder Zahlung mitgesendet. Je Position: unitPrice und totalAmount inkl. MwSt.,
+// vatAmount = totalAmount × vatRate / (100 + vatRate); Summe aller totalAmount = Zahlungsbetrag.
+
+export interface MollieLine {
+  type: 'digital' | 'physical' | 'shipping_fee' | 'discount';
+  description: string;
+  quantity: number;
+  unitPrice: { currency: 'EUR'; value: string };
+  totalAmount: { currency: 'EUR'; value: string };
+  vatRate: string;
+  vatAmount: { currency: 'EUR'; value: string };
+  sku?: string;
+}
+
+export interface MollieAddress {
+  organizationName?: string;
+  givenName: string;
+  familyName: string;
+  streetAndNumber: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  email: string;
+}
+
+// Rabattpositionen sind negativ („-3.00“) – Vorzeichen getrennt von der Betragsumrechnung
+const eur = (cents: number) => ({ currency: 'EUR' as const, value: `${cents < 0 ? '-' : ''}${centsToValue(Math.abs(cents))}` });
+const vatCents = (cents: number, rate: number) => Math.round((cents * rate) / (100 + rate));
+
+/** Positionen aus der Preisaufstellung; stimmt die Summe nicht, eine Gesamtposition (Zahlung darf nie daran scheitern) */
+export function mollieLines(
+  number: string,
+  lines: { key: string; label: string; cents: number; qty?: number; unitCents?: number }[],
+  totalCents: number,
+  vatRate: number,
+): MollieLine[] {
+  const rate = vatRate.toFixed(2);
+  const one = (key: string, label: string, cents: number, qty?: number, unitCents?: number): MollieLine => {
+    const exact = qty && unitCents && qty * unitCents === cents && cents > 0;
+    return {
+      type: cents < 0 ? 'discount' : key === 'versand' ? 'shipping_fee' : key === 'schilder' ? 'physical' : 'digital',
+      description: label.slice(0, 100),
+      quantity: exact ? qty : 1,
+      unitPrice: eur(exact ? unitCents : cents),
+      totalAmount: eur(cents),
+      vatRate: rate,
+      vatAmount: eur(vatCents(cents, vatRate)),
+      sku: key.slice(0, 64),
+    };
+  };
+  const out = lines.filter((l) => Number.isSafeInteger(l.cents) && l.cents !== 0).map((l) => one(l.key, l.label, l.cents, l.qty, l.unitCents));
+  const sum = lines.reduce((s, l) => s + (Number.isSafeInteger(l.cents) ? l.cents : 0), 0);
+  if (!out.length || sum !== totalCents) return [one('auftrag', `EasyKFZ24 Auftrag ${number}`, totalCents)];
+  return out;
+}
+
+/** Rechnungsadresse aus den Halterdaten – null, wenn eine Pflichtangabe fehlt (dann wird Klarna nicht angeboten) */
+export function mollieBillingAddress(h: {
+  typ?: string;
+  vorname?: string;
+  nachname?: string;
+  firmenname?: string;
+  ansprechpartner?: string;
+  strasse?: string;
+  hausnummer?: string;
+  plz?: string;
+  ort?: string;
+  email?: string;
+}): MollieAddress | null {
+  let given = (h.vorname ?? '').trim();
+  let family = (h.nachname ?? '').trim();
+  if (h.typ === 'firma') {
+    const parts = (h.ansprechpartner ?? '').trim().split(/\s+/).filter(Boolean);
+    family = parts.length > 1 ? parts.pop()! : (parts[0] ?? '');
+    given = parts.length ? parts.join(' ') : family;
+  }
+  const a: MollieAddress = {
+    ...(h.typ === 'firma' && h.firmenname?.trim() ? { organizationName: h.firmenname.trim() } : {}),
+    givenName: given,
+    familyName: family,
+    streetAndNumber: `${(h.strasse ?? '').trim()} ${(h.hausnummer ?? '').trim()}`.trim(),
+    postalCode: (h.plz ?? '').trim(),
+    city: (h.ort ?? '').trim(),
+    country: 'DE',
+    email: (h.email ?? '').trim(),
+  };
+  return a.givenName && a.familyName && (h.strasse ?? '').trim() && a.postalCode && a.city && a.email ? a : null;
+}
