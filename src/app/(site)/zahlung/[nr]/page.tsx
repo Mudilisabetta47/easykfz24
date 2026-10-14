@@ -10,6 +10,7 @@ import { mollieMethodIds, mollieMode, mollieTestAvailable, paymentStateForOrder 
 import { getOrderForPayment } from '../../../../server/orders.ts';
 import { paymentProvider } from '../../../../server/payments.ts';
 import { RefreshWhilePending } from './RefreshWhilePending.tsx';
+import { customerPaymentsOpen } from '../../../../server/checkout.ts';
 
 export const metadata: Metadata = { title: 'Zahlung', robots: { index: false }, referrer: 'no-referrer' };
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,8 @@ export default async function ZahlungPage({
   const { t = '', abgebrochen, fehler, rueckkehr, runde } = await searchParams;
   const number = normalizeOrderNumber(nr);
   const order = number ? await getOrderForPayment(number, t.slice(0, 64)) : null;
-  const provider = paymentProvider();
+  // Sicherheitsschalter: bei gesperrtem Checkout kein Zahlungsstart (Hinweis statt Schaltfläche)
+  const provider = customerPaymentsOpen() ? paymentProvider() : null;
   const mollie = provider === 'mollie';
   // Nur der über die Mollie-API bestätigte Stand zählt – nie die Rückleitung selbst (auch für Testzahlungen aus dem OS)
   const state = order && (mollie || mollieTestAvailable()) ? await paymentStateForOrder(order.id) : null;

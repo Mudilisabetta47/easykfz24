@@ -9,7 +9,7 @@ import { HeroQuickStart } from '../../../../components/home/HeroQuickStart.tsx';
 import { Check } from '../../../../components/icons.tsx';
 import { PromoBadge, promoActive } from '../../../../components/Promo.tsx';
 import { districtCopy } from '../../../../lib/district-copy.ts';
-import { allCodes, codeFromSlug, districtLabel, districtPage, joinGerman, placeName, slugForCode } from '../../../../lib/district-pages.ts';
+import { allCodes, codeFromSlug, districtLabel, districtPage, inDistrict, joinGerman, placeName, slugForCode } from '../../../../lib/district-pages.ts';
 import { og } from '../../../../lib/seo.ts';
 import { publicBaseUrl } from '../../../../server/payments.ts';
 import { getPlateOffer } from '../../../../server/plates.ts';
@@ -116,9 +116,14 @@ export default async function KennzeichenOrtPage({ params }: { params: Params })
                 <Check width={18} height={18} /> Zulassung, Ummeldung und Abmeldung online beauftragen
               </li>
               <li>
-                <Check width={18} height={18} /> Papiere und Schilder per DHL oder UPS – oder abholen
+                <Check width={18} height={18} /> Papiere und Schilder per DHL oder UPS
               </li>
             </ul>
+            {/* Keine örtliche Niederlassung vortäuschen: zuständig ist die Behörde, EasyKFZ24 arbeitet online aus Bremen */}
+            <p className="seo-head__note">
+              EasyKFZ24 ist ein privater Online-Zulassungsservice mit Sitz in Bremen und hat keine Niederlassung in {page.place}. Zuständig für die
+              Zulassung ist die Zulassungsbehörde {inDistrict(page.district)}.
+            </p>
             {promoActive() ? (
               <p className="seo-head__promo">
                 <PromoBadge /> auf die Servicepauschale deiner ersten Beauftragung

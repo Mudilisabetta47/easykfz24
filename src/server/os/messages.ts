@@ -7,6 +7,7 @@ import { SERVICES, type ServiceId } from '../../lib/services.ts';
 import { getDb } from '../db.ts';
 import { mailConfigured, sendMail } from '../mailer.ts';
 import { publicBaseUrl } from '../payments.ts';
+import { customerPaymentsOpen } from '../checkout.ts';
 import { getCompany } from './company.ts';
 import { emitSafe } from './events.ts';
 
@@ -125,7 +126,7 @@ export async function renderTemplate(t: Pick<Template, 'subject' | 'body'>, orde
     leistung: SERVICES[o.service]?.title ?? o.service,
     status: statusLabel(o.status, o.service, 'kunde'),
     status_link: `${base}/status?nr=${encodeURIComponent(o.number)}`,
-    zahlung_link: o.payment_token ? `${base}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : `${base}/status?nr=${encodeURIComponent(o.number)}`,
+    zahlung_link: customerPaymentsOpen() && o.payment_token ? `${base}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : `${base}/status?nr=${encodeURIComponent(o.number)}`,
     betrag: (o.total_cents / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }),
     kennzeichen: o.assigned_plate,
     kennzeichen_satz: o.assigned_plate ? ` Ihr Kennzeichen lautet ${o.assigned_plate}.` : '',

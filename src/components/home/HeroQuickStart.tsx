@@ -21,7 +21,7 @@ const MODES: Record<Mode, { label: string; service: string; priceOf: ServiceId[]
     service: 'neuzulassung',
     priceOf: ['neuzulassung'],
     bubble: 'Wunschkennzeichen eingeben',
-    hint: 'Nur den Ort tippen – wir schlagen freie Kombinationen vor. Oder leer lassen.',
+    hint: 'Nur den Ort tippen – wir schlagen passende Kombinationen vor. Oder leer lassen.',
   },
   ummelden: {
     label: 'Ummelden',

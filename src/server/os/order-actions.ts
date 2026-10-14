@@ -15,6 +15,7 @@ import { recordManualPayment } from './finance.ts';
 import { getPlateOffer } from '../plates.ts';
 import { getExpressOffer } from '../express.ts';
 import { placeByAgs, wishCodeCheck } from '../regions.ts';
+import { earlyStartWait, waitMessage } from '../../lib/withdrawal-period.ts';
 
 export interface Actor {
   id: number;
@@ -76,13 +77,9 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
 export async function orderInsights(o: OrderDetail): Promise<{ issues: Issue[]; stage: ReturnType<typeof stageOf>; releaseBlockers: string[]; codes: string[]; fin: ReturnType<typeof checkFin>; regChecks: Record<string, boolean> }> {
   const input = await issueInput(o);
   const issues = orderIssues(input);
-  // Widerrufsfrist: ohne ausdrücklich verlangten vorzeitigen Beginn erst nach 14 Tagen bearbeiten (nur bei aktiver Widerrufsstrecke)
-  const { withdrawalMode } = await import('../withdrawal.ts');
-  if (withdrawalMode() === 'aktiv' && !o.data.finish.vorzeitigerBeginnAt && !['abgeschlossen', 'storniert'].includes(o.status)) {
-    const from = new Date(Date.parse(o.created_at) + 14 * 86_400_000);
-    if (from.getTime() > Date.now())
-      issues.push({ level: 'warnung', code: 'widerrufsfrist', text: `Kein vorzeitiger Beginn verlangt – Bearbeitung erst nach Ablauf der Widerrufsfrist (ab ${from.toLocaleDateString('de-DE')}).` });
-  }
+  // Widerrufsfrist: ohne ausdrücklich verlangten vorzeitigen Beginn erst danach bearbeiten (technisch gesperrt, siehe actStatus/actRelease)
+  const wait = !['abgeschlossen', 'storniert'].includes(o.status) ? earlyStartWait(o) : null;
+  if (wait) issues.push({ level: 'warnung', code: 'widerrufsfrist', text: waitMessage(wait.until) });
   return {
     issues,
     stage: stageOf({ ...input, checklistComplete: isChecklistComplete(o.checklistItems, o.checklist) }),
@@ -98,6 +95,9 @@ export async function orderInsights(o: OrderDetail): Promise<{ issues: Issue[]; 
 export async function actStatus(id: number, to: string, pub: string, internal: string, actor: Actor | { id: null; name: string }): Promise<R> {
   const before = await getOrder(id);
   if (!before) return { ok: false, error: 'Auftrag nicht gefunden' };
+  // Verzögerter Leistungsbeginn: während der Widerrufsfrist nur Stornierung (gilt auch für Automatisierungen)
+  const wait = to !== 'storniert' ? earlyStartWait(before) : null;
+  if (wait) return { ok: false, error: waitMessage(wait.until) };
   if (to === 'bei_zulassungsstelle') {
     const rel = await (await getDb()).first<{ released_at: string }>('SELECT released_at FROM orders WHERE id = ?', id);
     if (!rel?.released_at) return { ok: false, error: 'Erst „Zur Übermittlung freigeben“ – die Freigabe ist Pflicht vor der Übergabe an den Zulassungspartner' };
@@ -230,6 +230,8 @@ export async function actRelease(id: number, release: boolean, actor: Actor): Pr
     ]);
     return { ok: true };
   }
+  const wait = earlyStartWait(o);
+  if (wait) return { ok: false, error: waitMessage(wait.until) };
   const blockers = releaseBlockers(await issueInput(o));
   if (blockers.length) return { ok: false, error: `Freigabe nicht möglich: ${blockers.join('; ')}` };
   const at = now();
@@ -244,6 +246,9 @@ export async function actRelease(id: number, release: boolean, actor: Actor): Pr
 
 /** Auftrag in der Verwaltung anlegen (gleiche Prüfung wie auf der Website). Dokumente danach im Dokumentenmanager. */
 export async function createOrderAdmin(raw: unknown, actor: Actor): Promise<{ ok: true; id: number; number: string; warnings: string[] } | { ok: false; error: string; fields?: Record<string, string> }> {
+  // Gleicher Sicherheitsschalter wie die Website: ohne rechtliche Freigabe keine neuen Kundenaufträge
+  const { checkoutState } = await import('../checkout.ts');
+  if (!checkoutState().open) return { ok: false, error: 'Auftragsannahme ist gesperrt (BESTELLUNG_AKTIV) – erst nach rechtlicher Freigabe möglich.' };
   // In der Verwaltung bleibt der Geburtsort freiwillig (Nachtrag aus Ausweis möglich); Pflicht nur im Kundenauftrag
   const v = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs });
   if (!v.ok) return { ok: false, error: 'Bitte die markierten Felder prüfen', fields: v.errors };
@@ -253,8 +258,19 @@ export async function createOrderAdmin(raw: unknown, actor: Actor): Promise<{ ok
     "SELECT number FROM orders WHERE fin = ? AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
     order.vehicle.fin,
   );
+  // Zustimmung zum vorzeitigen Leistungsbeginn (beide Erklärungen) – in der Verwaltung nur, wenn sie vom Kunden vorliegt
+  const f = (raw as { finish?: { vorzeitigerBeginn?: unknown; widerrufErlischt?: unknown } } | null)?.finish;
+  const earlyStart = f?.vorzeitigerBeginn === true && f?.widerrufErlischt === true;
+  if (earlyStart) order.finish.vorzeitigerBeginnAt = now();
   const created = await createOrder(order, []);
   await db.run("UPDATE orders SET source = 'verwaltung' WHERE id = ?", created.id);
+  if (earlyStart)
+    await db.run(
+      "INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, 'note', NULL, NULL, 'Zustimmung zum vorzeitigen Leistungsbeginn und Kenntnis vom Erlöschen in der Verwaltung erfasst', '', ?)",
+      created.id,
+      now(),
+      actor.name,
+    );
   await db.run(
     "INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, 'note', NULL, NULL, 'In der Verwaltung angelegt', '', ?)",
     created.id,

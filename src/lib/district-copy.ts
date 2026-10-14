@@ -51,7 +51,7 @@ export function districtCopy(p: DistrictPage, plateOffer?: PlateOffer): District
   const intros = [
     `Das Unterscheidungszeichen ${C} bekommst du, wenn dein Fahrzeug ${where} zugelassen wird. Entscheidend ist dein Hauptwohnsitz – bei Firmen der Sitz des Unternehmens. Den Gang zur Zulassungsstelle übernehmen wir: Du beauftragst uns online, lädst die Unterlagen hoch und wir kümmern uns mit deiner Vollmacht um den Rest.`,
     `Wer ${where} gemeldet ist, fährt mit ${C} auf dem Kennzeichen. Statt Terminsuche, Wartemarke und Schilderdienst erledigst du bei uns alles in wenigen Minuten online – wir reichen den Vorgang bei der zuständigen Zulassungsbehörde ein und halten dich über die Statusabfrage auf dem Laufenden.`,
-    `Für Fahrzeuge mit Halter ${where} vergibt die Zulassungsbehörde das Kürzel ${C}. Du musst dafür nicht selbst hin: Mit EasyKFZ24 beauftragst du Zulassung, Ummeldung oder Abmeldung online und erhältst Papiere und Kennzeichen per Versand – oder holst sie ab.`,
+    `Für Fahrzeuge mit Halter ${where} vergibt die Zulassungsbehörde das Kürzel ${C}. Du musst dafür nicht selbst hin: Mit EasyKFZ24 beauftragst du Zulassung, Ummeldung oder Abmeldung online und erhältst Papiere und Kennzeichen per Versand.`,
   ];
 
   const meaningA = [
@@ -85,7 +85,7 @@ export function districtCopy(p: DistrictPage, plateOffer?: PlateOffer): District
       { t: 'Kombination wählen', d: `Wunschkennzeichen oben ins Schild tippen – oder nur ${C} eingeben und Vorschläge ansehen.` },
       { t: 'Online beauftragen', d: 'Leistung und Fahrzeug wählen, Daten eingeben, Unterlagen hochladen. Das dauert nur wenige Minuten.' },
       { t: 'Wir erledigen die Zulassung', d: `Wir prüfen alles und reichen den Vorgang bei der Zulassungsbehörde ${where} ein.` },
-      { t: 'Papiere & Schilder erhalten', d: 'Per DHL oder UPS mit Sendungsverfolgung – oder du holst sie ab. Den Stand siehst du jederzeit online.' },
+      { t: 'Papiere & Schilder erhalten', d: 'Per DHL oder UPS mit Sendungsverfolgung. Den Stand siehst du jederzeit online.' },
     ],
     meaningTitle: `Was bedeutet das Kennzeichen ${C}?`,
     meaning: [meaningA[variant(C, 'meaning', meaningA.length)], meaningB, ...(meaningC ? [meaningC] : []), meaningD],

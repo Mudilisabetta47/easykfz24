@@ -60,7 +60,10 @@ function draft(over: Partial<{ hausnummer: string; geburtsort: string; kontoinha
 function validated(over: Parameters<typeof draft>[0] = {}): ValidatedOrder {
   const v = validateOrder(draft(over));
   assert.ok(v.ok, JSON.stringify(!v.ok && v.errors));
-  return (v as { ok: true; order: ValidatedOrder }).order;
+  const order = (v as { ok: true; order: ValidatedOrder }).order;
+  // Kunde hat den vorzeitigen Leistungsbeginn verlangt (sonst Sperre während der Widerrufsfrist, eigener Test unten)
+  order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+  return order;
 }
 const control = async (p: string, body: unknown) => (await fetch(`${base}${p}`, { method: 'POST', body: JSON.stringify(body) })).json();
 const staff = { name: 'Test', role: 'verwaltung' as const };
@@ -162,9 +165,7 @@ describe('Ablauf gegen den Testnachbau', () => {
   let number = '';
 
   it('Standard AUS: ohne VOLLMACHT_TESTMODUS bzw. VOLLMACHT_DIGITAL wird nichts angefordert', async () => {
-    const v = validateOrder(draft());
-    assert.ok(v.ok);
-    const created = await orders.createOrder((v as { order: ValidatedOrder }).order, []);
+    const created = await orders.createOrder(validated(), []);
     orderId = created.id;
     number = created.number;
     delete process.env.VOLLMACHT_DIGITAL;

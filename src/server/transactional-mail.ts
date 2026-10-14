@@ -13,6 +13,8 @@ import { mailConfigured, sendMail } from './mailer.ts';
 import { getCompany } from './os/company.ts';
 import { emitSafe } from './os/events.ts';
 import { publicBaseUrl } from './payments.ts';
+import { customerPaymentsOpen as paymentsOpen } from './checkout.ts';
+import { earlyStartWait } from '../lib/withdrawal-period.ts';
 import { MAIL_KIND_LABEL, sampleMail, type Mail, type MailContext, type MailKind } from '../lib/mail-templates.ts';
 import { PROVIDER } from '../lib/site.ts';
 
@@ -188,7 +190,7 @@ export async function mailStats(): Promise<Record<string, number>> {
 export async function queueOrderConfirmation(orderId: number): Promise<QueueResult> {
   const { orderConfirmationMail } = await import('../lib/mail-templates.ts');
   const { SERVICES } = await import('../lib/services.ts');
-  const { paymentsEnabled } = await import('./payments.ts');
+  const { customerPaymentsOpen } = await import('./checkout.ts');
   const { withdrawalMode } = await import('./withdrawal.ts');
   const { withdrawalNotice, WITHDRAW_PATH } = await import('../lib/withdrawal.ts');
   const o = await (
@@ -199,7 +201,8 @@ export async function queueOrderConfirmation(orderId: number): Promise<QueueResu
   );
   if (!o) return { queued: false, reason: 'Auftrag nicht gefunden' };
   const price = JSON.parse(o.price_json) as { lines: { label: string; cents: number }[]; discountCents: number; totalCents: number };
-  const data = JSON.parse(o.data_json) as { finish?: { vorzeitigerBeginnAt?: string } };
+  const data = JSON.parse(o.data_json) as { holder?: { typ?: string }; finish?: { vorzeitigerBeginnAt?: string } };
+  const wait = earlyStartWait({ created_at: o.created_at, data: { holder: { typ: data.holder?.typ ?? '' }, finish: data.finish ?? {} } }, Date.parse(o.created_at));
   const withdrawalOn = withdrawalMode() === 'aktiv';
   return queueCustomerMail({
     orderId,
@@ -213,10 +216,11 @@ export async function queueOrderConfirmation(orderId: number): Promise<QueueResu
         discountCents: price.discountCents,
         totalCents: price.totalCents,
         paymentStatus: o.payment_status === 'bezahlt' ? 'bezahlt' : o.payment_status === 'erstattet' ? 'erstattet' : 'offen',
-        payUrl: paymentsEnabled() && o.payment_token ? `${ctx.baseUrl}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : null,
+        payUrl: customerPaymentsOpen() && o.payment_token ? `${ctx.baseUrl}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : null,
         withdrawal: withdrawalOn ? withdrawalNotice(ctx.baseUrl) : null,
         formUrl: withdrawalOn ? `${ctx.baseUrl}${WITHDRAW_PATH}` : null,
         earlyStartAt: data.finish?.vorzeitigerBeginnAt ?? null,
+        serviceStartFrom: wait ? wait.until.toISOString() : null,
       }),
   });
 }
@@ -239,7 +243,7 @@ export async function queuePaymentFailed(orderId: number, paymentId: string): Pr
     orderId,
     kind: 'zahlung_fehlgeschlagen',
     dedupeKey: `zahlung_fehler:${paymentId}`,
-    build: (ctx) => paymentFailedMail(ctx, { payUrl: o?.payment_token ? `${ctx.baseUrl}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : null }),
+    build: (ctx) => paymentFailedMail(ctx, { payUrl: paymentsOpen() && o?.payment_token ? `${ctx.baseUrl}/zahlung/${o.number}?t=${encodeURIComponent(o.payment_token)}` : null }),
   });
 }
 

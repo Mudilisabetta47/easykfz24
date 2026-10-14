@@ -298,3 +298,11 @@
 .place-list li {
   break-inside: avoid;
 }
+
+/* Hinweis: keine Niederlassung vor Ort */
+.seo-head__note {
+  margin-block-start: 14px;
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+  max-inline-size: 60ch;
+}

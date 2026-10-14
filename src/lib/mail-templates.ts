@@ -146,6 +146,8 @@ export interface OrderMailData {
   formUrl: string | null;
   /** Kunde hat den vorzeitigen Beginn ausdrücklich verlangt (Zeitpunkt) – nur bei aktivem Widerruf */
   earlyStartAt: string | null;
+  /** Verbraucher ohne verlangten vorzeitigen Beginn: frühester Bearbeitungsbeginn (nach Ablauf der Widerrufsfrist) */
+  serviceStartFrom?: string | null;
 }
 
 /** Pflichtangaben zum Vertrag (RECHTLICH ZU PRÜFEN) */
@@ -154,7 +156,9 @@ export function orderContractInfo(d: OrderMailData): string[] {
     `Vertragspartner ist die ${PROVIDER_NAME}, ${PROVIDER_ADDRESS}. ${BRAND_NOTE}`,
     `Leistung: Übernahme des beauftragten Zulassungsvorgangs („${d.serviceTitle}“) gegenüber der zuständigen Zulassungsbehörde im Rahmen der erteilten Vollmacht.`,
     'Preise: Servicepauschale und Zusatzleistungen inkl. gesetzlicher MwSt. Amtliche Gebühren der Zulassungsbehörde sind nicht enthalten und werden ohne Aufschlag nach Beleg weiterberechnet.',
-    'Die Bearbeitung beginnt, sobald Angaben und Unterlagen vollständig vorliegen.',
+    d.serviceStartFrom
+      ? `Da Sie keinen vorzeitigen Beginn verlangt haben, beginnen wir mit der Bearbeitung erst nach Ablauf der Widerrufsfrist, frühestens am ${dateDe(d.serviceStartFrom)}, und sobald Angaben und Unterlagen vollständig vorliegen.`
+      : 'Die Bearbeitung beginnt, sobald Angaben und Unterlagen vollständig vorliegen.',
   ];
 }
 

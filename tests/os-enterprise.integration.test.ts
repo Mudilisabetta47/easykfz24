@@ -40,6 +40,8 @@ async function newOrder(email?: string, fin?: string) {
   const v = validateOrder(draft(email, fin));
   assert.ok(v.ok);
   if (!v.ok) throw new Error('ungültig');
+  // Kunde hat den vorzeitigen Leistungsbeginn verlangt – sonst wäre die Bearbeitung während der Widerrufsfrist gesperrt
+  v.order.finish.vorzeitigerBeginnAt = new Date().toISOString();
   const created = await orders.createOrder(v.order, []);
   await actions.afterOrderCreated(created.id, 'website');
   await wait();
@@ -101,6 +103,30 @@ describe('EasyKFZ24 OS Enterprise', () => {
     assert.equal((await orders.getOrder(first.id))?.status, 'in_pruefung');
     assert.equal(await count("SELECT COUNT(*) AS n FROM automation_runs WHERE rule_id = 'zahlung_zur_pruefung' AND result = 'ausgeführt'"), 1);
     assert.equal(await count("SELECT COUNT(*) AS n FROM payments WHERE order_id = ? AND status = 'bezahlt'", first.id), 1);
+  });
+
+  it('Verbraucher ohne verlangten vorzeitigen Beginn: Bearbeitung, Freigabe und Partner-Verknüpfung gesperrt, Stornierung möglich', async () => {
+    const v = validateOrder(draft('wartet@example.de', 'WVWZZZ1KZAW000777'));
+    assert.ok(v.ok);
+    if (!v.ok) return;
+    const waiting = await orders.createOrder(v.order, []);
+    const st = await actions.actStatus(waiting.id, 'in_pruefung', '', '', ACTOR);
+    assert.equal(st.ok, false);
+    assert.match(String(!st.ok && st.error), /Widerrufsfrist läuft/);
+    assert.match(String((await actions.actRelease(waiting.id, true, ACTOR) as { error?: string }).error), /Widerrufsfrist läuft/);
+    const { linkKfzOrder } = await import('../src/server/kfz-api.ts');
+    assert.match(String((await linkKfzOrder(waiting.id, 'KFZ-WARTET-1') as { error?: string }).error), /Widerrufsfrist läuft/);
+    const insights = await actions.orderInsights((await orders.getOrder(waiting.id))!);
+    assert.ok(insights.issues.some((i) => i.code === 'widerrufsfrist'));
+    assert.deepEqual(await actions.actStatus(waiting.id, 'storniert', '', 'Widerruf', ACTOR), { ok: true });
+    // Firmenkunde: kein gesetzliches Widerrufsrecht → keine Sperre
+    const f = draft('firma@example.de', 'WVWZZZ1KZAW000778');
+    f.holder = { ...f.holder, typ: 'firma', firmenname: 'Muster GmbH', ansprechpartner: 'Max Muster' };
+    const fv = validateOrder(f);
+    assert.ok(fv.ok, JSON.stringify(!fv.ok && fv.errors));
+    if (!fv.ok) return;
+    const firm = await orders.createOrder(fv.order, []);
+    assert.deepEqual(await actions.actStatus(firm.id, 'in_pruefung', '', '', ACTOR), { ok: true });
   });
 
   it('verlangt die manuelle Freigabe vor der Übergabe und blockiert unvollständige Aufträge', async () => {

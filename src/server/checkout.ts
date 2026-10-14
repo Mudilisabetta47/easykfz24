@@ -5,6 +5,7 @@
 // Ohne Schalter nimmt die Website keine Aufträge an (Seite zeigt einen Hinweis, /api/auftrag antwortet 503).
 // Statusabfrage, Zahlungslinks und Widerruf bestehender Aufträge bleiben unberührt. Lokal (Entwicklung) immer offen.
 
+import { paymentsEnabled } from './payments.ts';
 import { withdrawalMode } from './withdrawal.ts';
 
 export type CheckoutState = { open: true } | { open: false; reason: 'widerruf' | 'freigabe' };
@@ -18,3 +19,11 @@ export function checkoutState(env: Record<string, string | undefined> = process.
 
 export const CHECKOUT_CLOSED_MESSAGE =
   'Die Online-Beauftragung ist gerade noch nicht freigeschaltet. Bitte melden Sie sich bei uns – wir helfen Ihnen gern persönlich weiter.';
+
+/**
+ * Online-Zahlung für Kunden: nur bei aktivem Zahlungsanbieter UND offenem Checkout. Gesperrter Checkout heißt auch:
+ * kein Zahlungsstart, keine Bezahl-Links (Zahlungsseite, Statusabfrage, E-Mails) – gleich, wie der Auftrag entstanden ist.
+ */
+export function customerPaymentsOpen(): boolean {
+  return paymentsEnabled() && checkoutState().open;
+}

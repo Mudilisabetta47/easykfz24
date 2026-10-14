@@ -6,6 +6,7 @@ import { normalizeOrderNumber } from '../../../../lib/order-number.ts';
 import { getOrderForPayment } from '../../../../server/orders.ts';
 import { startMolliePayment } from '../../../../server/mollie.ts';
 import { createCheckout, paymentProvider, publicBaseUrl } from '../../../../server/payments.ts';
+import { customerPaymentsOpen } from '../../../../server/checkout.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,8 @@ export async function POST(req: Request) {
   if (!order) return NextResponse.redirect(`${base}/status`, 303);
   if (order.paymentStatus === 'bezahlt') return NextResponse.redirect(`${base}/zahlung/${order.number}?t=${encodeURIComponent(token)}`, 303);
   const back = `${base}/zahlung/${order.number}?t=${encodeURIComponent(token)}`;
+  // Sicherheitsschalter: bei gesperrtem Checkout wird keine Zahlung gestartet
+  if (!customerPaymentsOpen()) return NextResponse.redirect(back, 303);
   if (paymentProvider() === 'mollie') {
     // Betrag kommt aus der Datenbank; offener Versuch wird fortgesetzt statt doppelt angelegt
     const r = await startMolliePayment(order.id, base);

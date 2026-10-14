@@ -18,7 +18,8 @@
 
 import { apiAuth, kfzApiConfigured } from './kfz-api.ts';
 import { getDb, q, type Stmt } from './db.ts';
-import { eventStmt, touchStmt } from './orders.ts';
+import { eventStmt, getOrder, touchStmt } from './orders.ts';
+import { earlyStartWait, waitMessage } from '../lib/withdrawal-period.ts';
 import { emitSafe } from './os/events.ts';
 import { publicBaseUrl } from './payments.ts';
 import type { ValidatedOrder } from '../lib/order.ts';
@@ -472,6 +473,10 @@ export type CreateResult = { ok: true; poa: PoaView; reused: boolean } | { ok: f
  */
 export async function requestPoa(orderId: number, actor: PoaActor, opts: { sepa: boolean; fingerprint: string }): Promise<CreateResult> {
   if (poaMode() === 'aus') return { ok: false, error: poaOffReason() };
+  // Kostenpflichtige Leistung beim Partner: nicht während der Widerrufsfrist ohne verlangten vorzeitigen Beginn
+  const order = await getOrder(orderId);
+  const wait = order ? earlyStartWait(order) : null;
+  if (wait) return { ok: false, error: waitMessage(wait.until), code: 'denied' };
   const p = await prepare(orderId, opts.sepa);
   if (p.kind === 'error') return { ok: false, error: p.error, reasons: p.reasons };
   if (p.kind === 'reuse') return { ok: true, poa: viewOf(p.rec), reused: true };

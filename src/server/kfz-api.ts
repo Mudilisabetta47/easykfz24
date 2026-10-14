@@ -9,7 +9,8 @@
 // Es werden hier keine Anträge an kfz-api.de gesendet: Es gibt laut Anbieter keine Testumgebung, jeder gültige
 // Antrag geht produktiv an das KBA. Anträge werden erst nach ausdrücklicher Freigabe angebunden.
 
-import { eventStmt, touchStmt } from './orders.ts';
+import { eventStmt, getOrder, touchStmt } from './orders.ts';
+import { earlyStartWait, waitMessage } from '../lib/withdrawal-period.ts';
 import { emitSafe } from './os/events.ts';
 import { getDb, q, type Stmt } from './db.ts';
 import { publicBaseUrl } from './payments.ts';
@@ -477,6 +478,10 @@ export async function linkKfzOrder(orderId: number, kfzOrderId: string): Promise
   if (id && !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return { ok: false, error: 'Ungültige Vorgangsnummer' };
   const db = await getDb();
   if (id) {
+    // Verknüpfen heißt: beim Partner eingereicht – während der Widerrufsfrist ohne verlangten Beginn gesperrt
+    const o = await getOrder(orderId);
+    const wait = o ? earlyStartWait(o) : null;
+    if (wait) return { ok: false, error: waitMessage(wait.until) };
     const other = await db.first<{ number: string }>('SELECT number FROM orders WHERE kfz_order_id = ? AND id != ?', id, orderId);
     if (other) return { ok: false, error: `Vorgang ist bereits mit ${other.number} verknüpft` };
   }
