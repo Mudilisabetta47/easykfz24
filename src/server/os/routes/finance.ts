@@ -39,7 +39,7 @@ export const financeRoutes: Route[] = [
       const company = await getCompany();
       const settings = await getSettings(true);
       const rows = await db.all<{ service: string; status: string; payment_status: string; total_cents: number; created_at: string }>(
-        'SELECT service, status, payment_status, total_cents, created_at FROM orders',
+        'SELECT service, status, payment_status, total_cents, created_at FROM orders WHERE is_test = 0',
       );
       const active = rows.filter((r) => r.status !== 'storniert');
       const contrib = await contributions({ limit: 5000 });

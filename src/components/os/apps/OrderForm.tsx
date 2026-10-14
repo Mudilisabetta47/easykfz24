@@ -271,7 +271,21 @@ export function OrderForm({
           <legend>Versicherung, Steuer, Vollmacht</legend>
           <div className="os-fields">
             {text('finish', 'evb', 'eVB-Nummer', { mono: true, upper: true })}
-            {svc?.sepa ? (
+            {svc?.sepa && test ? (
+              <>
+                <p className="os-muted os-small os-field--wide">
+                  SEPA-Mandat (Kfz-Steuer) ist im Testauftrag freiwillig. Für „SEPA: Nein“ alle drei Angaben leer lassen – dann wird nichts
+                  übermittelt. Nur für einen Test mit „SEPA: Ja“ Kontoinhaber (= Testperson) und IBAN angeben und zustimmen; unterschrieben wird
+                  das Mandat erst in Nect.
+                </p>
+                {text('finish', 'kontoinhaber', 'Kontoinhaber (optional)')}
+                {text('finish', 'iban', 'IBAN (optional)', { mono: true, upper: true })}
+                <label className="os-check-field">
+                  <input type="checkbox" checked={!!d.finish.sepaMandat} onChange={(e) => set('finish', 'sepaMandat', e.target.checked)} /> Testperson stimmt dem
+                  SEPA-Mandat zu (nur für „SEPA: Ja“)
+                </label>
+              </>
+            ) : svc?.sepa ? (
               <>
                 {text('finish', 'kontoinhaber', 'Kontoinhaber (Kfz-Steuer)')}
                 {text('finish', 'iban', 'IBAN', { mono: true, upper: true })}
@@ -280,9 +294,16 @@ export function OrderForm({
                 </label>
               </>
             ) : null}
-            <label className={`os-check-field${errors['finish.vollmacht'] ? ' has-error' : ''}`}>
-              <input type="checkbox" checked={!!d.finish.vollmacht} onChange={(e) => set('finish', 'vollmacht', e.target.checked)} /> Vollmacht liegt vor
-            </label>
+            {test ? (
+              <p className="os-flash os-field--wide" role="note">
+                Digitale Vollmacht wird nach dem Anlegen über Nect angefordert. Als unterschrieben gilt sie erst, wenn der Partnerabgleich
+                „signiert + vollständig“ meldet.
+              </p>
+            ) : (
+              <label className={`os-check-field${errors['finish.vollmacht'] ? ' has-error' : ''}`}>
+                <input type="checkbox" checked={!!d.finish.vollmacht} onChange={(e) => set('finish', 'vollmacht', e.target.checked)} /> Vollmacht liegt vor
+              </label>
+            )}
             {test ? (
               <>
                 <label className="os-check-field">

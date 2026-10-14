@@ -256,7 +256,8 @@ export interface ListFilter {
 }
 
 export async function listOrders(filter: ListFilter = {}): Promise<OrderRow[]> {
-  const where: string[] = [];
+  // Testaufträge des Inhabers nur im OS-Bereich „Testaufträge“
+  const where: string[] = ['is_test = 0'];
   const params: (string | number)[] = [];
   if (filter.status === 'offen') {
     where.push(`status IN (${OPEN_STATUSES.map(() => '?').join(',')})`);
@@ -288,11 +289,11 @@ export interface Stats {
 export async function getStats(): Promise<Stats> {
   const db = await getDb();
   const byStatus = Object.fromEntries(STATUS_IDS.map((s) => [s, 0])) as Record<StatusId, number>;
-  for (const r of await db.all<{ status: StatusId; n: number }>('SELECT status, COUNT(*) AS n FROM orders GROUP BY status')) {
+  for (const r of await db.all<{ status: StatusId; n: number }>('SELECT status, COUNT(*) AS n FROM orders WHERE is_test = 0 GROUP BY status')) {
     if (r.status in byStatus) byStatus[r.status] = r.n;
   }
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-  const last7 = await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM orders WHERE created_at >= ?', since);
+  const last7 = await db.first<{ n: number }>('SELECT COUNT(*) AS n FROM orders WHERE is_test = 0 AND created_at >= ?', since);
   const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
   return { total, open: OPEN_STATUSES.reduce((a, s) => a + byStatus[s], 0), byStatus, last7Days: last7?.n ?? 0 };
 }

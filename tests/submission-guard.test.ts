@@ -492,3 +492,93 @@ describe('Testauftrag nach dem Test: Testdaten löschen, Kosten nur einmal', () 
     }
   });
 });
+
+describe('Inhaber-Testformular: Vollmacht entsteht erst über Nect, SEPA freiwillig', () => {
+  const plain = (service: Svc = 'halterwechsel') => {
+    const d = draft(service);
+    // wie im OS-Testformular: kein „Vollmacht liegt vor“, SEPA: Nein (alles leer)
+    d.finish = { ...d.finish, vollmacht: false, kontoinhaber: '', iban: '', sepaMandat: false, vorzeitigerBeginn: true, widerrufErlischt: true };
+    return d;
+  };
+
+  it('echte Aufträge (Website/Verwaltung): Vollmacht und SEPA-Mandat bleiben Pflicht', () => {
+    const v = validateOrder(plain());
+    assert.ok(!v.ok);
+    if (v.ok) return;
+    assert.match(v.errors['finish.vollmacht'] ?? '', /Ohne Vollmacht/);
+    assert.match(v.errors['finish.sepaMandat'] ?? '', /SEPA-Lastschriftmandat/);
+    assert.match(v.errors['finish.iban'] ?? '', /.+/);
+  });
+
+  it('Testauftrag ohne Vollmacht und mit SEPA: Nein anlegen, Vorschau ohne SEPA, nichts beim Partner – nichts als vorhanden behauptet', async () => {
+    process.env.VOLLMACHT_TESTMODUS = '1';
+    try {
+      assert.ok((await tests.setTestWindow(true, owner)).ok);
+      const before = fake.processes.size;
+      for (const s of ['halterwechsel', 'neuzulassung', 'umzug', 'wiederzulassung'] as const) {
+        const t = await tests.createTestOrder(plain(s), owner);
+        assert.ok(t.ok, `${s}: ${JSON.stringify(t)}`);
+        if (!t.ok) continue;
+        const o = (await orders.getOrder(t.id))!;
+        assert.deepEqual([o.data.finish.vollmacht, o.data.finish.sepaMandat, o.data.finish.iban], [false, false, ''], 'nichts als vorhanden behauptet');
+        const ins = await oa.orderInsights(o);
+        assert.ok(!ins.issues.some((i) => i.level === 'fehler' && (i.code === 'sepa' || i.code === 'vollmacht')), JSON.stringify(ins.issues));
+        assert.ok(ins.issues.some((i) => i.code === 'vollmacht' && i.level === 'hinweis'));
+        assert.ok(
+          ins.releaseBlockers.some((b) => /Testauftrag/.test(b)),
+          'nie einreichbar',
+        );
+        // Nect-Vorschau (nur Inhaber mit Testfreigabe), SEPA: Nein
+        assert.ok((await poa.setTestRelease(t.id, true, owner)).ok);
+        const pv = await poa.previewPoa(t.id, owner, { sepa: false });
+        assert.ok(pv.ok, `${s}: ${JSON.stringify(pv)}`);
+        if (!pv.ok) continue;
+        assert.equal(pv.preview.sepa.chosen, false);
+        assert.equal(pv.preview.sepa.available, false);
+        assert.deepEqual([pv.preview.costs.netCents, pv.preview.costs.grossCents], [695, 827]);
+        // SEPA: Ja ohne Kontodaten ist nicht möglich
+        const pvSepa = await poa.previewPoa(t.id, owner, { sepa: true });
+        assert.ok(!pvSepa.ok && pvSepa.reasons?.some((r) => /SEPA-Mandat gewählt, aber nicht möglich/.test(r)));
+        await poa.setTestRelease(t.id, false, owner);
+        if (s === 'umzug') break; // höchstens 3 je Fenster
+      }
+      assert.equal(fake.processes.size, before, 'keine Anforderung beim Partner');
+    } finally {
+      await tests.setTestWindow(false, owner);
+      delete process.env.VOLLMACHT_TESTMODUS;
+    }
+  });
+
+  it('Testauftrag mit SEPA: Ja wird vollständig geprüft (Kontoinhaber, IBAN)', async () => {
+    const d = plain();
+    d.finish = { ...d.finish, iban: 'DE00 1234', kontoinhaber: '', sepaMandat: true };
+    const v = validateOrder(d, { testOrder: true, requireBirthPlace: true, digitalPoa: true });
+    assert.ok(!v.ok && v.errors['finish.iban'] && v.errors['finish.kontoinhaber']);
+    d.finish = { ...d.finish, iban: 'DE89 3704 0044 0532 0130 00', kontoinhaber: 'Erika Synthetisch' };
+    const ok = validateOrder(d, { testOrder: true, requireBirthPlace: true, digitalPoa: true });
+    assert.ok(ok.ok && ok.order.finish.sepaMandat && ok.order.finish.vollmacht === false);
+  });
+});
+
+describe('Testaufträge nicht in Umsatz, Statistik, Export oder Dublettenprüfung', () => {
+  it('Umsätze, Deckungsbeiträge, offene Posten, Dashboard und FIN-Dubletten ignorieren Testaufträge', async () => {
+    const finance = await import('../src/server/os/finance.ts');
+    const { dashboardData } = await import('../src/server/os/dashboard.ts');
+    const before = {
+      totals: JSON.stringify(await finance.periodTotals()),
+      items: (await finance.openItems()).length,
+      contrib: (await finance.contributions()).length,
+    };
+    const t = await orders.createOrder(validated(), [], { test: { actor: 'Inhaber' } });
+    assert.equal(JSON.stringify(await finance.periodTotals()), before.totals, 'Umsatz unverändert');
+    assert.equal((await finance.openItems()).length, before.items, 'keine offenen Posten');
+    assert.ok(!(await finance.contributions()).some((c) => (c as unknown as { id: number }).id === t.id), 'kein Deckungsbeitrag');
+    const dash = JSON.stringify(await dashboardData(0, 30));
+    assert.ok(!dash.includes(t.number), 'nicht im Dashboard');
+    // gleiche FIN wie ein echter Auftrag: keine Dublettenwarnung beim echten Auftrag
+    const o = (await orders.getOrder(t.id))!;
+    const real = await orders.createOrder({ ...validated(), vehicle: { ...validated().vehicle, fin: o.data.vehicle.fin } }, []);
+    const ins = await oa.orderInsights((await orders.getOrder(real.id))!);
+    assert.ok(!ins.issues.some((i) => i.code === 'doppelt'), JSON.stringify(ins.issues));
+  });
+});

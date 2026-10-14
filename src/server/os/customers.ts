@@ -137,7 +137,7 @@ const BACKFILL_CHUNK = 6;
 export async function backfillCustomers(): Promise<number> {
   if (g.__ekCustomerBackfill) return 0;
   const db = await getDb();
-  const rows = await db.all<{ id: number }>('SELECT id FROM orders WHERE customer_id IS NULL ORDER BY created_at, id LIMIT ?', BACKFILL_CHUNK);
+  const rows = await db.all<{ id: number }>('SELECT id FROM orders WHERE customer_id IS NULL AND is_test = 0 ORDER BY created_at, id LIMIT ?', BACKFILL_CHUNK);
   for (const r of rows) await linkOrderToCustomer(r.id);
   if (rows.length < BACKFILL_CHUNK) g.__ekCustomerBackfill = true;
   return rows.length;

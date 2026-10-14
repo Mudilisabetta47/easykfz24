@@ -177,8 +177,18 @@ export function orderIssues(o: IssueInput): Issue[] {
     if (missingDocs.length) out.push({ level: 'warnung', code: 'unterlagen', text: `Nicht hochgeladen: ${missingDocs.map((k) => DOCUMENTS[k].label).join(', ')}`, fix: 'dokumente' });
     if (isEvbRequired(o.service, d.plate.wahl) && !d.finish.evb) out.push({ level: 'fehler', code: 'evb', text: 'eVB-Nummer fehlt', fix: 'angaben' });
     if (isPreviousPlateRequired(o.service, d.plate.wahl) && !d.vehicle.bisherigesKennzeichen) out.push({ level: 'fehler', code: 'kennzeichen_alt', text: 'Bisheriges Kennzeichen fehlt', fix: 'angaben' });
-    if (svc.sepa && (!d.finish.iban || !d.finish.sepaMandat)) out.push({ level: 'fehler', code: 'sepa', text: 'SEPA-Mandat bzw. IBAN für die Kfz-Steuer fehlt', fix: 'angaben' });
-    if (!d.finish.vollmacht) out.push({ level: 'fehler', code: 'vollmacht', text: 'Vollmacht nicht bestätigt', fix: 'angaben' });
+    if (svc.sepa && (!d.finish.iban || !d.finish.sepaMandat))
+      out.push(
+        o.isTest
+          ? { level: 'hinweis', code: 'sepa', text: 'Testauftrag ohne SEPA-Mandat (SEPA: Nein) – nie als Zulassungsantrag einreichbar' }
+          : { level: 'fehler', code: 'sepa', text: 'SEPA-Mandat bzw. IBAN für die Kfz-Steuer fehlt', fix: 'angaben' },
+      );
+    if (!d.finish.vollmacht)
+      out.push(
+        o.isTest
+          ? { level: 'hinweis', code: 'vollmacht', text: 'Digitale Vollmacht wird über Nect angefordert – gilt erst nach Partnerabgleich (signiert + vollständig)' }
+          : { level: 'fehler', code: 'vollmacht', text: 'Vollmacht nicht bestätigt', fix: 'angaben' },
+      );
     if (d.holder.typ === 'privat' && !d.holder.geburtsdatum) out.push({ level: 'warnung', code: 'geburtsdatum', text: 'Geburtsdatum des Halters fehlt', fix: 'angaben' });
     if (o.payment_status !== 'bezahlt' && (o.status === 'bei_zulassungsstelle' || o.released_at)) out.push({ level: 'warnung', code: 'zahlung', text: 'Zahlung noch offen, Vorgang aber schon freigegeben/übergeben', fix: 'zahlung' });
     const complete = isChecklistComplete(o.checklistItems, o.checklist);

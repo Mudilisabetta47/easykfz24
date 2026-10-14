@@ -206,6 +206,12 @@ export function validateOrder(
     digitalPoa?: boolean;
     /** Website-Bestellung mit erreichbarer Widerrufsbelehrung: Erklärungen zum vorzeitigen Beginn werden angeboten (freiwillig, außer bei Express) */
     earlyStartOffered?: boolean;
+    /**
+     * Testauftrag des Inhabers (nie einreichbar, siehe server/os/test-orders.ts): Die digitale Vollmacht entsteht erst nach dem
+     * Anlegen über Nect – es wird keine vorhandene Vollmacht vorausgesetzt (finish.vollmacht bleibt false, der Nachweis kommt nur
+     * aus dem Partnerabgleich). Kontodaten/SEPA freiwillig („SEPA: Nein“); werden sie angegeben, gilt die volle Prüfung.
+     */
+    testOrder?: boolean;
   } = {},
 ): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
   const parsed = orderInputSchema.safeParse(raw);
@@ -351,13 +357,21 @@ export function validateOrder(
   let kontoinhaber = '';
   let iban = '';
   let sepaMandat = false;
-  if (def.sepa) {
+  const sepaGiven = !!(f.kontoinhaber.trim() || f.iban.trim() || f.sepaMandat);
+  if (def.sepa && opts.testOrder) {
+    // Testauftrag: SEPA nur, wenn ausdrücklich angegeben (dann vollständig geprüft) – nie als „liegt vor“ unterstellt
+    if (sepaGiven) {
+      kontoinhaber = take('finish.kontoinhaber', checkRequired(f.kontoinhaber, 'Bitte den Kontoinhaber angeben'));
+      iban = take('finish.iban', checkIban(f.iban));
+      sepaMandat = f.sepaMandat;
+    }
+  } else if (def.sepa) {
     kontoinhaber = take('finish.kontoinhaber', checkRequired(f.kontoinhaber, 'Bitte den Kontoinhaber angeben'));
     iban = take('finish.iban', checkIban(f.iban));
     sepaMandat = f.sepaMandat;
     if (!sepaMandat) errors['finish.sepaMandat'] = 'Für die Kfz-Steuer ist ein SEPA-Lastschriftmandat erforderlich';
   }
-  if (!f.vollmacht) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
+  if (!f.vollmacht && !opts.testOrder) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
   if (!f.datenschutz) errors['finish.datenschutz'] = 'Bitte die Datenschutzhinweise bestätigen';
   // Vorzeitiger Leistungsbeginn ist freiwillig (ohne ihn Bearbeitung erst nach Ablauf der Widerrufsfrist, technisch gesperrt).
   // Wer ihn verlangt, bestätigt auch das Erlöschen. Express (bevorzugte Bearbeitung) setzt den sofortigen Beginn voraus.
@@ -396,7 +410,8 @@ export function validateOrder(
         kontoinhaber,
         iban,
         sepaMandat,
-        vollmacht: true,
+        // Testauftrag: Vollmacht wird erst über Nect erstellt – nichts als vorhanden behaupten
+        vollmacht: !opts.testOrder,
         datenschutz: true,
         hinweise: f.hinweise.trim(),
       },

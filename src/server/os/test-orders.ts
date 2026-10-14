@@ -115,6 +115,8 @@ export async function createTestOrder(
     wishPlace: placeByAgs,
     requireBirthPlace: true,
     digitalPoa: true,
+    // Vollmacht entsteht erst nach dem Anlegen über Nect; SEPA freiwillig (Testauftrag ist nie einreichbar)
+    testOrder: true,
   });
   if (!v.ok) return { ok: false, error: 'Bitte die markierten Felder prüfen', fields: v.errors };
   const order: ValidatedOrder = v.order;

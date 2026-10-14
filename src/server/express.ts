@@ -228,7 +228,7 @@ export async function expressReport(
   splitGross: (gross: number) => { net: number },
 ): Promise<ExpressReportRow[]> {
   const db = await getDb();
-  const where = ["o.status != 'storniert'"];
+  const where = ["o.status != 'storniert'", 'o.is_test = 0'];
   const params: string[] = [];
   if (filter.from) {
     where.push('o.created_at >= ?');

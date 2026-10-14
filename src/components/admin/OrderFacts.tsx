@@ -76,13 +76,21 @@ export function OrderFacts({ order, wishPlace = null }: { order: OrderDetail; wi
           ['eVB-Nummer', d.finish.evb],
           ['Kontoinhaber', d.finish.kontoinhaber],
           ['IBAN', d.finish.iban ? formatIban(d.finish.iban) : ''],
-          ['SEPA-Mandat', SERVICES[d.service].sepa ? (d.finish.sepaMandat ? 'erteilt' : 'fehlt') : 'nicht erforderlich'],
+          [
+            'SEPA-Mandat',
+            !SERVICES[d.service].sepa ? 'nicht erforderlich' : d.finish.sepaMandat ? 'erteilt' : order.is_test ? 'nicht angegeben (Testauftrag, SEPA: Nein)' : 'fehlt',
+          ],
         ]}
       />
       <Facts
         title="Zustimmungen & Preis"
         rows={[
-          ['Vollmacht / Datenschutz', `bestätigt am ${formatDateTime(order.consent_at)}`],
+          ...((d.finish.vollmacht
+            ? [['Vollmacht / Datenschutz', `bestätigt am ${formatDateTime(order.consent_at)}`]]
+            : [
+                ['Vollmacht', 'digital über Nect – wird nach dem Anlegen angefordert; Nachweis nur über den Partnerabgleich (signiert + vollständig)'],
+                ['Datenschutz', `bestätigt am ${formatDateTime(order.consent_at)}`],
+              ]) as [string, string][]),
           ...order.price.lines.map((l) => [l.label, formatEuro(l.cents)] as [string, string]),
           ['Servicekosten gesamt', formatEuro(order.price.totalCents)],
         ]}

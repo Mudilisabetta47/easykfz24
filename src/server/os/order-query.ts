@@ -162,7 +162,7 @@ export async function queryOrders(f: OrderFilter, userId: number): Promise<Order
   );
   const paidAt = new Map(pays.map((p) => [p.order_id, p.at]));
   const fins = await db.all<{ fin: string; id: number; number: string }>(
-    "SELECT fin, id, number FROM orders WHERE fin != '' AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
+    "SELECT fin, id, number FROM orders WHERE fin != '' AND is_test = 0 AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
   );
   const out: OrderListRow[] = [];
   for (const r of rows) {

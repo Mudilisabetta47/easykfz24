@@ -178,7 +178,8 @@ export async function contributions(filter: { from?: string; to?: string; limit?
   const db = await getDb();
   const settings = await getSettings(true);
   const company = await getCompany();
-  const where = ["o.status != 'storniert'"];
+  // Testaufträge des Inhabers nie in Umsatz, Marge oder Export
+  const where = ["o.status != 'storniert'", 'o.is_test = 0'];
   const params: (string | number)[] = [];
   if (filter.from) {
     where.push('o.created_at >= ?');
@@ -260,7 +261,8 @@ export async function plateReport(filter: { from?: string; to?: string } = {}): 
   const db = await getDb();
   const company = await getCompany();
   const history = await platePriceHistory();
-  const where = ["o.status != 'storniert'"];
+  // Testaufträge des Inhabers nie in Umsatz, Marge oder Export
+  const where = ["o.status != 'storniert'", 'o.is_test = 0'];
   const params: string[] = [];
   if (filter.from) {
     where.push('o.created_at >= ?');
@@ -338,11 +340,11 @@ export async function periodTotals() {
     const elapsed = Date.now() - from.getTime();
     const prevTo = new Date(prevFrom.getTime() + elapsed);
     const cur = await db.first<{ g: number | null; p: number | null; n: number }>(
-      "SELECT SUM(total_cents) AS g, SUM(CASE WHEN payment_status = 'bezahlt' THEN total_cents END) AS p, COUNT(*) AS n FROM orders WHERE status != 'storniert' AND created_at >= ?",
+      "SELECT SUM(total_cents) AS g, SUM(CASE WHEN payment_status = 'bezahlt' THEN total_cents END) AS p, COUNT(*) AS n FROM orders WHERE is_test = 0 AND status != 'storniert' AND created_at >= ?",
       from.toISOString(),
     );
     const prev = await db.first<{ g: number | null }>(
-      "SELECT SUM(total_cents) AS g FROM orders WHERE status != 'storniert' AND created_at >= ? AND created_at < ?",
+      "SELECT SUM(total_cents) AS g FROM orders WHERE is_test = 0 AND status != 'storniert' AND created_at >= ? AND created_at < ?",
       prevFrom.toISOString(),
       prevTo.toISOString(),
     );
@@ -518,7 +520,7 @@ export async function openItems() {
     `SELECT o.id, o.number, o.holder_name, o.total_cents, o.created_at, o.status,
        (SELECT i.number FROM invoices i WHERE i.order_id = o.id AND i.kind = 'rechnung' AND NOT EXISTS (SELECT 1 FROM invoices g WHERE g.refers_to = i.id) ORDER BY i.id DESC LIMIT 1) AS invoice_number,
        CAST((julianday('now') - julianday(o.created_at)) AS INTEGER) AS days
-     FROM orders o WHERE o.payment_status = 'offen' AND o.status != 'storniert' AND o.total_cents > 0 ORDER BY o.created_at`,
+     FROM orders o WHERE o.is_test = 0 AND o.payment_status = 'offen' AND o.status != 'storniert' AND o.total_cents > 0 ORDER BY o.created_at`,
   );
 }
 

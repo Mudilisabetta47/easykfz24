@@ -34,7 +34,7 @@ export async function issueInput(o: OrderDetail): Promise<IssueInput> {
   const [docs, same, extra, paid, poa] = await Promise.all([
     db.all<{ kind: DocumentKind }>("SELECT DISTINCT kind FROM documents WHERE order_id = ? AND deleted_at = ''", o.id),
     db.all<{ id: number; number: string }>(
-      "SELECT id, number FROM orders WHERE fin = ? AND id != ? AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle') LIMIT 5",
+      "SELECT id, number FROM orders WHERE fin = ? AND id != ? AND is_test = 0 AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle') LIMIT 5",
       o.fin,
       o.id,
     ),
@@ -279,7 +279,7 @@ export async function createOrderAdmin(raw: unknown, actor: Actor): Promise<{ ok
   const order: ValidatedOrder = v.order;
   const db = await getDb();
   const same = await db.all<{ number: string }>(
-    "SELECT number FROM orders WHERE fin = ? AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
+    "SELECT number FROM orders WHERE fin = ? AND is_test = 0 AND status IN ('neu', 'in_pruefung', 'unterlagen_fehlen', 'bei_zulassungsstelle')",
     order.vehicle.fin,
   );
   // Zustimmung zum vorzeitigen Leistungsbeginn (beide Erklärungen) – in der Verwaltung nur, wenn sie vom Kunden vorliegt
