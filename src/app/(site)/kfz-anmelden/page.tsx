@@ -10,7 +10,8 @@ import { formatEuro } from '../../../lib/format.ts';
 import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL, PROMO_FINE_PRINT } from '../../../lib/pricing.config.ts';
 import { servicePrice } from '../../../lib/pricing.ts';
 import { PriceTag, PromoBadge, promoActive } from '../../../components/Promo.tsx';
-import { DOCUMENTS, documentsFor, PLATE_CHOICES, SERVICE_IDS, SERVICES, type ServiceId } from '../../../lib/services.ts';
+import { DOCUMENTS, documentsFor, originalsFor, PLATE_CHOICES, SERVICE_IDS, SERVICES, type ServiceId } from '../../../lib/services.ts';
+import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
 import { getPlateOffer } from '../../../server/plates.ts';
 
 // Schilderpreise kommen aus dem Finanzcenter – Seite daher je Aufruf
@@ -102,7 +103,7 @@ export default async function KfzAnmeldenPage() {
                   <div>
                     <p className="label">Per Post im Original</p>
                     <ul className="ticks" role="list">
-                      {def.originals.map((o) => (
+                      {originalsFor(id, poaCreationEnabled()).map((o) => (
                         <li key={o}>
                           <Check width={14} height={14} />
                           <span>{o}</span>

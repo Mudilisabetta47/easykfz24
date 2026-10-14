@@ -207,3 +207,8 @@ export function isEvbRequired(id: ServiceId, choice: PlateChoice | null): boolea
 export function isPreviousPlateRequired(id: ServiceId, choice: PlateChoice | null): boolean {
   return SERVICES[id].previousPlate === 'pflicht' || choice === 'behalten';
 }
+
+/** Originale per Post – mit digitaler Vollmacht (qualifizierte elektronische Signatur) entfällt die Papiervollmacht */
+export function originalsFor(id: ServiceId, digitalPoa: boolean): string[] {
+  return SERVICES[id].originals.filter((o) => !(digitalPoa && o === 'Unterschriebene Vollmacht'));
+}

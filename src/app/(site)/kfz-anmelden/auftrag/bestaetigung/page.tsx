@@ -8,6 +8,7 @@ import { PROVIDER, SITE, telHref } from '../../../../../lib/site.ts';
 import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../../../../../lib/withdrawal.ts';
 import { withdrawalMode } from '../../../../../server/withdrawal.ts';
 import { bankTransferAccount } from '../../../../../server/bank-transfer.ts';
+import { poaCreationEnabled } from '../../../../../server/power-of-attorney.ts';
 
 export const metadata: Metadata = { title: 'Auftrag eingegangen', robots: { index: false } };
 
@@ -16,6 +17,7 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
   const number = normalizeOrderNumber(nr);
   const def = isServiceId(l) ? SERVICES[l] : null;
   const transfer = zahlung === 'ok' ? null : await bankTransferAccount();
+  const digitalPoa = poaCreationEnabled();
 
   return (
     <div className="shell shell--narrow confirm">
@@ -92,10 +94,18 @@ export default async function BestaetigungPage({ searchParams }: { searchParams:
             Widerrufsfrist. Fehlt etwas, sehen Sie den Hinweis in der Statusabfrage und wir melden uns. Ihre Bestellbestätigung mit allen Angaben erhalten Sie
             per E-Mail.
           </li>
-          <li>
-            Senden Sie uns die unterschriebene <Link href={`/kfz-anmelden/vollmacht${number ? `?nr=${number}` : ''}`}>Vollmacht</Link> und die
-            Originale per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}. Bitte die Auftragsnummer beilegen.
-          </li>
+          {digitalPoa ? (
+            <li>
+              Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie die Vollmacht online: Sie erhalten per E-Mail einen Link unseres Partners
+              kfz-api.de, identifizieren sich über Nect und unterschreiben mit qualifizierter elektronischer Signatur. Den Link finden Sie auch in der
+              Statusabfrage. Im Auftrag genannte Originale senden Sie bitte per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}.
+            </li>
+          ) : (
+            <li>
+              Senden Sie uns die unterschriebene <Link href={`/kfz-anmelden/vollmacht${number ? `?nr=${number}` : ''}`}>Vollmacht</Link> und die
+              Originale per Post an: {SITE.company} – {SITE.name}, {SITE.street}, {SITE.city}. Bitte die Auftragsnummer beilegen.
+            </li>
+          )}
           <li>Sobald alles vollständig ist und Ihre Zahlung eingegangen ist, reichen wir den Vorgang bei der zuständigen Zulassungsbehörde ein.</li>
         </ol>
         <p className="muted">

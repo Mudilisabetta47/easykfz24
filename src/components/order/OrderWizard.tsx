@@ -33,6 +33,7 @@ import {
   type DocumentKind,
   type PlateChoice,
   type ServiceId,
+  originalsFor,
 } from '../../lib/services.ts';
 import { checkFin, checkIban, checkPlate, formatIban } from '../../lib/validation.ts';
 import { plateFormatFor, splitPlate } from '../../lib/plate.ts';
@@ -205,7 +206,7 @@ export function OrderWizard({
     const st = STEPS[i];
     if (st.key === 'review') return {};
     if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
-    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, earlyStartOffered: withdrawalInfo });
+    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, digitalPoa: birthPlace, earlyStartOffered: withdrawalInfo });
     const errs: FieldErrors = {};
     if (!res.ok) {
       if (i > 0 && res.errors.service) return {};
@@ -1069,15 +1070,25 @@ export function OrderWizard({
                 ) : null}
                 <label className={`check form-grid__full${e['finish.vollmacht'] ? ' check--error' : ''}`}>
                   <input id={fieldId('finish.vollmacht')} type="checkbox" checked={draft.finish.vollmacht} onChange={(ev) => update('finish', 'vollmacht', ev.target.checked)} aria-invalid={!!e['finish.vollmacht']} />
-                  <span>
-                    Ich bevollmächtige die {PROVIDER_NAME} (Marke „{BRAND}“), den Vorgang „{def.title}“ für mich bei der zuständigen
-                    Zulassungsbehörde zu beantragen. Mir ist bekannt,
-                    dass ich die unterschriebene{' '}
-                    <Link href="/kfz-anmelden/vollmacht" target="_blank">
-                      Vollmacht
-                    </Link>{' '}
-                    im Original per Post nachreiche.
-                  </span>
+                  {birthPlace ? (
+                    // Digitale Vollmacht: Großkundenschnittstelle verlangt bei Privatpersonen eine qualifizierte elektronische Signatur (außer Abmeldung)
+                    <span>
+                      Ich beauftrage die {PROVIDER_NAME} (Marke „{BRAND}“), den Vorgang „{def.title}“ für mich bei der zuständigen Zulassungsbehörde zu
+                      beantragen.
+                      {service === 'abmeldung'
+                        ? ''
+                        : ' Die erforderliche Vollmacht erteile ich online: Ich erhalte per E-Mail einen Link, identifiziere mich und unterschreibe mit qualifizierter elektronischer Signatur (über unseren Partner kfz-api.de mit Nect).'}
+                    </span>
+                  ) : (
+                    <span>
+                      Ich bevollmächtige die {PROVIDER_NAME} (Marke „{BRAND}“), den Vorgang „{def.title}“ für mich bei der zuständigen Zulassungsbehörde zu
+                      beantragen. Mir ist bekannt, dass ich die unterschriebene{' '}
+                      <Link href="/kfz-anmelden/vollmacht" target="_blank">
+                        Vollmacht
+                      </Link>{' '}
+                      im Original per Post nachreiche.
+                    </span>
+                  )}
                 </label>
                 {e['finish.vollmacht'] ? <p className="field__error form-grid__full">{e['finish.vollmacht']}</p> : null}
                 <label className={`check form-grid__full${e['finish.datenschutz'] ? ' check--error' : ''}`}>
@@ -1330,7 +1341,7 @@ export function OrderWizard({
             <div className="card wizard__originals">
               <p className="label">Per Post im Original</p>
               <ul role="list">
-                {def.originals.map((o) => (
+                {originalsFor(def.id, birthPlace).map((o) => (
                   <li key={o}>{o}</li>
                 ))}
               </ul>

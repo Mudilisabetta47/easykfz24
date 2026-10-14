@@ -65,6 +65,7 @@ export async function POST(req: Request) {
     expressOffer: await getExpressOffer(),
     wishPlace: placeByAgs,
     requireBirthPlace: poaCreationEnabled(),
+    digitalPoa: poaCreationEnabled(),
     // Erklärungen zum vorzeitigen Beginn werden angeboten, sobald die Widerrufsbelehrung erreichbar ist (freiwillig, außer Express)
     earlyStartOffered: withdrawalMode() === 'aktiv',
   });

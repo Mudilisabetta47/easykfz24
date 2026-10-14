@@ -5,6 +5,7 @@ import { BRAND_NOTE, PROVIDER, PROVIDER_NAME } from '../../../lib/site.ts';
 import { NOTICE_PATH, WITHDRAW_LABEL, WITHDRAW_PATH } from '../../../lib/withdrawal.ts';
 import { customerPaymentsOpen } from '../../../server/checkout.ts';
 import { bankTransferAccount } from '../../../server/bank-transfer.ts';
+import { poaCreationEnabled } from '../../../server/power-of-attorney.ts';
 
 // Zahlungsabschnitt hängt vom Laufzeit-Schalter ab (Zahlungspause) – je Aufruf rendern
 export const dynamic = 'force-dynamic';
@@ -95,7 +96,9 @@ export default async function KundeninformationenPage() {
           vorliegen. Die Express-Bearbeitung setzt den sofortigen Beginn voraus.
         </p>
         <p>
-          Die unterschriebene Vollmacht und die im Auftrag genannten Originale senden Sie uns per Post. Über die Dauer der behördlichen Bearbeitung entscheidet
+          {poaCreationEnabled()
+            ? 'Für Zulassung, Ummeldung und Wiederzulassung erteilen Sie uns die Vollmacht online mit qualifizierter elektronischer Signatur: Sie erhalten per E-Mail einen Link unseres Partners kfz-api.de und identifizieren sich über Nect. Die im Auftrag genannten Originale senden Sie uns per Post.'
+            : 'Die unterschriebene Vollmacht und die im Auftrag genannten Originale senden Sie uns per Post.'} Über die Dauer der behördlichen Bearbeitung entscheidet
           die Zulassungsbehörde; eine bestimmte Bearbeitungsdauer sagen wir nicht zu. Papiere und Kennzeichen erhalten Sie per DHL oder UPS oder holen sie nach
           Terminabsprache in unserer Geschäftsstelle ab.
         </p>

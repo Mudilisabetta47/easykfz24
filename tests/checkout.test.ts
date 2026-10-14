@@ -84,3 +84,20 @@ describe('Zahlungspause', () => {
     assert.equal(paymentsPaused({ ZAHLUNG_PAUSE: '0' }), false);
   });
 });
+
+describe('Digitale Vollmacht (VOLLMACHT_DIGITAL)', () => {
+  it('Firmen online nur Abmeldung; Privatpersonen alle Leistungen', () => {
+    const firm = draft();
+    firm.holder = { ...firm.holder, typ: 'firma', firmenname: 'Muster GmbH', ansprechpartner: 'Max Muster' };
+    assert.ok(validateOrder(firm, { digitalPoa: true }).ok, 'Abmeldung für Firmen erlaubt');
+    const zul = { ...firm, service: 'halterwechsel' };
+    const v = validateOrder(zul, { digitalPoa: true });
+    assert.ok(!v.ok && /nur die Abmeldung/.test(v.errors['holder.typ'] ?? ''));
+  });
+
+  it('Papiervollmacht entfällt aus der Liste der Originale', async () => {
+    const { originalsFor } = await import('../src/lib/services.ts');
+    assert.ok(originalsFor('neuzulassung', false).includes('Unterschriebene Vollmacht'));
+    assert.ok(!originalsFor('neuzulassung', true).includes('Unterschriebene Vollmacht'));
+  });
+});

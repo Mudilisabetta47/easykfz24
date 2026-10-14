@@ -151,7 +151,7 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
         p: 'Soweit die Kraftfahrzeugsteuer betroffen ist, können die für das SEPA-Mandat erforderlichen Informationen an die Bundeszollverwaltung beziehungsweise die zuständige Stelle übermittelt werden.',
       },
       {
-        p: 'Eine zusätzliche digitale Identitäts- und Vollmachtsprüfung über Nect ist derzeit nicht aktiviert. Sollte sie künftig eingesetzt werden, werden diese Hinweise vorab um die tatsächlich beteiligten Anbieter, Daten und Zwecke ergänzt.',
+        p: 'Für Zulassung, Ummeldung und Wiederzulassung verlangt die elektronische Antragstellung über die Großkundenschnittstelle eine Vollmacht mit qualifizierter elektronischer Signatur. Dafür übermitteln wir an die POWR GmbH (kfz-api.de) Ihren Namen, Ihre Anschrift, Ihr Geburtsdatum und Ihren Geburtsort, Ihre E-Mail-Adresse und die Fahrzeug-Identifizierungsnummer; wählen Sie dabei zusätzlich das SEPA-Mandat zur Kraftfahrzeugsteuer, auch Kontoinhaber und IBAN. Sie erhalten per E-Mail einen Link, identifizieren sich bei der Nect GmbH, Großer Burstah 21, 20457 Hamburg, und unterschreiben die Vollmacht elektronisch. Die POWR GmbH setzt die Nect GmbH hierfür als Dienstleister für Identifizierung und Signatur ein; für die Verarbeitung bei Nect gelten deren Datenschutzhinweise, die Ihnen im Rahmen der Identifizierung angezeigt werden. Wir erhalten den Stand des Vollmachtsvorgangs (z. B. unterschrieben, abgelehnt, abgelaufen). Rechtsgrundlage ist Art. 6 Abs. 1 lit. b und c DSGVO. Für die Abmeldung ist keine solche Vollmacht erforderlich.',
       },
     ],
   },

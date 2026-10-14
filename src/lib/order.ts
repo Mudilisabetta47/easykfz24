@@ -202,6 +202,8 @@ export function validateOrder(
     wishPlace?: (ags: string) => WishPlace | null;
     /** Digitale Vollmacht aktiv: Geburtsort ist dann für Privatpersonen Pflicht (außer Abmeldung) */
     requireBirthPlace?: boolean;
+    /** Digitale Vollmacht (kfz-api.de/Nect) aktiv: derzeit nur für Privatpersonen – Firmen online nur Abmeldung */
+    digitalPoa?: boolean;
     /** Website-Bestellung mit erreichbarer Widerrufsbelehrung: Erklärungen zum vorzeitigen Beginn werden angeboten (freiwillig, außer bei Express) */
     earlyStartOffered?: boolean;
   } = {},
@@ -269,6 +271,8 @@ export function validateOrder(
   const h = input.holder;
   const typ = h.typ === 'privat' || h.typ === 'firma' ? h.typ : null;
   if (!typ) errors['holder.typ'] = 'Bitte Privatperson oder Firma wählen';
+  else if (opts.digitalPoa && typ === 'firma' && service !== 'abmeldung')
+    errors['holder.typ'] = 'Für Unternehmen bieten wir online derzeit nur die Abmeldung an – für andere Vorgänge melden Sie sich bitte direkt bei uns.';
   let vorname = '';
   let nachname = '';
   let geburtsdatum = '';

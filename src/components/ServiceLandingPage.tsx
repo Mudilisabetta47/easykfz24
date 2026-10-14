@@ -9,7 +9,8 @@ import { placeName, slugForCode } from '../lib/district-pages.ts';
 import { formatEuro } from '../lib/format.ts';
 import { OFFICIAL_FEES_NOTE, PRICE_CONFIG, PRICES_FINAL } from '../lib/pricing.config.ts';
 import type { ServiceLanding } from '../lib/service-landings.ts';
-import { DOCUMENTS, documentsFor, PLATE_CHOICES, SERVICES } from '../lib/services.ts';
+import { DOCUMENTS, documentsFor, originalsFor, PLATE_CHOICES, SERVICES } from '../lib/services.ts';
+import { poaCreationEnabled } from '../server/power-of-attorney.ts';
 import { PROVIDER, PROVIDER_NAME } from '../lib/site.ts';
 import { publicBaseUrl } from '../server/payments.ts';
 
@@ -153,7 +154,7 @@ export function ServiceLandingPage({ page }: { page: ServiceLanding }) {
                       <div>
                         <p className="label">Per Post im Original</p>
                         <ul className="ticks" role="list">
-                          {def.originals.map((o) => (
+                          {originalsFor(id, poaCreationEnabled()).map((o) => (
                             <li key={o}>
                               <Check width={14} height={14} />
                               <span>{o}</span>
