@@ -1523,7 +1523,7 @@ describe('Online-Zahlung über Mollie (lokaler Testnachbau, Testmodus)', () => {
 });
 
 describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe', () => {
-  it('vorzeitiger Leistungsbeginn ohne Bestätigung des Erlöschens wird abgelehnt (Zustimmung selbst ist freiwillig)', async () => {
+  it('Website-Bestellung ohne beide Erklärungen zum vorzeitigen Beginn wird abgelehnt (Pflicht)', async () => {
     const data = orderData({ service: 'abmeldung', email: `ohne.zustimmung.${Date.now()}@example.de`, fin: `WVWZZZ1KZAW${String(Date.now()).slice(-6)}` });
     const form = new FormData();
     form.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: true, widerrufErlischt: false } }));
@@ -1534,6 +1534,14 @@ describe('Transaktionsmails: Bestellbestätigung nur protokolliert ohne Freigabe
     assert.equal(r.status, 422);
     assert.ok(String(JSON.stringify(r.json)).includes('finish.widerrufErlischt'));
     assert.ok(!String(JSON.stringify(r.json)).includes('finish.vorzeitigerBeginn'));
+    const none = new FormData();
+    none.set('data', JSON.stringify({ ...data, finish: { ...data.finish, vorzeitigerBeginn: false, widerrufErlischt: false } }));
+    none.append('doc_ausweis', new Blob([PDF], { type: 'application/pdf' }), 'ausweis.pdf');
+    none.append('doc_zb1', new Blob([PDF], { type: 'application/pdf' }), 'zb1.pdf');
+    const ip2 = `10.8.${Math.floor(Math.random() * 200)}.${Math.floor(Math.random() * 200)}`;
+    const r2 = await anon.req('POST', '/api/auftrag', { form: none, headers: { 'x-forwarded-for': ip2, 'cf-connecting-ip': ip2 } });
+    assert.equal(r2.status, 422);
+    assert.ok(String(JSON.stringify(r2.json)).includes('finish.vorzeitigerBeginn'));
   });
 
   it('Website-Bestellung legt die Bestellbestätigung an, sendet aber ohne KUNDENMAILS nichts; Freigabe/Testmail mit Rechteprüfung', async () => {

@@ -202,7 +202,7 @@ export function OrderWizard({
     const st = STEPS[i];
     if (st.key === 'review') return {};
     if (st.key === 'documents') return service ? validateDocuments(service, counts, docOpts) : { service: 'Bitte eine Leistung wählen' };
-    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace });
+    const res = validateOrder(draft, { plateOffer: offer, expressOffer: xOffer, requireBirthPlace: birthPlace, requireEarlyStart: withdrawalInfo });
     const errs: FieldErrors = {};
     if (!res.ok) {
       if (i > 0 && res.errors.service) return {};
@@ -1088,47 +1088,42 @@ export function OrderWizard({
                   </span>
                 </label>
                 {e['finish.datenschutz'] ? <p className="field__error form-grid__full">{e['finish.datenschutz']}</p> : null}
-                {/* Vorzeitiger Leistungsbeginn (§ 356 Abs. 4 BGB): freiwillig, nur bei erreichbarer Widerrufsbelehrung – Wortlaut vom Inhaber */}
+                {/* Vorzeitiger Leistungsbeginn (§ 356 Abs. 4 BGB): beide Erklärungen Pflicht (Entscheidung des Inhabers) – Wortlaut vom Inhaber */}
                 {withdrawalInfo ? (
                   <fieldset className="fieldset form-grid__full early-start">
-                    <legend>Sofortiger Bearbeitungsbeginn (freiwillig)</legend>
+                    <legend>Beginn der Bearbeitung</legend>
                     <p className="muted">
-                      Ohne diese Zustimmung beginnen wir mit der Bearbeitung erst nach Ablauf der 14-tägigen Widerrufsfrist. Einzelheiten in der{' '}
+                      Damit wir sofort mit Ihrem Auftrag beginnen können, benötigen wir die folgenden Erklärungen. Einzelheiten in der{' '}
                       <Link href={NOTICE_PATH} target="_blank">
                         Widerrufsbelehrung
                       </Link>
                       .
                     </p>
-                    <label className="check">
+                    <label className={`check${e['finish.vorzeitigerBeginn'] ? ' check--error' : ''}`}>
                       <input
                         id={fieldId('finish.vorzeitigerBeginn')}
                         type="checkbox"
                         checked={!!draft.finish.vorzeitigerBeginn}
-                        onChange={(ev) => {
-                          update('finish', 'vorzeitigerBeginn', ev.target.checked);
-                          if (!ev.target.checked) update('finish', 'widerrufErlischt', false);
-                        }}
+                        onChange={(ev) => update('finish', 'vorzeitigerBeginn', ev.target.checked)}
+                        aria-invalid={!!e['finish.vorzeitigerBeginn']}
                       />
                       <span>{EARLY_START_TEXT}</span>
                     </label>
-                    {draft.finish.vorzeitigerBeginn ? (
-                      <>
-                        <label className={`check${e['finish.widerrufErlischt'] ? ' check--error' : ''}`}>
-                          <input
-                            id={fieldId('finish.widerrufErlischt')}
-                            type="checkbox"
-                            checked={!!draft.finish.widerrufErlischt}
-                            onChange={(ev) => update('finish', 'widerrufErlischt', ev.target.checked)}
-                            aria-invalid={!!e['finish.widerrufErlischt']}
-                          />
-                          <span>{LOSS_ACK_TEXT}</span>
-                        </label>
-                        {e['finish.widerrufErlischt'] ? <p className="field__error">{e['finish.widerrufErlischt']}</p> : null}
-                        <p className="muted">
-                          <strong>Hinweis zum Wertersatz:</strong> {VALUE_HINT_TEXT}
-                        </p>
-                      </>
-                    ) : null}
+                    {e['finish.vorzeitigerBeginn'] ? <p className="field__error">{e['finish.vorzeitigerBeginn']}</p> : null}
+                    <label className={`check${e['finish.widerrufErlischt'] ? ' check--error' : ''}`}>
+                      <input
+                        id={fieldId('finish.widerrufErlischt')}
+                        type="checkbox"
+                        checked={!!draft.finish.widerrufErlischt}
+                        onChange={(ev) => update('finish', 'widerrufErlischt', ev.target.checked)}
+                        aria-invalid={!!e['finish.widerrufErlischt']}
+                      />
+                      <span>{LOSS_ACK_TEXT}</span>
+                    </label>
+                    {e['finish.widerrufErlischt'] ? <p className="field__error">{e['finish.widerrufErlischt']}</p> : null}
+                    <p className="muted">
+                      <strong>Hinweis zum Wertersatz:</strong> {VALUE_HINT_TEXT}
+                    </p>
                   </fieldset>
                 ) : null}
                 <div className="form-grid__full">

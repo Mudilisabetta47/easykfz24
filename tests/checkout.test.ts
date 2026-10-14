@@ -55,20 +55,23 @@ describe('Checkout-Schalter', () => {
   });
 });
 
-describe('Vorzeitiger Leistungsbeginn ist freiwillig', () => {
-  it('Bestellung ohne Zustimmung ist gültig', () => {
-    const v = validateOrder(draft());
-    assert.ok(v.ok, JSON.stringify(!v.ok && v.errors));
+describe('Erklärungen zum vorzeitigen Leistungsbeginn', () => {
+  it('Website (requireEarlyStart): beide Erklärungen sind Pflicht', () => {
+    const d = draft();
+    const none = validateOrder(d, { requireEarlyStart: true });
+    assert.ok(!none.ok && none.errors['finish.vorzeitigerBeginn'] && none.errors['finish.widerrufErlischt']);
+    d.finish = { ...d.finish, vorzeitigerBeginn: true };
+    const one = validateOrder(d, { requireEarlyStart: true });
+    assert.ok(!one.ok && !one.errors['finish.vorzeitigerBeginn'] && one.errors['finish.widerrufErlischt']);
+    d.finish = { ...d.finish, vorzeitigerBeginn: true, widerrufErlischt: true };
+    assert.ok(validateOrder(d, { requireEarlyStart: true }).ok);
   });
 
-  it('wer den vorzeitigen Beginn verlangt, muss zusätzlich das Erlöschen bestätigen', () => {
+  it('Verwaltung (ohne requireEarlyStart): Auftrag ohne Erklärungen gültig; wer den Beginn verlangt, bestätigt auch das Erlöschen', () => {
     const d = draft();
+    assert.ok(validateOrder(d).ok);
     d.finish = { ...d.finish, vorzeitigerBeginn: true };
     const v = validateOrder(d);
-    assert.ok(!v.ok);
     assert.ok(!v.ok && v.errors['finish.widerrufErlischt']);
-    assert.ok(!v.ok && !v.errors['finish.vorzeitigerBeginn']);
-    d.finish = { ...d.finish, vorzeitigerBeginn: true, widerrufErlischt: true };
-    assert.ok(validateOrder(d).ok);
   });
 });
