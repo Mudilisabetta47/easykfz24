@@ -1,5 +1,5 @@
 // Zahlungsanbindung: Mollie (bevorzugt, src/server/mollie.ts) oder – bisher – Stripe Checkout (ohne SDK, nur HTTPS).
-// Stripe bietet Visa, Mastercard, Klarna, PayPal, Apple Pay und Google Pay über dieselbe Checkout-Seite an;
+// Stripe (vorbereitet, nicht aktiv) böte Karten und Wallets über dieselbe Checkout-Seite an;
 // welche Methoden erscheinen, wird im Stripe-Dashboard aktiviert.
 //
 // .env:

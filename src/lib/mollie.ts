@@ -87,11 +87,11 @@ export const MOLLIE_METHOD_MARKS: Record<string, { name: string; logo: string }[
     { name: 'Visa', logo: '/brands/mollie/visa.svg' },
     { name: 'Mastercard', logo: '/brands/mollie/mastercard.svg' },
   ],
-  paypal: [{ name: 'PayPal', logo: '/brands/mollie/paypal.svg' }],
   klarna: [{ name: 'Klarna', logo: '/brands/mollie/klarna.svg' }],
   applepay: [{ name: 'Apple Pay', logo: '/brands/mollie/apple-pay.svg' }],
   googlepay: [{ name: 'Google Pay', logo: '/brands/mollie/google-pay.svg' }],
   paybybank: [{ name: 'Pay by Bank', logo: '/brands/mollie/pay-by-bank.svg' }],
+  banktransfer: [{ name: 'SEPA-Überweisung', logo: '/brands/mollie/sepa-ueberweisung.svg' }],
   trustly: [{ name: 'Trustly', logo: '/brands/mollie/trustly.svg' }],
   directdebit: [{ name: 'SEPA-Lastschrift', logo: '/brands/mollie/direct-debit.svg' }],
 };

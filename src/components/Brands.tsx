@@ -34,21 +34,9 @@ export function CarrierMarks({ label = 'Versand mit' }: { label?: string }) {
 }
 
 export function PaymentMarks({ label = 'Bezahlen mit' }: { label?: string }) {
-  return (
-    <div className="brand-row" aria-label={`${label} ${PAYMENT_METHOD_IDS.map((p) => PAYMENT_METHODS[p].name).join(', ')}`}>
-      <span className="brand-row__label" aria-hidden="true">
-        {label}
-      </span>
-      <span className="brand-row__marks" aria-hidden="true">
-        {PAYMENT_METHOD_IDS.map((p) => (
-          <Mark key={p} name={PAYMENT_METHODS[p].name} logo={PAYMENT_METHODS[p].logo} />
-        ))}
-      </span>
-    </div>
-  );
+  return <MethodMarks label={label} marks={PAYMENT_METHOD_IDS.map((p) => PAYMENT_METHODS[p])} />;
 }
 
-/** Zahlarten als offizielle Karten-Logos (Mollie-Grafiken, bringen eigenen Rahmen mit) – nur die tatsächlich aktiven */
 export function MethodMarks({ marks, label = 'Möglich mit' }: { marks: { name: string; logo: string }[]; label?: string }) {
   if (!marks.length) return null;
   return (

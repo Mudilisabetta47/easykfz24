@@ -1,17 +1,18 @@
-// Zahlarten. Abgewickelt über einen Zahlungsdienstleister (vorbereitet: Stripe Checkout), der Karten, Klarna,
-// PayPal, Apple Pay und Google Pay über eine Schnittstelle anbietet. Welche Methoden der Kunde tatsächlich sieht,
-// wird im Stripe-Dashboard aktiviert. Logos wie bei den Versandpartnern unter public/brands/ ablegen.
+// Zahlarten – Abwicklung über Mollie. Angezeigt werden nur die im Mollie-Dashboard aktivierten Methoden
+// (Stand 14.10.2026 laut Inhaber): Kredit-/Debitkarte, SEPA-Überweisung, Pay by Bank, Klarna, Apple Pay, Google Pay.
+// Logos: offizielle Mollie-Zahlartensymbole unter public/brands/mollie/. Ändert sich die Freischaltung, hier anpassen.
 
-export const PAYMENT_METHOD_IDS = ['visa', 'mastercard', 'paypal', 'klarna', 'apple_pay', 'google_pay'] as const;
+export const PAYMENT_METHOD_IDS = ['visa', 'mastercard', 'banktransfer', 'paybybank', 'klarna', 'apple_pay', 'google_pay'] as const;
 export type PaymentMethodId = (typeof PAYMENT_METHOD_IDS)[number];
 
-export const PAYMENT_METHODS: Record<PaymentMethodId, { name: string; logo: string | null }> = {
-  visa: { name: 'Visa', logo: '/brands/visa.png' },
-  mastercard: { name: 'Mastercard', logo: '/brands/mastercard.png' },
-  paypal: { name: 'PayPal', logo: '/brands/paypal.png' },
-  klarna: { name: 'Klarna', logo: '/brands/klarna.png' },
-  apple_pay: { name: 'Apple Pay', logo: '/brands/apple-pay.png' },
-  google_pay: { name: 'Google Pay', logo: '/brands/google-pay.png' },
+export const PAYMENT_METHODS: Record<PaymentMethodId, { name: string; logo: string }> = {
+  visa: { name: 'Visa', logo: '/brands/mollie/visa.svg' },
+  mastercard: { name: 'Mastercard', logo: '/brands/mollie/mastercard.svg' },
+  banktransfer: { name: 'SEPA-Überweisung', logo: '/brands/mollie/sepa-ueberweisung.svg' },
+  paybybank: { name: 'Pay by Bank', logo: '/brands/mollie/pay-by-bank.svg' },
+  klarna: { name: 'Klarna', logo: '/brands/mollie/klarna.svg' },
+  apple_pay: { name: 'Apple Pay', logo: '/brands/mollie/apple-pay.svg' },
+  google_pay: { name: 'Google Pay', logo: '/brands/mollie/google-pay.svg' },
 };
 
 export const PAYMENT_STATUS = ['offen', 'bezahlt', 'erstattet'] as const;
