@@ -79,12 +79,13 @@ export function createFakeMollie() {
 
       if (req.method === 'GET' && path === '/methods') {
         return send(res, 200, {
-          count: 3,
+          count: 4,
           _embedded: {
             methods: [
               { resource: 'method', id: 'creditcard' },
               { resource: 'method', id: 'paypal' },
               { resource: 'method', id: 'applepay' },
+              { resource: 'method', id: 'klarna' },
             ],
           },
         });
@@ -142,7 +143,8 @@ export function createFakeMollie() {
           createdAt: nowIso(),
           amount: { currency: 'EUR', value: b.amount.value },
           description: b.description,
-          method: b.method ?? null,
+          // Liste = Einschränkung der Auswahl; gewählt ist dann noch keine Methode
+          method: Array.isArray(b.method) ? null : (b.method ?? null),
           metadata: b.metadata ?? null,
           status: 'open',
           isCancelable: false,

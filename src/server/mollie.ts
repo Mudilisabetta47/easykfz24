@@ -135,17 +135,32 @@ export async function checkMollie(): Promise<{
   return { configured: true, mode, online, ok: false, message: msg(r), methods: [], test };
 }
 
-let methodsCache: { at: number; ids: string[] } | null = null;
-/** Aktive Zahlarten für die Logos auf der Bezahlseite (1 Stunde zwischengespeichert; bei Fehlern leer) */
+/**
+ * Klarna erst nach nachgewiesenem Integrationstest in der offiziellen Mollie-Testumgebung (Vorgabe des Inhabers, 14.10.2026).
+ * Ohne KLARNA_AKTIV=1: Klarna wird auf der Bezahlseite ausgeblendet (Methodenliste ohne Klarna) und es werden KEINE
+ * zusätzlichen Kundendaten (Name, Anschrift, E-Mail, Bestellpositionen) an Mollie übermittelt – die übrigen Zahlarten brauchen sie nicht.
+ */
+export function klarnaEnabled(): boolean {
+  return process.env.KLARNA_AKTIV === '1';
+}
+export const isKlarnaMethod = (id: string) => id === 'klarna' || id.startsWith('klarna');
+
+const methodsCache: Partial<Record<MollieKeyMode, { at: number; ids: string[] }>> = {};
+/** Bei Mollie aktivierte Zahlarten je Modus (1 Stunde zwischengespeichert); null, wenn nicht abrufbar */
+async function activeMethods(mode: MollieKeyMode): Promise<string[] | null> {
+  const c = methodsCache[mode];
+  if (c && Date.now() - c.at < 3_600_000) return c.ids;
+  const r = await api(mode, 'GET', '/methods');
+  if (r.kind !== 'ok') return null;
+  const ids = ((r.json._embedded as { methods?: { id?: unknown }[] } | undefined)?.methods ?? []).map((m) => String(m.id ?? '')).filter(Boolean);
+  methodsCache[mode] = { at: Date.now(), ids };
+  return ids;
+}
+/** Aktive Zahlarten für die Logos auf der Bezahlseite (ohne Klarna, solange nicht freigegeben; bei Fehlern leer) */
 export async function mollieMethodIds(): Promise<string[]> {
   const mode = mollieMode();
   if (!molliePaymentsEnabled() || !mode) return [];
-  if (methodsCache && Date.now() - methodsCache.at < 3_600_000) return methodsCache.ids;
-  const r = await api(mode, 'GET', '/methods');
-  const ids =
-    r.kind === 'ok' ? ((r.json._embedded as { methods?: { id?: unknown }[] } | undefined)?.methods ?? []).map((m) => String(m.id ?? '')).filter(Boolean) : [];
-  if (r.kind === 'ok') methodsCache = { at: Date.now(), ids };
-  return ids;
+  return ((await activeMethods(mode)) ?? []).filter((id) => klarnaEnabled() || !isKlarnaMethod(id));
 }
 
 // ---------- Datensätze ----------
@@ -288,6 +303,14 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
   if (order.payment_status !== 'offen') return { ok: false, error: 'Der Auftrag ist bereits bezahlt.', paid: true };
   if (!Number.isSafeInteger(order.total_cents) || order.total_cents <= 0) return { ok: false, error: 'Für diesen Auftrag ist kein Betrag offen.' };
 
+  // Zahlartenauswahl: ohne Klarna-Freigabe nur die bei Mollie aktiven Methoden außer Klarna (Liste direkt von Mollie)
+  let selection: { method?: string[] } = {};
+  if (!klarnaEnabled()) {
+    const allowed = ((await activeMethods(mode)) ?? []).filter((id) => !isKlarnaMethod(id));
+    if (!allowed.length) return { ok: false, error: 'Die Bezahlseite konnte gerade nicht geöffnet werden. Bitte später erneut versuchen.' };
+    selection = { method: allowed };
+  }
+
   let last = await latestAttempt(orderId);
   // Offener Versuch: erst den echten Stand holen, dann ggf. weiterverwenden
   if (last?.provider_id && (last.status === '' || MOLLIE_OPEN.includes(last.status as MollieStatus))) {
@@ -326,8 +349,8 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
   }
 
   const origin = new URL(base).origin;
-  // Pflichtangaben für Klarna (Bestellpositionen, Rechnungsadresse) – fehlt etwas, bleibt die Zahlung mit den übrigen Zahlarten möglich
-  const extra = await klarnaData(orderId, order.number, rec.amount_cents);
+  // Pflichtangaben für Klarna (Bestellpositionen, Rechnungsadresse) – nur, wenn Klarna freigegeben ist (Datensparsamkeit)
+  const extra = klarnaEnabled() ? await klarnaData(orderId, order.number, rec.amount_cents) : {};
   const body = {
     amount: { currency: 'EUR', value: centsToValue(rec.amount_cents) },
     description: `EasyKFZ24 Auftrag ${order.number}`,
@@ -335,6 +358,7 @@ export async function startMolliePayment(orderId: number, base: string, opts: { 
     ...(webhookUrlFor(base) ? { webhookUrl: webhookUrlFor(base) } : {}),
     locale: 'de_DE',
     metadata: { order: order.number, attempt },
+    ...selection,
     ...extra,
   };
   const r = await api(mode, 'POST', '/payments', body, rec.idempotency_key);

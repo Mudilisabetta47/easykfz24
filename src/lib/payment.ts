@@ -1,8 +1,9 @@
 // Zahlarten – Abwicklung über Mollie. Angezeigt werden nur die im Mollie-Dashboard aktivierten Methoden
 // (Stand 14.10.2026 laut Inhaber): Kredit-/Debitkarte, SEPA-Überweisung, Pay by Bank, Klarna, Apple Pay, Google Pay.
+// Klarna wird vorübergehend NICHT beworben, bis der Integrationstest in der Mollie-Testumgebung bestanden ist (KLARNA_AKTIV).
 // Logos: offizielle Mollie-Zahlartensymbole unter public/brands/mollie/. Ändert sich die Freischaltung, hier anpassen.
 
-export const PAYMENT_METHOD_IDS = ['visa', 'mastercard', 'banktransfer', 'paybybank', 'klarna', 'apple_pay', 'google_pay'] as const;
+export const PAYMENT_METHOD_IDS = ['visa', 'mastercard', 'banktransfer', 'paybybank', 'apple_pay', 'google_pay'] as const;
 export type PaymentMethodId = (typeof PAYMENT_METHOD_IDS)[number];
 
 export const PAYMENT_METHODS: Record<PaymentMethodId, { name: string; logo: string }> = {
@@ -10,7 +11,6 @@ export const PAYMENT_METHODS: Record<PaymentMethodId, { name: string; logo: stri
   mastercard: { name: 'Mastercard', logo: '/brands/mollie/mastercard.svg' },
   banktransfer: { name: 'SEPA-Überweisung', logo: '/brands/mollie/sepa-ueberweisung.svg' },
   paybybank: { name: 'Pay by Bank', logo: '/brands/mollie/pay-by-bank.svg' },
-  klarna: { name: 'Klarna', logo: '/brands/mollie/klarna.svg' },
   apple_pay: { name: 'Apple Pay', logo: '/brands/mollie/apple-pay.svg' },
   google_pay: { name: 'Google Pay', logo: '/brands/mollie/google-pay.svg' },
 };

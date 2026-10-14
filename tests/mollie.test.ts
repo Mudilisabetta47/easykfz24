@@ -112,7 +112,7 @@ describe('Hilfsfunktionen und Freischaltung', () => {
   it('Verbindungstest liest nur die Zahlarten (GET /v2/methods)', async () => {
     const c = await mollie.checkMollie();
     assert.deepEqual([c.ok, c.mode, c.online], [true, 'test', true]);
-    assert.deepEqual(c.methods, ['creditcard', 'paypal', 'applepay']);
+    assert.deepEqual(c.methods, ['creditcard', 'paypal', 'applepay', 'klarna']);
     process.env.MOLLIE_API_KEY = 'test_falscherSchluessel0123456789';
     const bad = await mollie.checkMollie();
     assert.ok(!bad.ok && /Anmeldung abgelehnt/.test(bad.message));
@@ -132,19 +132,10 @@ describe('Zahlung starten', () => {
     assert.equal(p._body.webhookUrl, 'https://easykfz24.de/api/zahlung/mollie');
     assert.equal(p._body.redirectUrl, `https://easykfz24.de/zahlung/${o.number}?t=${encodeURIComponent(o.paymentToken)}&rueckkehr=1`);
     assert.equal(p._body.locale, 'de_DE');
-    // Klarna: Rechnungsadresse und Bestellpositionen (vom Testnachbau nach den Mollie-Regeln geprüft: Summe, MwSt.)
-    assert.deepEqual(p._body.billingAddress, {
-      givenName: 'Erika',
-      familyName: 'Musterfrau',
-      streetAndNumber: 'Teststraße 1',
-      postalCode: '24937',
-      city: 'Flensburg',
-      country: 'DE',
-      email: 'erika@example.test',
-    });
-    const lines = p._body.lines as { totalAmount: { value: string }; vatRate: string }[];
-    assert.ok(lines.length >= 1 && lines.every((l) => l.vatRate === '19.00'));
-    assert.equal(Math.round(lines.reduce((s, l) => s + Number(l.totalAmount.value) * 100, 0)), total);
+    // Klarna nicht freigegeben: keine zusätzlichen Kundendaten, Auswahl = bei Mollie aktive Methoden ohne Klarna
+    assert.equal(p._body.billingAddress, undefined);
+    assert.equal(p._body.lines, undefined);
+    assert.deepEqual(p._body.method, ['creditcard', 'paypal', 'applepay']);
     assert.match(String(p._key), new RegExp(`^${o.number}-Z1-`), 'Idempotency-Key je Versuch');
     // lokal: keine Webhook-Adresse (Mollie erreicht localhost nicht)
     const o2 = await orders.createOrder(order(), []);
@@ -515,5 +506,33 @@ describe('Klarna-Angaben (Bestellpositionen, Rechnungsadresse)', () => {
     });
     assert.deepEqual([firm?.organizationName, firm?.givenName, firm?.familyName], ['Muster GmbH', 'Max von', 'Muster']);
     assert.equal(mollieBillingAddress({ typ: 'privat', vorname: 'A', nachname: 'B', strasse: '', plz: '1', ort: 'C', email: 'a@b.de' }), null);
+  });
+});
+
+describe('Klarna-Freigabe (KLARNA_AKTIV=1)', () => {
+  it('mit Freigabe: Rechnungsadresse und Bestellpositionen, keine Einschränkung der Auswahl', async () => {
+    process.env.KLARNA_AKTIV = '1';
+    try {
+      const o = await orders.createOrder(order(), []);
+      const r = await mollie.startMolliePayment(o.id, site);
+      assert.ok(r.ok, JSON.stringify(r));
+      const p = [...fake.payments.values()].at(-1)!;
+      const total = (await orderRow(o.id))!.total_cents;
+      assert.equal(p._body.method, undefined);
+      assert.deepEqual(p._body.billingAddress, {
+        givenName: 'Erika',
+        familyName: 'Musterfrau',
+        streetAndNumber: 'Teststraße 1',
+        postalCode: '24937',
+        city: 'Flensburg',
+        country: 'DE',
+        email: 'erika@example.test',
+      });
+      const lines = p._body.lines as { totalAmount: { value: string }; vatRate: string }[];
+      assert.ok(lines.every((l) => l.vatRate === '19.00'));
+      assert.equal(Math.round(lines.reduce((s, l) => s + Number(l.totalAmount.value) * 100, 0)), total);
+    } finally {
+      delete process.env.KLARNA_AKTIV;
+    }
   });
 });

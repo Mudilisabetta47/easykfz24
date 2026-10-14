@@ -31,7 +31,7 @@ export const HOME_FAQ: FaqItem[] = [
   },
   {
     q: 'Wie kann ich bezahlen?',
-    a: 'Sicher über unseren Zahlungsdienstleister Mollie – per Kredit- oder Debitkarte (Visa, Mastercard), SEPA-Überweisung, Pay by Bank, Klarna, Apple Pay oder Google Pay. Du bezahlst nur unsere Servicekosten; amtliche Gebühren werden getrennt nach Beleg abgerechnet.',
+    a: 'Sicher über unseren Zahlungsdienstleister Mollie – per Kredit- oder Debitkarte (Visa, Mastercard), SEPA-Überweisung, Pay by Bank, Apple Pay oder Google Pay. Du bezahlst nur unsere Servicekosten; amtliche Gebühren werden getrennt nach Beleg abgerechnet.',
   },
   {
     q: 'Was ist in den Komplett-Paketen enthalten?',
