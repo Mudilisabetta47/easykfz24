@@ -16,7 +16,7 @@ function logoUrl(statusUrl: string): string {
 }
 
 /** Anbieterangaben im Fuß jeder Kundenmail: Marke und rechtlicher Anbieter getrennt */
-const LEGAL_LINE = `${BRAND_NOTE} ${PROVIDER_ADDRESS} · ${PROVIDER_CONTACT} · Geschäftsführer: ${PROVIDER.managingDirector} · Sitz: ${PROVIDER.seat}} · ${REGISTER_LINE}`;
+const LEGAL_LINE = `${BRAND_NOTE} ${PROVIDER_ADDRESS} · ${PROVIDER_CONTACT} · Geschäftsführer: ${PROVIDER.managingDirector} · Sitz: ${PROVIDER.seat} · ${REGISTER_LINE}`;
 
 export interface StatusMail {
   subject: string;

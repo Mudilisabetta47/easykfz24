@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 117;
+const EXPECTED_ROUTES = 119;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -56,6 +56,8 @@ const NEEDS_EXTERNAL: Record<string, string> = {
   'POST messages/testmail': 'E-Mail-Dienst (Resend) – Ablauf im Resend-Nachbau: tests/transactional-mail.test.ts',
   'POST orders/:id/vollmacht/vorschau': 'kfz-api.de-Zugang und vollständige Vollmachtsangaben – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/testfreigabe': 'Testmodus nur mit kfz-api.de-Zugang – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST orders/:id/vollmacht/nachweis': 'QES-Nachweis nur mit vom Partner signiertem Vorgang – Ablauf: tests/qes-evidence.test.ts',
+  'POST orders/:id/vollmacht/nachweis/widerruf': 'Widerruf nur für erfasste QES-Nachweise – Ablauf: tests/qes-evidence.test.ts',
   'POST testauftraege/:id/loeschen': 'Testdaten löschen nur für stornierte Testaufträge (entstehen nur im Testmodus) – Ablauf: tests/submission-guard.test.ts',
   'POST testauftraege': 'Testauftrag nur bei VOLLMACHT_TESTMODUS=1 mit kfz-api.de-Zugang und offenem Testfenster – Ablauf: tests/submission-guard.test.ts',
 };
@@ -1398,7 +1400,13 @@ describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
     const a = await expect(le, 'POST', `orders/${ids.a}/vollmacht/abgleich`, 422);
     assert.match(String(a.json.error), /keinen Vollmachtsvorgang/);
     const d = await expect(sb, 'GET', `orders/${ids.a}`, 200);
-    assert.deepEqual([d.json.poas, d.json.poaEnabled, d.json.poaMode], [[], false, 'aus']);
+    assert.deepEqual([d.json.poas, d.json.poaEnabled, d.json.poaMode, d.json.poaEvidence], [[], false, 'aus', []]);
+    // QES-Nachweis: Recht „KFZ-API bearbeiten“; ohne signierten Vorgang nichts erfassbar
+    await expect(le, 'POST', `orders/${ids.a}/vollmacht/nachweis`, 403, { bestaetigt: true });
+    const n = await expect(sb, 'POST', `orders/${ids.a}/vollmacht/nachweis`, 422, { bestaetigt: true, processId: 1, pdfDocId: 'x', reportDocId: 'y' });
+    assert.match(String(n.json.error), /signiert \+ vollständig/);
+    await expect(le, 'POST', `orders/${ids.a}/vollmacht/nachweis/widerruf`, 403, { evidenceId: 1, grund: 'x' });
+    await expect(sb, 'POST', `orders/${ids.a}/vollmacht/nachweis/widerruf`, 422, { evidenceId: 1, grund: 'Test' });
   });
 
   it('Testaufträge: nur Inhaber, nur im eingeschalteten Testmodus – ohne Testmodus nichts anlegbar, Liste ohne Testaufträge', async () => {

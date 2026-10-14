@@ -38,6 +38,6 @@ Unverändert lassen: `KFZ_API_BASE_URL`, `MAIL_FROM`, alle Geheimnisse und Bindu
 - Die ersten Aufträge täglich im OS prüfen: Zahlungsjournal (nur von Mollie bestätigte Zahlungen), Mailprotokoll,
   Vollmachtsstand, KFZ-API-Center (Webhooks, „Beim Partner ohne Freigabe/QES“), Benachrichtigungen, Audit-Protokoll.
 - Freigabe zur Übermittlung je Auftrag nur bei: Zahlung bestätigt, Checkliste und Sicherheitscodes vollständig, QES vom
-  Partner bestätigt (signiert + vollständig) und signiertes PDF aus dem POWR-Dashboard im Dokumentenmanager (Kategorie
-  „Vollmacht“) – das System sperrt sonst.
+  Partner bestätigt (signiert + vollständig) und gültiger QES-Nachweis (signiertes PDF + Prüfbericht, Vorgang zugeordnet)
+  – das System sperrt sonst.
 - Digitale Vollmacht je Kundenauftrag erst nach bestätigter Zahlung anfordern (das System sperrt sonst; Kosten 6,95 € netto).

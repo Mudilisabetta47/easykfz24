@@ -85,3 +85,17 @@ describe('Impressum und Anbieterangaben: Marke EasyKFZ24, Anbieter MONVEX', () =
     else assert.deepEqual(imprintGaps(), []);
   });
 });
+
+describe('Anbieterangaben im Mailfuß (Registerangabe, keine Formatierungsfehler)', () => {
+  it('Statusmail (intern/Kunde) und Transaktionsmails: Registergericht, „wird nachgereicht“ nur ohne Eintragung, keine losen Klammern', async () => {
+    const { PROVIDER, REGISTER_LINE } = await import('../src/lib/site.ts');
+    const { PROVIDER_LINES } = await import('../src/lib/mail-templates.ts');
+    const mail = buildStatusMail({ number: 'EK-2026-00001', display: 'in_bearbeitung', statusUrl: 'https://easykfz24.de/status' });
+    for (const text of [mail.text, mail.html, PROVIDER_LINES.join('\n')]) {
+      assert.ok(!/[{}]/.test(text.replace(/<style[\s\S]*?<\/style>/g, '')), 'keine losen geschweiften Klammern');
+      assert.ok(text.includes(REGISTER_LINE.replace(/&/g, '&amp;')) || text.includes(REGISTER_LINE), 'Registerangabe enthalten');
+    }
+    if (PROVIDER.register) assert.ok(!REGISTER_LINE.includes('wird nachgereicht'));
+    else assert.match(REGISTER_LINE, /Registergericht: Amtsgericht Bremen · Registernummer: wird nachgereicht/);
+  });
+});

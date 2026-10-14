@@ -6,15 +6,10 @@ import { poaGate, submissionProblems, type PoaGate, type PoaStatus } from '../..
 import type { ServiceId } from '../../lib/services.ts';
 import { getDb } from '../db.ts';
 
-/** Signierte Vollmacht als aktuelles PDF in der Kategorie „Vollmacht“ am Auftrag (nicht gelöscht, nicht ersetzt) */
+/** Geprüfter QES-Nachweis (signiertes PDF + Prüfbericht, Vorgang zugeordnet, Vorprüfung bestanden) – siehe poa-evidence.ts */
 export async function poaArchived(orderId: number): Promise<boolean> {
-  const r = await (
-    await getDb()
-  ).first<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM documents WHERE order_id = ? AND category = 'Vollmacht' AND mime = 'application/pdf' AND deleted_at = '' AND superseded_at = ''",
-    orderId,
-  );
-  return !!r?.n;
+  const { poaEvidenceOk } = await import('./poa-evidence.ts');
+  return poaEvidenceOk(orderId);
 }
 
 export interface SubmissionState {

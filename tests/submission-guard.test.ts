@@ -9,6 +9,8 @@ import { after, before, describe, it } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { signKfzBody } from '../src/lib/kfz-api.ts';
 import { emptyDraft, validateOrder, type OrderInput, type ValidatedOrder } from '../src/lib/order.ts';
+import { recordValidEvidence, uploadDoc } from './helpers/qes-evidence.ts';
+import { signedPdf } from './helpers/qes-fixture.ts';
 // @ts-expect-error – Testnachbau als .mjs ohne Typen
 import { createFakeKfzApi } from '../scripts/fake-kfz-api.mjs';
 
@@ -104,15 +106,7 @@ async function readyExceptPoa(id: number) {
 }
 /** Signierte Vollmacht als PDF im Dokumentenmanager ablegen (wie aus dem POWR-Dashboard geladen) */
 async function archivePoa(id: number) {
-  await (
-    await getDb()
-  ).run(
-    "INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at, category) VALUES (?, ?, 'sonstiges', 'vollmacht-signiert.pdf', 'application/pdf', 10, ?, 'x', ?, 'Vollmacht')",
-    `poa${id}x${Date.now()}`,
-    id,
-    `syn/${id}.pdf`,
-    new Date().toISOString(),
-  );
+  await recordValidEvidence(id, 'Erika Synthetisch');
 }
 async function requestSigned(id: number, ready = true, archive = true) {
   const db = await getDb();
@@ -194,15 +188,10 @@ describe('QES-Pflicht unabhängig vom Schalter VOLLMACHT_DIGITAL', () => {
     assert.equal(process.env.VOLLMACHT_DIGITAL, undefined, 'Schalter weiterhin aus');
     // signiert + vollständig, aber das signierte PDF ist noch nicht abgelegt (Nachweis § 4 Abs. 6): weiterhin gesperrt
     const noArchive = await oa.actRelease(d.id, true, owner);
-    assert.ok(!noArchive.ok && /nicht im Dokumentenmanager abgelegt/.test(noArchive.error), JSON.stringify(noArchive));
-    const db = await getDb();
-    await db.run(
-      "INSERT INTO documents (id, order_id, kind, original_name, mime, size, stored_name, sha256, created_at, category) VALUES (?, ?, 'sonstiges', 'falsch.png', 'image/png', 10, 'syn/x.png', 'x', ?, 'Vollmacht')",
-      `png${d.id}`,
-      d.id,
-      new Date().toISOString(),
-    );
-    assert.ok(!(await oa.actRelease(d.id, true, owner)).ok, 'nur ein PDF zählt als Nachweis');
+    assert.ok(!noArchive.ok && /QES-Nachweis fehlt/.test(noArchive.error), JSON.stringify(noArchive));
+    // ein bloßes (auch signiertes) PDF in der Kategorie „Vollmacht“ ist noch kein Nachweis
+    await uploadDoc(d.id, signedPdf(), 'Vollmacht');
+    assert.ok(!(await oa.actRelease(d.id, true, owner)).ok, 'bloßes PDF zählt nicht');
     await archivePoa(d.id);
     const ok = await oa.actRelease(d.id, true, owner);
     assert.ok(ok.ok, JSON.stringify(ok));

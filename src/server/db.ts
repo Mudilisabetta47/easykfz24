@@ -701,6 +701,31 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE orders ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX orders_is_test ON orders(is_test);
   `,
+  // v12: QES-Nachweis je Vollmachtsvorgang (Partnervertrag § 4 Abs. 6): signiertes PDF und Prüfbericht eines
+  // Validierungsdienstes, beide per SHA-256 festgehalten, dem Partnervorgang zugeordnet, mit technischer Vorprüfung
+  `
+  CREATE TABLE poa_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    poa_id INTEGER NOT NULL,
+    process_id INTEGER NOT NULL,
+    pdf_doc_id TEXT NOT NULL,
+    pdf_sha256 TEXT NOT NULL,
+    report_doc_id TEXT NOT NULL,
+    report_sha256 TEXT NOT NULL,
+    validator TEXT NOT NULL,
+    result TEXT NOT NULL,
+    signer_name TEXT NOT NULL,
+    signed_at TEXT NOT NULL,
+    tech_json TEXT NOT NULL DEFAULT '{}',
+    checked_by TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    revoked_at TEXT NOT NULL DEFAULT '',
+    revoked_by TEXT NOT NULL DEFAULT '',
+    revoke_reason TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX poa_evidence_order ON poa_evidence(order_id);
+  `,
 ];
 
 

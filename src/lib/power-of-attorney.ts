@@ -151,10 +151,11 @@ export function submissionProblems(p: { releasedAt: string; poa: PoaGate; isTest
 
 /**
  * Nachweis der QES-Vollmacht (Partnervertrag § 4 Abs. 6: zwei Jahre revisionssicher, dem Antrag zuordenbar): Die API liefert das
- * signierte PDF nicht – es wird aus dem POWR-Dashboard geladen und im Dokumentenmanager des Auftrags als PDF in der Kategorie
- * „Vollmacht“ abgelegt (Löschsperre greift). Ohne diese Ablage keine Freigabe.
+ * signierte PDF nicht. Erforderlich ist ein QES-Nachweis im Auftrag – signiertes PDF aus dem POWR-Dashboard (Kategorie
+ * „Vollmacht“) UND Prüfbericht eines Validierungsdienstes („gültig – qualifiziert“), der Partnervorgangsnummer zugeordnet,
+ * technische Vorprüfung bestanden (server/os/poa-evidence.ts). Ein bloßes PDF zählt nicht.
  */
-export const POA_ARCHIVE_MISSING = 'Signierte Vollmacht (PDF aus dem POWR-Dashboard) nicht im Dokumentenmanager abgelegt – Kategorie „Vollmacht“';
+export const POA_ARCHIVE_MISSING = 'QES-Nachweis fehlt: signiertes PDF (POWR-Dashboard) und Prüfbericht eines Validierungsdienstes im Auftrag erfassen';
 
 /** Rücksprung-Parameter streng prüfen: nur Ziffern (int64), bekannter Hinweis; alles andere wird ignoriert */
 export function parseReturnParams(q: { powerOfAttorneyId?: string | string[]; status?: string | string[] }): { processId: number | null; hint: ReturnHint | null } {

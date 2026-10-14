@@ -489,7 +489,7 @@ describe('Freigabe: nur eine vom Partner bestätigte Unterschrift zählt (Partne
   it('Übermittlung (Verknüpfung, Webhook): signiert, aber ohne abgelegtes PDF ist ein Problem; Abmeldung braucht keins', async () => {
     const { submissionProblems } = await import('../src/lib/power-of-attorney.ts');
     const signed = poaGate('halterwechsel', { status: 'signiert', ready: true, sendEmail: true, note: '', createError: '' });
-    assert.ok(submissionProblems({ releasedAt: 'x', poa: signed, isTest: false, poaArchived: false }).some((p) => /nicht im Dokumentenmanager abgelegt/.test(p)));
+    assert.ok(submissionProblems({ releasedAt: 'x', poa: signed, isTest: false, poaArchived: false }).some((p) => /QES-Nachweis fehlt/.test(p)));
     assert.deepEqual(submissionProblems({ releasedAt: 'x', poa: signed, isTest: false, poaArchived: true }), []);
     assert.deepEqual(submissionProblems({ releasedAt: 'x', poa: poaGate('abmeldung', null), isTest: false, poaArchived: false }), []);
   });

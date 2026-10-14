@@ -103,8 +103,14 @@ bleibt unverändert (kein Geburtsort-Pflichtfeld).
   `signiert` **und** `readyForApplication`. Checkout-Bestätigung, Rücksprung-Parameter, Webhook-Inhalte und Häkchen zählen nie;
   die Checkliste enthält für diese Vorgänge kein Papier-Häkchen „Vollmacht im Original“ mehr.
 - Ausnahme Abmeldung (Außerbetriebsetzung): keine QES nötig, Papiervollmacht-Häkchen bleibt.
-- Nachweis: Freigabe und Verknüpfung zusätzlich erst, wenn das signierte PDF aus dem POWR-Dashboard im Dokumentenmanager des
-  Auftrags als PDF in der Kategorie „Vollmacht“ liegt (Partnervertrag § 4 Abs. 6; Löschsperre greift).
+- QES-Nachweis (Partnervertrag § 4 Abs. 6): Freigabe und Verknüpfung erst mit einem gültigen Nachweis im Auftrag
+  (OS → Auftrag → Digitale Vollmacht → „QES-Nachweis“): signiertes PDF aus dem POWR-Dashboard (Kategorie „Vollmacht“) und
+  separater Prüfbericht eines Validierungsdienstes bzw. einer Prüfsoftware (PDF), Vorgangsnummer = Partnervorgang,
+  Unterzeichner = Halter, Ergebnis „gültig – qualifizierte elektronische Signatur“. Der Server prüft das PDF technisch vor
+  (Signatur deckt die Datei ab, Hash der signierten Bytes = messageDigest, Zertifikat mit QcCompliance und QSCD) und hält
+  beide Dateien per SHA-256 fest. Gelöschte/ersetzte/veränderte Dateien, ein neuer Vorgang oder ein Widerruf machen den
+  Nachweis ungültig. Ein bloßes PDF zählt nie. Die Vorprüfung ersetzt keine Validierung (Kette, Sperrstatus,
+  EU-Vertrauensliste) – dafür ist der Prüfbericht Pflicht; keine Kundendaten an öffentliche Demo-Prüfdienste.
 - Kundenaufträge: kostenpflichtige Anforderung erst nach bestätigter Zahlung (Testaufträge: nur Testfreigabe des Inhabers).
 - Freigabe zur Übermittlung: zusätzlich gesperrt ohne bestätigte QES und für Testaufträge.
 - Manuelle Verknüpfung eines kfz-api.de-Vorgangs (Recht „KFZ-API bearbeiten“): nur mit interner Freigabe und – soweit nötig –

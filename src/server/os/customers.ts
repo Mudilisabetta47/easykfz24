@@ -588,6 +588,7 @@ export async function anonymizeCustomer(id: number, actor: string): Promise<R> {
       : q("UPDATE messages SET body = '', html = '', to_addr = '' WHERE customer_id = ?", id),
     // Vollmachtsvorgänge der anonymisierten Aufträge: Stand und Zeitpunkte bleiben, personenbezogene Hinweise und Link nicht
     ...orders.map((o) => q("UPDATE power_of_attorneys SET signature_url = '', note = '', missing_json = '[]', blocking_json = '[]' WHERE order_id = ?", o.id)),
+    ...orders.map((o) => q("UPDATE poa_evidence SET signer_name = '' WHERE order_id = ?", o.id)),
     q('DELETE FROM customer_contacts WHERE customer_id = ?', id),
     q('DELETE FROM customer_locations WHERE customer_id = ?', id),
     q(

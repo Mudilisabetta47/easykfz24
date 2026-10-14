@@ -31,6 +31,7 @@ import {
   orderInsights,
 } from '../order-actions.ts';
 import { queryOrders, type OrderFilter } from '../order-query.ts';
+import { listEvidence, recordEvidence, revokeEvidence } from '../poa-evidence.ts';
 import { anonymizeTestOrder, createTestOrder, setTestWindow, testOrderState } from '../test-orders.ts';
 import { listTasks } from '../tasks.ts';
 import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.ts';
@@ -114,6 +115,8 @@ async function orderBundle(c: Ctx, id: number) {
     wishPlace: orderWishPlace(order.data),
     // Digitale Vollmacht: alle Versuche mit bestätigtem Stand (Abgleich über die Partner-Schnittstelle)
     poas: (await listPoas(id)).map(viewOf),
+    // QES-Nachweise (signiertes PDF + Prüfbericht, technische Vorprüfung) – nur ein gültiger trägt die Freigabe
+    poaEvidence: await listEvidence(id),
     poaEnabled: poaCreationEnabled(),
     poaMode: poaMode(),
     poaTest: await poaTestInfo(c, id),
@@ -262,6 +265,44 @@ export const orderRoutes: Route[] = [
       if (!rec) return NextResponse.json({ ok: false, error: 'Zu diesem Auftrag gibt es keinen Vollmachtsvorgang.' }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       const r = await verifyPoa(rec.id, { force: true, actor: c.actor.name });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, poa: r.poa ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return r;
+    },
+  },
+  {
+    // QES-Nachweis erfassen: signiertes PDF (POWR-Dashboard) + Prüfbericht eines Validierungsdienstes, Vorgang zugeordnet
+    method: 'POST',
+    path: 'orders/:id/vollmacht/nachweis',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await recordEvidence(
+        id,
+        {
+          processId: c.body.processId,
+          pdfDocId: c.body.pdfDocId,
+          reportDocId: c.body.reportDocId,
+          validator: c.body.validator,
+          result: c.body.result,
+          signerName: c.body.signerName,
+          signedAt: c.body.signedAt,
+          confirmed: c.body.bestaetigt,
+        },
+        c.actor.name,
+      );
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, tech: r.tech ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'vollmacht.nachweis', String(id), `Vorgang ${r.evidence.processId}, ${r.evidence.validator}`);
+      return r;
+    },
+  },
+  {
+    method: 'POST',
+    path: 'orders/:id/vollmacht/nachweis/widerruf',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await revokeEvidence(id, int(c.body.evidenceId, 'Nachweis-ID'), str(c.body.grund, 300), c.actor.name);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'vollmacht.nachweis_widerrufen', String(id), str(c.body.grund, 120));
       return r;
     },
   },

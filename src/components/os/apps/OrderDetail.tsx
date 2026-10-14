@@ -34,6 +34,7 @@ import {
 } from '../shared.tsx';
 import { Badge, Empty, ErrorBox, KfzState, Loading, Panel, StatusBadge, Tabs, useFlash } from '../ui.tsx';
 import type { PoaPreview, PoaTestRelease, PoaView } from '../../../server/power-of-attorney.ts';
+import type { EvidenceView } from '../../../server/os/poa-evidence.ts';
 import type { AttemptView } from '../../../server/mollie.ts';
 import { Preview } from './Preview.tsx';
 
@@ -101,6 +102,7 @@ export interface OrderBundle {
   milestones: Milestone[] | null;
   wishPlace: { ags: string; name: string; kreis: string; land: string; codes: string[]; fits: boolean } | null;
   poas: PoaView[];
+  poaEvidence: EvidenceView[];
   poaEnabled: boolean;
   poaMode: 'aus' | 'test' | 'aktiv';
   paymentAttempts: AttemptView[];
@@ -798,7 +800,141 @@ function PoaPanel({ data, done }: { data: OrderBundle; done: (ok: boolean, text:
         />
       ) : null}
       {data.poaMode !== 'aus' && needed && data.order.is_test ? <PoaTestRelease data={data} busy={busy} run={run} /> : null}
+      {needed && poa && poa.state === 'unterschrieben' ? <PoaEvidencePanel data={data} busy={busy} run={run} processId={poa.processId} /> : null}
     </Panel>
+  );
+}
+
+/**
+ * QES-Nachweis: signiertes PDF aus dem POWR-Dashboard (Kategorie „Vollmacht“) und Prüfbericht eines Validierungsdienstes
+ * hochladen, hier zuordnen. Der Server prüft Vorgangsnummer, Unterzeichner und die Signatur im PDF technisch vor.
+ */
+function PoaEvidencePanel({
+  data,
+  busy,
+  run,
+  processId,
+}: {
+  data: OrderBundle;
+  busy: boolean;
+  run: (path: string, success: string, confirmText?: string, body?: Record<string, unknown>) => Promise<void>;
+  processId: number | null;
+}) {
+  const pdfs = data.documents.filter((d) => d.mime === 'application/pdf');
+  const valid = data.poaEvidence.find((e) => e.valid);
+  const [f, setF] = useState({ processId: '', pdfDocId: '', reportDocId: '', validator: '', signerName: '', signedAt: '', ok: false });
+  const name = (id: string) => {
+    const d = data.documents.find((x) => x.id === id);
+    return d ? d.display_name || d.original_name : 'nicht mehr vorhanden';
+  };
+  return (
+    <div className="os-subpanel">
+      <h4>QES-Nachweis (Freigabevoraussetzung)</h4>
+      {valid ? (
+        <p className="os-flash" role="status">
+          Gültiger Nachweis: Vorgang {valid.processId}, Prüfbericht „{valid.validator}“, unterzeichnet von {valid.signerName}, erfasst von {valid.checkedBy} am{' '}
+          {dateTime(valid.checkedAt)}. Vorprüfung: Signatur deckt die Datei ab, {valid.tech?.digestAlgorithm} stimmt, Zertifikat qualifiziert (QSCD).
+        </p>
+      ) : (
+        <p className="os-muted os-small">
+          Ohne gültigen Nachweis keine Freigabe. 1. Signiertes PDF des Vorgangs {processId ?? '–'} aus dem POWR-Dashboard laden und im Auftrag als
+          Kategorie „Vollmacht“ hochladen. 2. Signatur mit einem Validierungsdienst bzw. einer Prüfsoftware prüfen (keine Kundendaten an öffentliche
+          Demo-Dienste) und den Prüfbericht als PDF hochladen. 3. Hier zuordnen – ein bloßes PDF zählt nicht.
+        </p>
+      )}
+      {data.canKfz && !valid ? (
+        <div className="os-fields">
+          <label className="os-field">
+            <span className="os-field__label">Vorgangsnummer laut POWR-Dashboard</span>
+            <input className="os-mono" value={f.processId} onChange={(e) => setF({ ...f, processId: e.target.value.replace(/\D/g, '') })} />
+          </label>
+          <label className="os-field">
+            <span className="os-field__label">Signiertes PDF (Kategorie „Vollmacht“)</span>
+            <select className="os-select" value={f.pdfDocId} onChange={(e) => setF({ ...f, pdfDocId: e.target.value })}>
+              <option value="">– wählen –</option>
+              {pdfs
+                .filter((d) => d.category === 'Vollmacht')
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.display_name || d.original_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="os-field">
+            <span className="os-field__label">Prüfbericht (PDF)</span>
+            <select className="os-select" value={f.reportDocId} onChange={(e) => setF({ ...f, reportDocId: e.target.value })}>
+              <option value="">– wählen –</option>
+              {pdfs
+                .filter((d) => d.id !== f.pdfDocId)
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.display_name || d.original_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="os-field">
+            <span className="os-field__label">Validierungsdienst / Prüfsoftware</span>
+            <input value={f.validator} onChange={(e) => setF({ ...f, validator: e.target.value })} maxLength={200} />
+          </label>
+          <label className="os-field">
+            <span className="os-field__label">Unterzeichner laut Prüfbericht</span>
+            <input value={f.signerName} onChange={(e) => setF({ ...f, signerName: e.target.value })} maxLength={200} />
+          </label>
+          <label className="os-field">
+            <span className="os-field__label">Signaturzeitpunkt laut Prüfbericht</span>
+            <input type="datetime-local" value={f.signedAt} onChange={(e) => setF({ ...f, signedAt: e.target.value })} />
+          </label>
+          <label className="os-check-field os-field--wide">
+            <input type="checkbox" checked={f.ok} onChange={(e) => setF({ ...f, ok: e.target.checked })} /> Prüfbericht gelesen: Ergebnis „gültig –
+            qualifizierte elektronische Signatur“, Unterzeichner und Zeitpunkt wie angegeben
+          </label>
+          <button
+            type="button"
+            className="os-btn os-btn--sm"
+            disabled={busy || !f.ok || !f.pdfDocId || !f.reportDocId}
+            onClick={() =>
+              void run('vollmacht/nachweis', 'QES-Nachweis erfasst', undefined, {
+                processId: Number(f.processId),
+                pdfDocId: f.pdfDocId,
+                reportDocId: f.reportDocId,
+                validator: f.validator,
+                result: 'gueltig_qualifiziert',
+                signerName: f.signerName,
+                signedAt: f.signedAt ? new Date(f.signedAt).toISOString() : '',
+                bestaetigt: true,
+              })
+            }
+          >
+            Nachweis prüfen und erfassen
+          </button>
+        </div>
+      ) : null}
+      {data.poaEvidence.length ? (
+        <ul className="os-list os-small" role="list">
+          {data.poaEvidence.map((e) => (
+            <li key={e.id}>
+              #{e.id} · Vorgang {e.processId} · {name(e.pdfDocId)} + {name(e.reportDocId)} · {e.validator} · {e.valid ? 'gültig' : `ungültig: ${e.invalidReason}`}
+              {e.revokedAt ? ` (widerrufen von ${e.revokedBy}: ${e.revokeReason})` : ''}
+              {data.canKfz && !e.revokedAt ? (
+                <button
+                  type="button"
+                  className="os-btn os-btn--ghost os-btn--sm"
+                  disabled={busy}
+                  onClick={() => {
+                    const grund = window.prompt('Grund für den Widerruf dieses Nachweises?') ?? '';
+                    if (grund.trim()) void run('vollmacht/nachweis/widerruf', 'Nachweis widerrufen', undefined, { evidenceId: e.id, grund });
+                  }}
+                >
+                  Widerrufen
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

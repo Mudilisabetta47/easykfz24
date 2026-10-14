@@ -190,6 +190,7 @@ export async function anonymizeTestOrder(orderId: number, actor: TestActor): Pro
     ),
     q("UPDATE power_of_attorneys SET signature_url = '', note = '', missing_json = '[]', blocking_json = '[]' WHERE order_id = ?", orderId),
     q("UPDATE messages SET body = '', html = '', to_addr = '' WHERE order_id = ?", orderId),
+    q("UPDATE poa_evidence SET signer_name = '' WHERE order_id = ?", orderId),
     q('DELETE FROM documents WHERE order_id = ?', orderId),
     q(
       "INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, 'note', NULL, NULL, 'Testdaten gelöscht (Personen-, Fahrzeug- und Kontodaten, Unterlagen); Vorgangsnummer und Stand der Vollmacht bleiben für die Abrechnungsprüfung', '', ?)",
