@@ -31,7 +31,7 @@ import {
   orderInsights,
 } from '../order-actions.ts';
 import { queryOrders, type OrderFilter } from '../order-query.ts';
-import { createTestOrder, setTestWindow, testOrderState } from '../test-orders.ts';
+import { anonymizeTestOrder, createTestOrder, setTestWindow, testOrderState } from '../test-orders.ts';
 import { listTasks } from '../tasks.ts';
 import { HttpError, int, ok, optInt, str, type Ctx, type Route } from '../http.ts';
 import { processingOf } from '../../../lib/express.ts';
@@ -340,6 +340,20 @@ export const orderRoutes: Route[] = [
       const r = await createTestOrder(c.body.data, { name: c.actor.name, role: c.s.user.role });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, fields: r.fields ?? {} }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       await audit(c.audit, 'testauftrag.angelegt', r.number);
+      return r;
+    },
+  },
+  {
+    // Nach dem Test: Personen-, Fahrzeug- und Kontodaten eines stornierten Testauftrags entfernen (nur Inhaber)
+    method: 'POST',
+    path: 'testauftraege/:id/loeschen',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann Testdaten löschen.');
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await anonymizeTestOrder(id, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'testauftrag.testdaten_geloescht', String(id));
       return r;
     },
   },

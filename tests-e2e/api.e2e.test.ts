@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 116;
+const EXPECTED_ROUTES = 117;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -56,6 +56,7 @@ const NEEDS_EXTERNAL: Record<string, string> = {
   'POST messages/testmail': 'E-Mail-Dienst (Resend) – Ablauf im Resend-Nachbau: tests/transactional-mail.test.ts',
   'POST orders/:id/vollmacht/vorschau': 'kfz-api.de-Zugang und vollständige Vollmachtsangaben – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
   'POST orders/:id/vollmacht/testfreigabe': 'Testmodus nur mit kfz-api.de-Zugang – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
+  'POST testauftraege/:id/loeschen': 'Testdaten löschen nur für stornierte Testaufträge (entstehen nur im Testmodus) – Ablauf: tests/submission-guard.test.ts',
   'POST testauftraege': 'Testauftrag nur bei VOLLMACHT_TESTMODUS=1 mit kfz-api.de-Zugang und offenem Testfenster – Ablauf: tests/submission-guard.test.ts',
 };
 const hits: Record<string, Set<string>> = Object.fromEntries(ROUTES.map((r) => [r.key, new Set<string>()]));
@@ -1415,6 +1416,9 @@ describe('Digitale Vollmacht: Rücksprungseite und Verwaltung', () => {
     await expect(owner, 'POST', 'testauftraege/fenster', 200, { offen: false });
     const t = await expect(owner, 'POST', 'testauftraege', 422, { data: orderData() });
     assert.match(String(t.json.error), /VOLLMACHT_TESTMODUS/);
+    for (const c of [vw, sb, bh, le]) await expect(c, 'POST', `testauftraege/${ids.a}/loeschen`, 403);
+    const del = await expect(owner, 'POST', `testauftraege/${ids.a}/loeschen`, 422);
+    assert.match(String(del.json.error), /Kein Testauftrag/, 'echte Aufträge nie über die Testdaten-Löschung');
   });
 
   it('Website: Zulassung, Ummeldung und Wiederzulassung ohne eingeschaltete digitale Vollmacht nicht online bestellbar', async () => {

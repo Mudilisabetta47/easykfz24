@@ -432,3 +432,63 @@ describe('Aufbewahrung und Datensparsamkeit bei der Anonymisierung', () => {
     assert.deepEqual(p, { note: '', signature_url: '', status: 'abgelehnt' });
   });
 });
+
+describe('Testauftrag nach dem Test: Testdaten löschen, Kosten nur einmal', () => {
+  it('kein zweiter kostenpflichtiger Vorgang ohne neue Freigabe – auch nach Ablehnung; dann Testdaten löschen (nur Inhaber, nur storniert)', async () => {
+    process.env.VOLLMACHT_TESTMODUS = '1';
+    try {
+      const db = await getDb();
+      const t = await orders.createOrder(validated(), [], { test: { actor: 'Inhaber' } });
+      const req = async () => {
+        const pv = await poa.previewPoa(t.id, owner, { sepa: false });
+        return poa.requestPoa(t.id, owner, { sepa: false, fingerprint: pv.ok ? pv.preview.fingerprint : '' });
+      };
+      assert.ok((await poa.setTestRelease(t.id, true, owner)).ok);
+      const before = fake.processes.size;
+      assert.ok((await req()).ok);
+      const rec = (await poa.latestPoa(t.id))!;
+      await control('/__test/set', { id: rec.process_id, status: 'abgelehnt', ready: false, note: 'Identifizierung abgebrochen' });
+      await poa.verifyPoa(rec.id, { force: true });
+      const second = await req();
+      assert.ok(!second.ok && /verbraucht/.test(second.error), JSON.stringify(second));
+      assert.equal(fake.processes.size, before + 1, 'genau ein kostenpflichtiger Vorgang');
+      // Löschen: nur Inhaber, erst nach Storno und zurückgezogener Freigabe
+      assert.ok(!(await tests.anonymizeTestOrder(t.id, staff)).ok);
+      const open = await tests.anonymizeTestOrder(t.id, owner);
+      assert.ok(!open.ok && /stornieren/.test(open.error));
+      await db.run("UPDATE orders SET status = 'storniert' WHERE id = ?", t.id);
+      const rel = await tests.anonymizeTestOrder(t.id, owner);
+      assert.ok(!rel.ok && /Testfreigabe zurückziehen/.test(rel.error));
+      await poa.setTestRelease(t.id, false, owner);
+      assert.ok((await tests.anonymizeTestOrder(t.id, owner)).ok);
+      const o = (await db.first<{ holder_name: string; email: string; fin: string; data_json: string }>(
+        'SELECT holder_name, email, fin, data_json FROM orders WHERE id = ?',
+        t.id,
+      ))!;
+      assert.deepEqual([o.holder_name, o.email, o.fin], ['gelöscht (Testauftrag)', '', '']);
+      const data = JSON.parse(o.data_json) as ValidatedOrder;
+      assert.deepEqual(
+        [data.holder.vorname, data.holder.geburtsdatum, data.holder.geburtsort, data.holder.strasse, data.finish.iban, data.vehicle.fin],
+        ['', '', '', '', '', ''],
+      );
+      const p = {
+        ...(await db.first<{ process_id: number; status: string; note: string; signature_url: string }>(
+          'SELECT process_id, status, note, signature_url FROM power_of_attorneys WHERE order_id = ?',
+          t.id,
+        ))!,
+      };
+      assert.deepEqual(
+        p,
+        { process_id: rec.process_id, status: 'abgelehnt', note: '', signature_url: '' },
+        'Vorgangsnummer und Stand bleiben für die Abrechnung',
+      );
+      assert.ok(!(await tests.anonymizeTestOrder(t.id, owner)).ok, 'nicht doppelt');
+      // echte Aufträge nie über diesen Weg
+      const real = await orders.createOrder(validated(), []);
+      const r = await tests.anonymizeTestOrder(real.id, owner);
+      assert.ok(!r.ok && /Kein Testauftrag/.test(r.error));
+    } finally {
+      delete process.env.VOLLMACHT_TESTMODUS;
+    }
+  });
+});

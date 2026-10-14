@@ -188,6 +188,9 @@ Voraussetzungen (alle vom Inhaber, nichts davon automatisch):
 8. Prüfen, dass „Zur Übermittlung freigeben“ für den Testauftrag gesperrt bleibt.
 9. Nach spätestens 10 Minuten: Automatisierung „Vollmacht-Abgleich“ zeigt Läufe des Cron-Triggers.
 10. Testfreigabe zurückziehen, Testfenster schließen, Testauftrag stornieren, `VOLLMACHT_TESTMODUS` in Cloudflare entfernen.
+    Danach „Testaufträge“ → „Testdaten löschen“ (nur Inhaber, nur stornierte, nie übermittelte Testaufträge): Personen-,
+    Fahrzeug- und Kontodaten sowie Unterlagen werden entfernt; Testnummer, Verlauf sowie Vorgangsnummer und Stand der
+    Vollmacht bleiben zur Prüfung der Partnerabrechnung. Ein Testauftrag ist nie ein Antrag – keine Aufbewahrung nach § 4 Abs. 6.
 11. Ergebnis und den Weg zum signierten PDF (Portal/POWR) dokumentieren – Voraussetzung für `VOLLMACHT_DIGITAL=1`.
 
 ## Vor dem Einschalten für alle Kunden (Checkliste)

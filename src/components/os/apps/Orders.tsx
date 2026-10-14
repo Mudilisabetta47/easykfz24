@@ -382,6 +382,20 @@ function TestOrdersPanel({ onClose, onCreate, onOpen }: { onClose: () => void; o
       setBusy(false);
     }
   };
+  const purge = async (o: OrderListRow) => {
+    if (!window.confirm(`Testdaten von ${o.number} löschen? Personen-, Fahrzeug- und Kontodaten sowie Unterlagen werden entfernt; Vorgangsnummer und Stand der Vollmacht bleiben für die Abrechnungsprüfung.`)) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await osFetch(`testauftraege/${o.id}/loeschen`, { method: 'POST', body: {} });
+      setMsg({ ok: true, text: `Testdaten von ${o.number} gelöscht` });
+      void info.reload(true);
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
   const d = info.data;
   return (
     <Dialog title="Testaufträge (nur Inhaber)" onClose={onClose} wide>
@@ -426,10 +440,16 @@ function TestOrdersPanel({ onClose, onCreate, onOpen }: { onClose: () => void; o
           {d.orders.length ? (
             <ul className="os-list" role="list">
               {d.orders.map((o) => (
-                <li key={o.id}>
+                <li key={o.id} className="os-row">
                   <button type="button" className="os-list__item" onClick={() => onOpen(o.id)}>
                     <strong>{o.number}</strong> · {SERVICES[o.service].title} · {STATUSES[o.status].label} · {dateTime(o.created_at)}
+                    {o.holder_name === 'gelöscht (Testauftrag)' ? ' · Testdaten gelöscht' : ''}
                   </button>
+                  {o.status === 'storniert' && o.holder_name !== 'gelöscht (Testauftrag)' ? (
+                    <button type="button" className="os-btn os-btn--ghost os-btn--sm" disabled={busy} onClick={() => void purge(o)}>
+                      Testdaten löschen
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>

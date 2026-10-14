@@ -11,7 +11,8 @@
 import { POA_SERVICES } from '../../lib/power-of-attorney.ts';
 import { validateOrder, type ValidatedOrder } from '../../lib/order.ts';
 import type { Role } from '../../lib/permissions.ts';
-import { getDb } from '../db.ts';
+import { getDb, q } from '../db.ts';
+import { deleteBlobs } from '../blobs.ts';
 import { createOrder } from '../orders.ts';
 import { getExpressOffer } from '../express.ts';
 import { getPlateOffer } from '../plates.ts';
@@ -136,4 +137,68 @@ export async function createTestOrder(
       actor.name,
     );
   return { ok: true, id: created.id, number: created.number };
+}
+
+/**
+ * Testdaten nach dem Test entfernen (nur Inhaber, nur stornierte, nie übermittelte Testaufträge). Ein Testauftrag wird nie
+ * eingereicht – es besteht keine Aufbewahrung nach Partnervertrag § 4 Abs. 6. Behalten werden nur Testnummer, Leistung,
+ * Zeitpunkte, Verlauf und der Vollmachtsvorgang (Vorgangsnummer, Stand, Zeitpunkte) zur Prüfung der Partnerabrechnung.
+ */
+export async function anonymizeTestOrder(orderId: number, actor: TestActor): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (actor.role !== 'inhaber') return { ok: false, error: 'Nur der Inhaber kann Testdaten löschen.' };
+  const db = await getDb();
+  const o = await db.first<{ is_test: number; status: string; released_at: string; kfz_order_id: string; data_json: string; holder_name: string }>(
+    'SELECT is_test, status, released_at, kfz_order_id, data_json, holder_name FROM orders WHERE id = ?',
+    orderId,
+  );
+  if (!o) return { ok: false, error: 'Auftrag nicht gefunden' };
+  if (!o.is_test) return { ok: false, error: 'Kein Testauftrag – echte Aufträge nur über die DSGVO-Löschung im Kundenstamm.' };
+  if (o.status !== 'storniert') return { ok: false, error: 'Erst den Testauftrag stornieren (danach läuft nichts mehr).' };
+  if (o.released_at || o.kfz_order_id)
+    return { ok: false, error: 'Dem Testauftrag ist ein Partnervorgang zugeordnet – erst klären (Aufbewahrung prüfen), nicht löschen.' };
+  if (o.holder_name === 'gelöscht (Testauftrag)') return { ok: false, error: 'Testdaten sind bereits gelöscht.' };
+  const { getTestRelease } = await import('../power-of-attorney.ts');
+  const release = await getTestRelease();
+  if (release?.orderId === orderId && Date.parse(release.expiresAt) > Date.now()) return { ok: false, error: 'Erst die Testfreigabe zurückziehen.' };
+  const d = JSON.parse(o.data_json) as ValidatedOrder;
+  const holder = {
+    ...d.holder,
+    vorname: '',
+    nachname: 'gelöscht',
+    geburtsdatum: '',
+    geburtsort: '',
+    strasse: '',
+    hausnummer: '',
+    plz: '',
+    ort: '',
+    email: '',
+    telefon: '',
+  };
+  const vehicle = { ...d.vehicle, fin: '', bisherigesKennzeichen: '' };
+  const finish = { ...d.finish, evb: '', kontoinhaber: '', iban: '', hinweise: '' };
+  const plate = { ...d.plate, wunschkennzeichen: '' };
+  const docs = await db.all<{ id: string; stored_name: string }>('SELECT id, stored_name FROM documents WHERE order_id = ?', orderId);
+  const at = now();
+  await db.batch([
+    q(
+      "UPDATE orders SET data_json = ?, holder_name = 'gelöscht (Testauftrag)', email = '', iban = '', fin = '', previous_plate = '', assigned_plate = '', payment_token = '', updated_at = ? WHERE id = ?",
+      JSON.stringify({ ...d, holder, vehicle, finish, plate }),
+      at,
+      orderId,
+    ),
+    q("UPDATE power_of_attorneys SET signature_url = '', note = '', missing_json = '[]', blocking_json = '[]' WHERE order_id = ?", orderId),
+    q("UPDATE messages SET body = '', html = '', to_addr = '' WHERE order_id = ?", orderId),
+    q('DELETE FROM documents WHERE order_id = ?', orderId),
+    q(
+      "INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, 'note', NULL, NULL, 'Testdaten gelöscht (Personen-, Fahrzeug- und Kontodaten, Unterlagen); Vorgangsnummer und Stand der Vollmacht bleiben für die Abrechnungsprüfung', '', ?)",
+      orderId,
+      at,
+      actor.name,
+    ),
+  ]);
+  if (docs.length)
+    await deleteBlobs(docs.map((x) => x.stored_name)).catch((e: unknown) =>
+      console.error('[testauftrag] Dateien nicht vollständig entfernt:', (e as Error).message),
+    );
+  return { ok: true };
 }
