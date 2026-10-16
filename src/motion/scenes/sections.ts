@@ -19,6 +19,8 @@ export function initServices(root: HTMLElement): Cleanup {
   const meter = root.querySelector<HTMLElement>('[data-meter]');
   const cards = qa(root, '[data-card]');
   const arts = qa(root, '[data-card-art]');
+  const stage = root.querySelector<HTMLElement>('[data-stage]');
+  const head = root.querySelector<HTMLElement>('.svc__head');
   if (!trackEl || !rail || env.reduced) return noop;
 
   let enabled = false;
@@ -27,9 +29,20 @@ export function initServices(root: HTMLElement): Cleanup {
   const lefts: number[] = [];
   const widths: number[] = [];
 
-  return track(trackEl, {
+  const stop = track(trackEl, {
     onRefresh: () => {
-      enabled = matchMedia('(min-width: 1100px)').matches;
+      // Measure the natural card height at horizontal widths before enabling sticky mode.
+      // Short windows and browser zoom keep a normal, fully scrollable equal-height grid.
+      const wide = !env.reduced && matchMedia('(min-width: 1100px)').matches;
+      root.dataset.servicesLayout = wide ? 'horizontal' : 'grid';
+      enabled = false;
+      if (wide && stage && head && rail.parentElement) {
+        const css = getComputedStyle(stage);
+        const required = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom)
+          + head.offsetHeight + parseFloat(getComputedStyle(head).marginBottom) + rail.parentElement.offsetHeight;
+        enabled = required <= stage.clientHeight;
+      }
+      root.dataset.servicesLayout = enabled ? 'horizontal' : 'grid';
       vw = scrollState.vw || innerWidth;
       clearPose(rail);
       cards.forEach((c) => clearPose(c));
@@ -63,6 +76,13 @@ export function initServices(root: HTMLElement): Cleanup {
       });
     },
   });
+  return () => {
+    stop();
+    delete root.dataset.servicesLayout;
+    clearPose(rail);
+    cards.forEach(clearPose);
+    arts.forEach(clearPose);
+  };
 }
 
 /* ---------- Ablauf: 01 → 02 → 03 mit wachsender Route ---------- */

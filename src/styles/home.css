@@ -664,15 +664,26 @@
 }
 .svc__rail {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  align-items: stretch;
   gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+/* Intrinsic sizing keeps every CTA inside its card, including zoom/short viewports. */
+.svc__item,
+.svc__reveal {
+  display: flex;
+  min-inline-size: 0;
+}
 .svc__reveal,
 .svc-card {
-  block-size: 100%;
+  flex: 1;
+}
+.svc-card > * {
+  flex-shrink: 0;
 }
 .svc-card {
   display: flex;
@@ -739,6 +750,7 @@
 }
 .svc-card__price {
   margin-block-start: auto;
+  min-block-size: 5.5rem;
   padding-block: 14px 16px;
   border-block-start: 1px solid var(--ez-line);
 }
@@ -747,40 +759,48 @@
 }
 .svc-card__cta {
   align-self: flex-start;
+  max-inline-size: 100%;
+  /* Reserve two text lines equally, including the longest CTA at 320px/zoom. */
+  min-block-size: max(3.5rem, calc(2.6em + 22px));
+  padding-block: 10px;
+  white-space: normal;
+  line-height: 1.3;
+}
+.svc-card__title {
+  overflow-wrap: anywhere;
 }
 
 @media (min-width: 1100px) {
-  .js[data-motion='full'] .svc {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] {
     padding-block-start: 0;
   }
-  .js[data-motion='full'] .svc__track {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__track {
     block-size: 280vh;
   }
-  .js[data-motion='full'] .svc__stage {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__stage {
     position: sticky;
     inset-block-start: 0;
     block-size: 100svh;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    overflow: hidden;
-    padding-block: var(--header-h) 0;
+    padding-block: calc(var(--header-h) + 24px) 64px;
   }
-  .js[data-motion='full'] .svc__viewport {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__viewport {
     inline-size: 100%;
     min-inline-size: 0;
     max-inline-size: none;
     padding-inline: max(var(--gutter), calc((100vw - var(--maxw)) / 2));
   }
-  .js[data-motion='full'] .svc__rail {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__rail {
     display: flex;
     inline-size: max-content;
     gap: 24px;
     will-change: transform;
   }
-  .js[data-motion='full'] .svc__item {
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__item {
     inline-size: clamp(340px, 31vw, 460px);
-    block-size: min(62svh, 560px);
+    flex: none;
   }
 }
 @media (max-width: 700px) {
