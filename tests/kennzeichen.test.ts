@@ -112,7 +112,7 @@ describe('Kennzeichen-Sicherheit und Vertrag', () => {
   });
   it('kann eine abgebrochene Worker-Anfrage mit derselben Referenz wiederaufnehmen', async () => {
     await seed(); enable(); await api.searchPlate(1, plate, 'search:crash');
-    await (await getDb()).run("UPDATE kennzeichen_operations SET state = 'running', updated_at = ?", new Date(Date.now() - 60_000).toISOString());
+    await (await getDb()).run("UPDATE kennzeichen_operations SET state = 'running', updated_at = ?", new Date(Date.now() - 120_000).toISOString());
     await api.searchPlate(1, plate, 'search:crash');
     assert.equal(calls.length, 2); assert.equal(await api.kennzeichenBudget(), 10);
   });

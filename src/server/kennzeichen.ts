@@ -30,7 +30,7 @@ async function external(path: string, body?: unknown, reference?: string): Promi
   try {
     const r = await fetch(`${a.base}${path}`, { method: body === undefined ? 'GET' : 'POST', redirect: 'manual', cache: 'no-store',
       headers: { Authorization: a.header, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Idempotency-Key': reference! }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(path === '/search' ? 60_000 : 10_000) });
     // Niemals den Anbieterfehler oder Zugangsdaten in Browser oder Logs übernehmen.
     if (!r.ok) console.warn('[kennzeichen] Anbieter-HTTP', path, r.status);
     if (!r.ok) fail(r.status === 429 ? 429 : r.status === 409 ? 409 : 502, r.status === 429 ? 'Anbieterlimit erreicht. Später erneut versuchen.' : 'KFZ-API derzeit nicht verfügbar. Dieselbe Referenz wiederverwenden.');
@@ -111,7 +111,7 @@ export async function searchPlate(actor: number, input: unknown, reference: unkn
   const { row } = await operation(actor, 'search', reference, plate);
   if (row.state === 'answered') return JSON.parse(row.response_json) as Record<string, unknown>;
   const db = await getDb();
-  const claimed = await db.run("UPDATE kennzeichen_operations SET state = 'running', updated_at = ? WHERE id = ? AND (state IN ('prepared', 'uncertain') OR (state = 'running' AND updated_at < ?))", now(), row.id, new Date(Date.now() - 30_000).toISOString());
+  const claimed = await db.run("UPDATE kennzeichen_operations SET state = 'running', updated_at = ? WHERE id = ? AND (state IN ('prepared', 'uncertain') OR (state = 'running' AND updated_at < ?))", now(), row.id, new Date(Date.now() - 90_000).toISOString());
   if (!claimed.changes) fail(409, 'Anfrage läuft oder Annahme ist ungeklärt. Dieselbe Referenz beibehalten.');
   try {
     // Wiederholungen derselben Referenz belegen dasselbe Budget. Ein Timeout gibt Budget nicht frei.
