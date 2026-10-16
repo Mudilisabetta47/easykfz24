@@ -28,7 +28,7 @@ function auth() {
 async function external(path: string, body?: unknown, reference?: string): Promise<unknown> {
   const a = auth();
   try {
-    const r = await fetch(`${a.base}${path}`, { method: body === undefined ? 'GET' : 'POST', redirect: 'error', cache: 'no-store',
+    const r = await fetch(`${a.base}${path}`, { method: body === undefined ? 'GET' : 'POST', redirect: 'manual', cache: 'no-store',
       headers: { Authorization: a.header, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Idempotency-Key': reference! }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
     // Niemals den Anbieterfehler oder Zugangsdaten in Browser oder Logs übernehmen.

@@ -56,7 +56,13 @@ describe('Kennzeichen-Sicherheit und Vertrag', () => {
     await api.getCatalog(1, true); await api.getCatalog(2, true);
     assert.equal(calls.length, 1);
     assert.equal((calls[0].options?.headers as Record<string, string>).Authorization, `Basic ${Buffer.from('synthetic-test:synthetic-secret').toString('base64')}`);
-    assert.equal(calls[0].options?.redirect, 'error');
+    assert.equal(calls[0].options?.redirect, 'manual');
+  });
+  it('folgt Anbieter-Weiterleitungen nicht und leitet Basic-Anmeldung nicht weiter', async () => {
+    response = async () => new Response(null, { status: 302, headers: { Location: 'https://evil.example' } });
+    await assert.rejects(api.getCatalog(1, true), { status: 502 });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options?.redirect, 'manual');
   });
   it('weist falsche Anmeldeziele ab und gibt keine Secrets aus', async () => {
     process.env.KFZ_API_BASE_URL = 'https://evil.example/dropshipping-api/10/2.3.0';
