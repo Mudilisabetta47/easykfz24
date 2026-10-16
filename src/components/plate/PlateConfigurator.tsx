@@ -203,7 +203,10 @@ export function PlateConfigurator({
           )}
         </p>
 
-        {local.ok ? <AuthorityCatalog cityCode={local.pattern.cityCode} /> : null}
+        {local.ok ? <AuthorityCatalog cityCode={local.pattern.cityCode} selection={selected} onChecked={(plate, status) => {
+          setResult((current) => current ? { ...current, suggestions: current.suggestions?.map((s) => s.plate === plate ? { ...s, status } : s) } : current);
+          setSelected((current) => current?.plate === plate ? { ...current, status } : current);
+        }} /> : null}
 
         {local.ok ? (
           <section className="pc__results" aria-label="Vorschläge" aria-busy={loading}>
@@ -234,8 +237,8 @@ export function PlateConfigurator({
             </ul>
             {result?.provider !== 'extern' ? (
               <p className="pc__note">
-                Die Vorschläge sind formal gültige Kombinationen – keine Aussage über die Verfügbarkeit. Eine Live-Abfrage gibt es dafür derzeit nicht; verbindlich geprüft
-                wird erst bei der Reservierung durch die Zulassungsbehörde {local.districtName}. Ist die Kombination vergeben, melden wir uns mit Alternativen.
+                Die Vorschläge sind formal gültige Kombinationen. Eine Verfügbarkeitsauskunft gilt nur für die ausdrücklich geprüfte Kombination und den angegebenen Zeitpunkt.
+                Eine Reservierung erfolgt dadurch nicht.
               </p>
             ) : null}
           </section>

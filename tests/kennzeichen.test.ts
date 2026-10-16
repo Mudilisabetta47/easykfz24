@@ -7,6 +7,7 @@ import { plateSearchSchema, referenceSchema, reservationPayload } from '../src/l
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ek-kennzeichen-'));
 const api = await import('../src/server/kennzeichen.ts');
+const pub = await import('../src/server/kennzeichen-public.ts');
 const { getDb } = await import('../src/server/db.ts');
 const plate = { ks: '05314', uz: 'BN', buchstaben: 'AB', ziffern: '123', vehicleType: 'PKW' as const };
 const catalog = { bezirke: [{ ks: '05314', name: 'Bonn', codes: ['BN'] }, { ks: '05315', name: 'Andere Behörde', codes: ['BN'] }], preise: { abfrageCent: 10, reservierungCent: 400, grundgebuehrCent: 0 } };
@@ -24,7 +25,7 @@ async function seed() {
 beforeEach(async () => {
   const db = await getDb();
   for (const table of ['kennzeichen_cache', 'kennzeichen_operations', 'kennzeichen_limits', 'kennzeichen_budget']) await db.run(`DELETE FROM ${table}`);
-  Object.assign(process.env, { KFZ_API_BASE_URL: 'https://api.kfz-api.de/dropshipping-api/10/2.3.0', KFZ_API_LOGIN: 'synthetic-test', KFZ_API_PASSWORD: 'synthetic-secret', KENNZEICHEN_SEARCH_ENABLED: '', KENNZEICHEN_DAILY_BUDGET_CENT: '' });
+  Object.assign(process.env, { KFZ_API_BASE_URL: 'https://api.kfz-api.de/dropshipping-api/10/2.3.0', KFZ_API_LOGIN: 'synthetic-test', KFZ_API_PASSWORD: 'synthetic-secret', KENNZEICHEN_SEARCH_ENABLED: '', KENNZEICHEN_DAILY_BUDGET_CENT: '', KENNZEICHEN_PUBLIC_SEARCH_ENABLED: '', KENNZEICHEN_METADATA_ENABLED: '', SESSION_SECRET: 'synthetic-public-session-secret-123456789', PUBLIC_BASE_URL: 'https://easykfz24.de' });
   calls = [];
   response = async (url) => url.endsWith('/bezirke') ? json(catalog) : url.endsWith('/anforderungen') ? json(requirements) : url.endsWith('/search') ? json({ outcome: 'AVAILABLE', kostenCent: 10, reservierbar: true }) : json({ status: 'reserved', pin: '001234' });
   globalThis.fetch = (async (url, options) => {
@@ -180,5 +181,53 @@ describe('Kennzeichen-Sicherheit und Vertrag', () => {
     await assert.rejects(api.importReservation(1, 'foreign', 'existing:foreign'), { status: 502 });
     assert.equal((await api.listKennzeichen()).length, 0);
     await assert.rejects(api.importReservation(1, '../search', 'existing:attack'), { status: 422 });
+  });
+});
+
+const publicRequest = (body: unknown = { plate, reference: 'public:reference', confirmed: true }, headers: Record<string, string> = {}) => new Request('https://easykfz24.de/api/kennzeichen/search', { method: 'POST', headers: { Origin: 'https://easykfz24.de', 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+const publicEnable = (budget = '1000') => { enable(budget); process.env.KENNZEICHEN_PUBLIC_SEARCH_ENABLED = '1'; };
+describe('Öffentliche Verfügbarkeitsprüfung', () => {
+  it('verlangt ein eigenes Freigabetor zusätzlich zum Tagesbudget', async () => {
+    enable();
+    await assert.rejects(pub.handlePublicSearch(publicRequest(), '192.0.2.1'), { status: 423 });
+    assert.equal(calls.length, 0);
+  });
+  it('kann kostenlose Metadaten ohne Freigabe kostenpflichtiger Suche prüfen', async () => {
+    process.env.KENNZEICHEN_METADATA_ENABLED = '1';
+    const r = await pub.publicCatalog();
+    assert.equal(r.searchEnabled, false); assert.ok(r.catalog);
+    assert.equal(calls.length, 1); assert.ok(calls[0].path.endsWith('/bezirke'));
+    await assert.rejects(pub.handlePublicSearch(publicRequest(), '192.0.2.1'), { status: 423 });
+  });
+  it('lehnt fremde Herkunft, falsche Inhalte und unbewusste Aufrufe vor dem Netzwerk ab', async () => {
+    publicEnable();
+    await assert.rejects(pub.handlePublicSearch(publicRequest(undefined, { Origin: 'https://evil.example' }), '192.0.2.1'), { status: 403 });
+    await assert.rejects(pub.handlePublicSearch(publicRequest(undefined, { 'Sec-Fetch-Site': 'cross-site' }), '192.0.2.1'), { status: 403 });
+    await assert.rejects(pub.handlePublicSearch(publicRequest(undefined, { 'Content-Type': 'text/plain' }), '192.0.2.1'), { status: 415 });
+    await assert.rejects(pub.handlePublicSearch(publicRequest({ plate, reference: 'public:reference' }), '192.0.2.1'), { status: 422 });
+    await assert.rejects(pub.handlePublicSearch(publicRequest('{invalid'), '192.0.2.1'), { status: 400 });
+    await assert.rejects(pub.handlePublicSearch(publicRequest('x'.repeat(5000)), '192.0.2.1'), { status: 413 });
+    assert.equal(calls.length, 0);
+  });
+  it('prüft nur vollständige Kombinationen nach bewusstem Klick; erhält Referenz und Zeitstempel', async () => {
+    publicEnable(); await seed();
+    const a = await pub.handlePublicSearch(publicRequest(), '192.0.2.1');
+    const b = await pub.handlePublicSearch(publicRequest(), '192.0.2.1');
+    assert.deepEqual(a, b); assert.equal(a.outcome, 'AVAILABLE'); assert.ok(a.checkedAt);
+    assert.equal(calls.length, 1); assert.equal(await api.kennzeichenBudget(), 10);
+    const stored = await (await getDb()).first<{ actor_id: number; request_json: string }>('SELECT actor_id, request_json FROM kennzeichen_operations');
+    assert.ok(stored!.actor_id < 0); assert.ok(!stored!.request_json.includes('192.0.2.1'));
+    await assert.rejects(pub.handlePublicSearch(publicRequest({ plate: { ...plate, buchstaben: '??' }, confirmed: true, reference: 'public:wildcard' }), '192.0.2.1'), { status: 422 });
+  });
+  it('teilt das atomare Kostenlimit mit dem OS', async () => {
+    publicEnable('10'); await seed();
+    await api.searchPlate(1, plate, 'os:budget:first');
+    await assert.rejects(pub.handlePublicSearch(publicRequest(), '192.0.2.1'), { status: 429 });
+    assert.equal(calls.length, 1); assert.equal(await api.kennzeichenBudget(), 10);
+  });
+  it('verweigert ohne Servergeheimnis die öffentliche Prüfung', async () => {
+    publicEnable(); await seed(); process.env.SESSION_SECRET = '';
+    await assert.rejects(pub.handlePublicSearch(publicRequest(), '192.0.2.1'), { status: 503 });
+    assert.equal(calls.length, 0);
   });
 });

@@ -367,6 +367,7 @@ describe('System-Endpunkte', () => {
     assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke')).status, 200);
     assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke/05314')).status, 200);
     assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke/invalid')).status, 400);
+    assert.equal((await anon.req('POST', '/api/kennzeichen/search', { body: { plate: {}, reference: 'public:e2e', confirmed: true } })).status, 423);
   });
 
   it('Systemeinstellungen, Unternehmen, Diagnose mit Rechteprüfung', async () => {

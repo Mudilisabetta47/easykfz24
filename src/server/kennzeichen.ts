@@ -9,6 +9,7 @@ export class KennzeichenError extends Error {
 }
 const fail = (status: number, message: string): never => { throw new KennzeichenError(status, message); };
 const now = () => new Date().toISOString();
+export const budgetDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const ksValue = (ks: string) => /^\d{5}$/.test(ks) ? ks : fail(400, 'Ungültiger Kreisschlüssel.');
 const positiveInt = (s: string | undefined) => /^\d{1,7}$/.test(s ?? '') ? Number(s) : 0;
@@ -63,7 +64,15 @@ async function cached<T>(key: string, parse: (v: unknown) => T, path: string, ac
   // Ein einziger Metadatenabruf je Minute; öffentliche Aufrufe lösen nie einen Abruf aus.
   await consume(`metadata:${Math.floor(Date.now() / 60_000)}:${key}`, 1, 1);
   let result: T;
-  try { result = parse(await external(path)); } catch (e) {
+  try {
+    const raw = await external(path);
+    try { result = parse(raw); } catch (e) {
+      // Nur Feldnamen/Typen für Schema-Abgleich, keine Antwortwerte oder Zugangsdaten protokollieren.
+      const shape = (v: unknown): unknown => Array.isArray(v) ? { arrayItemKeys: v[0] && typeof v[0] === 'object' ? Object.keys(v[0]).slice(0, 40) : typeof v[0] } : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).slice(0, 30).map(([k, x]) => [k, Array.isArray(x) ? { arrayItemKeys: x[0] && typeof x[0] === 'object' ? Object.keys(x[0]).slice(0, 40) : typeof x[0] } : x && typeof x === 'object' ? Object.keys(x).slice(0, 40) : typeof x])) : typeof v;
+      console.warn('[kennzeichen] Metadaten-Schema', path, JSON.stringify(shape(raw)));
+      throw e;
+    }
+  } catch (e) {
     if (e instanceof KennzeichenError) throw e;
     return fail(502, 'Unbekanntes Anbieterformat. Keine Freigabe möglich.');
   }
@@ -106,11 +115,11 @@ export async function searchPlate(actor: number, input: unknown, reference: unkn
     // Wiederholungen derselben Referenz belegen dasselbe Budget. Ein Timeout gibt Budget nicht frei.
     await db.run(`INSERT OR IGNORE INTO kennzeichen_budget (reference, day, cents)
       SELECT ?, ?, 10 WHERE (SELECT COALESCE(SUM(cents), 0) FROM kennzeichen_budget WHERE day = ?) + 10 <= ?`,
-      row.reference, now().slice(0, 10), now().slice(0, 10), kennzeichenPolicy().dailyBudgetCent);
+      row.reference, budgetDay(), budgetDay(), kennzeichenPolicy().dailyBudgetCent);
     if (!await db.first('SELECT reference FROM kennzeichen_budget WHERE reference = ?', row.reference)) fail(429, 'Tagesbudget ausgeschöpft.');
     const value = await external('/search', plate, row.reference) as Record<string, unknown>;
     if (!value || typeof value !== 'object' || !['AVAILABLE', 'NOT_AVAILABLE', 'UNKNOWN'].includes(String(value.outcome)) || !Number.isInteger(value.kostenCent) || Number(value.kostenCent) < 0 || Number(value.kostenCent) > 10) fail(502, 'Unbekannte Verfügbarkeitsantwort.');
-    const result = { outcome: value.outcome, frei: value.outcome === 'AVAILABLE', reservierbar: value.reservierbar === true, kostenCent: value.kostenCent, reference: row.reference };
+    const result = { outcome: value.outcome, frei: value.outcome === 'AVAILABLE', reservierbar: value.reservierbar === true, kostenCent: value.kostenCent, reference: row.reference, checkedAt: now() };
     await db.run("UPDATE kennzeichen_operations SET state = 'answered', response_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(result), now(), row.id);
     return result;
   } catch (e) {
@@ -160,7 +169,7 @@ export async function refreshReservation(actor: number, id: string) {
   return result;
 }
 export async function kennzeichenBudget() {
-  return (await (await getDb()).first<{ used: number }>('SELECT COALESCE(SUM(cents), 0) AS used FROM kennzeichen_budget WHERE day = ?', now().slice(0, 10)))?.used ?? 0;
+  return (await (await getDb()).first<{ used: number }>('SELECT COALESCE(SUM(cents), 0) AS used FROM kennzeichen_budget WHERE day = ?', budgetDay()))?.used ?? 0;
 }
 
 /** Nach einem Browser-/Worker-Abbruch dieselbe gespeicherte Suche fortsetzen, ohne neue Kostenreferenz. */
