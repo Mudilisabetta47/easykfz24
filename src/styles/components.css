@@ -1250,6 +1250,122 @@
   background: var(--ez-danger-soft);
   color: #8f1f1a;
 }
+/* Verfügbarkeitsprüfung (Live-Abfrage) im Konfigurator */
+.pc-check {
+  display: grid;
+  gap: 14px;
+  padding: clamp(16px, 0.75rem + 1vw, 22px);
+  border: 1px solid var(--ez-line);
+  border-radius: 18px;
+  background: white;
+}
+.pc-check__head h3 {
+  margin: 0;
+  font-size: var(--step-0);
+  font-weight: 700;
+}
+.pc-check__head p {
+  margin: 4px 0 0;
+  font-size: var(--step--1);
+  color: var(--ez-muted);
+}
+.pc-check__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.pc-check__field {
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.pc-check__field span {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--ez-ink-soft);
+}
+.pc-check__field select {
+  inline-size: 100%;
+  min-block-size: 48px;
+  padding: 0 40px 0 14px;
+  border: 1.5px solid var(--ez-line-strong);
+  border-radius: 12px;
+  background: var(--ez-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%235b6478' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 14px center;
+  color: var(--ez-ink);
+  font: inherit;
+  font-size: var(--step--1);
+  appearance: none;
+  text-overflow: ellipsis;
+  transition:
+    border-color var(--duration-sm) var(--ease-ui),
+    box-shadow var(--duration-sm) var(--ease-ui);
+}
+.pc-check__field select:focus {
+  outline: none;
+  border-color: var(--ez-blue);
+  box-shadow: 0 0 0 4px var(--ez-blue-soft);
+}
+.pc-check__field select:disabled {
+  opacity: 0.6;
+}
+.pc-check__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.pc-check__action p {
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--ez-ink-soft);
+}
+.pc-check__plate {
+  font-family: var(--font-plate);
+  font-size: 1.15em;
+  letter-spacing: 0.06em;
+  color: var(--ez-ink);
+}
+.pc-check__hint {
+  color: var(--ez-muted);
+}
+.pc-check__result {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: var(--step--1);
+  font-weight: 650;
+}
+.pc-check__result-empty {
+  display: none;
+}
+.pc-check__result--frei {
+  background: var(--ez-success-soft);
+  color: #0a6b43;
+}
+.pc-check__result--vergeben {
+  background: var(--ez-danger-soft);
+  color: #8f1f1a;
+}
+.pc-check__result--unbekannt,
+.pc-check__result--fehler {
+  background: var(--ez-warning-soft);
+  color: #7a4b00;
+}
+.pc-check__note {
+  margin: 0;
+  font-size: var(--step--2);
+  color: var(--ez-muted);
+}
+@media (max-width: 720px) {
+  .pc-check__fields {
+    grid-template-columns: 1fr;
+  }
+  .pc-check__action .btn {
+    inline-size: 100%;
+    justify-content: center;
+  }
+}
 .pc__note {
   font-size: var(--step--2);
   color: var(--ez-muted);
