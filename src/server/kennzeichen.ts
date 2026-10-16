@@ -32,12 +32,14 @@ async function external(path: string, body?: unknown, reference?: string): Promi
       headers: { Authorization: a.header, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Idempotency-Key': reference! }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
     // Niemals den Anbieterfehler oder Zugangsdaten in Browser oder Logs übernehmen.
+    if (!r.ok) console.warn('[kennzeichen] Anbieter-HTTP', path, r.status);
     if (!r.ok) fail(r.status === 429 ? 429 : r.status === 409 ? 409 : 502, r.status === 429 ? 'Anbieterlimit erreicht. Später erneut versuchen.' : 'KFZ-API derzeit nicht verfügbar. Dieselbe Referenz wiederverwenden.');
     const text = await r.text();
     if (text.length > 2_000_000) fail(502, 'API-Antwort zu groß.');
     return JSON.parse(text);
   } catch (e) {
     if (e instanceof KennzeichenError) throw e;
+    console.warn('[kennzeichen] Anbieter-Verbindung', path, e instanceof Error ? e.name : 'Fehler');
     return fail(502, 'KFZ-API nicht erreichbar. Dieselbe Referenz wiederverwenden.');
   }
 }
