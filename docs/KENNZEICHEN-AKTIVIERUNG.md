@@ -32,3 +32,28 @@ Unbekannte Anbieterformate bleiben gesperrt. Zur Diagnose werden nur Feldnamen/T
 
 Rollback: vorherige Worker-Version wiederherstellen; additive Kennzeichentabellen dürfen bestehen bleiben.
 Keine Rücksetzung der Produktionsdatenbank erforderlich. Echte Reservierungen bleiben unabhängig von allen Flags gesperrt.
+
+## Ergebnis
+
+Aktiv seit 16.10.2026: Worker-Version `0b5c0815-f92c-4800-9d7c-a67554b65cd4`,
+Code `560a84f40894`. Metadaten, OS-Suche und öffentlicher Prüfbutton freigegeben;
+Tagesbudget 1000 Cent. Vorhandene Bindungen vor/nach Deployment vollständig identisch.
+Health bestätigt Cloudflare und Schema 13; Startseite, Statusseite und Auftragsformular HTTP 200.
+
+Der kostenlose Live-Katalog lieferte 399 Bezirke und bestätigte 10 Cent je beantworteter Abfrage,
+400 Cent für Reservierungen sowie keine Grundgebühr. Cloudflare unterstützt `redirect: error` nicht;
+der Adapter verwendet `manual` und lehnt Weiterleitungen ohne Weitergabe der Anmeldung ab.
+Eine erste Suche überschritt zehn Sekunden. Suchantworten dürfen deshalb bis zu 60 Sekunden dauern;
+die Vorgangssperre bleibt 90 Sekunden bestehen, um parallele Wiederholungen zu verhindern.
+
+Live-Test über den öffentlichen Browserbutton: **BN-AB 123, Stadt Bonn, PKW, Normal**.
+Anbieterantwort am 16.10.2026 um 23:16:24 Uhr (Europe/Berlin): **UNKNOWN**, `kostenCent: 0`.
+Das ist keine positive Verfügbarkeitsauskunft. Die Oberfläche zeigt ausdrücklich „Verfügbarkeit unbekannt“.
+Wiederabrufe verwendeten dieselbe Idempotenzreferenz. Produktionsnachweis: ein beantworteter Suchvorgang,
+ein Budgeteintrag über vorsorglich gebundene 10 Cent, keine Reservierungsvorgänge.
+Keine zusätzliche Kombination wurde kostenpflichtig getestet.
+
+Abschließend bestanden: Typprüfung, **325/325** Unit-/Integrationstests, Produktionsbuild einschließlich
+OpenNext-Worker, **71/71** End-to-End-Tests auf Node und **71/71** auf workerd.
+Kontrollbild: Chat-Ausgabe `Kennzeichen-Livepruefung.jpg`.
+Mollie, Checkout-Freigaben und QES unverändert. Kein Merge nach main; der PR bleibt Draft.
