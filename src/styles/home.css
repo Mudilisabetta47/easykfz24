@@ -802,6 +802,20 @@
     inline-size: clamp(340px, 31vw, 460px);
     flex: none;
   }
+  /* Kompakter im horizontalen Modus, damit die Reihe auf üblichen Laptop-Höhen (ab ca. 800 px) passt.
+     Die Höhe wird vor dem Einschalten gemessen (initServices); passt sie nicht, bleibt das Raster. */
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__stage {
+    padding-block: calc(var(--header-h) + 12px) 24px;
+  }
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc__head {
+    margin-block-end: clamp(1.25rem, 0.5rem + 1.5vw, 2rem);
+  }
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc-card__top {
+    margin-block-end: clamp(1rem, 0.5rem + 1vw, 1.5rem);
+  }
+  .js[data-motion='full'] .svc[data-services-layout='horizontal'] .svc-card__cta {
+    min-block-size: 0;
+  }
 }
 @media (max-width: 700px) {
   .svc__rail {

@@ -276,8 +276,26 @@
   font-size: var(--step--1);
   font-weight: 550;
   text-decoration: none;
+  /* Menüpunkte nie umbrechen (sonst zweizeilige Einträge auf Laptop-Breiten) */
+  white-space: nowrap;
   opacity: 0.86;
   transition: opacity var(--duration-sm) var(--ease-ui);
+}
+@media (max-width: 1360px) {
+  .nav a {
+    padding: 0 8px;
+  }
+  .nav a::after {
+    inset-inline: 8px;
+  }
+}
+@media (max-width: 1200px) {
+  .nav a {
+    padding: 0 6px;
+  }
+  .nav a::after {
+    inset-inline: 6px;
+  }
 }
 .nav a::after {
   content: '';
@@ -927,6 +945,7 @@
 }
 
 .nav__badge {
+  white-space: nowrap;
   margin-inline-start: 6px;
   padding: 1px 6px;
   border-radius: var(--radius-pill);

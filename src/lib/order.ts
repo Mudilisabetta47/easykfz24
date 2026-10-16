@@ -212,6 +212,11 @@ export function validateOrder(
      * aus dem Partnerabgleich). Kontodaten/SEPA freiwillig („SEPA: Nein“); werden sie angegeben, gilt die volle Prüfung.
      */
     testOrder?: boolean;
+    /**
+     * Auftrag in der Verwaltung: Die Vollmacht kann nachgereicht werden (digital über Nect nach Zahlung bzw. Original per
+     * Post). Ohne Häkchen bleibt finish.vollmacht false; die Freigabe sichern QES-Prüfung bzw. Checkliste.
+     */
+    poaPending?: boolean;
   } = {},
 ): { ok: true; order: ValidatedOrder } | { ok: false; errors: FieldErrors } {
   const parsed = orderInputSchema.safeParse(raw);
@@ -371,7 +376,7 @@ export function validateOrder(
     sepaMandat = f.sepaMandat;
     if (!sepaMandat) errors['finish.sepaMandat'] = 'Für die Kfz-Steuer ist ein SEPA-Lastschriftmandat erforderlich';
   }
-  if (!f.vollmacht && !opts.testOrder) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
+  if (!f.vollmacht && !opts.testOrder && !opts.poaPending) errors['finish.vollmacht'] = 'Ohne Vollmacht können wir nicht für Sie tätig werden';
   if (!f.datenschutz) errors['finish.datenschutz'] = 'Bitte die Datenschutzhinweise bestätigen';
   // Vorzeitiger Leistungsbeginn ist freiwillig (ohne ihn Bearbeitung erst nach Ablauf der Widerrufsfrist, technisch gesperrt).
   // Wer ihn verlangt, bestätigt auch das Erlöschen. Express (bevorzugte Bearbeitung) setzt den sofortigen Beginn voraus.
@@ -411,7 +416,7 @@ export function validateOrder(
         iban,
         sepaMandat,
         // Testauftrag: Vollmacht wird erst über Nect erstellt – nichts als vorhanden behaupten
-        vollmacht: !opts.testOrder,
+        vollmacht: opts.testOrder ? false : opts.poaPending ? f.vollmacht === true : true,
         datenschutz: true,
         hinweise: f.hinweise.trim(),
       },

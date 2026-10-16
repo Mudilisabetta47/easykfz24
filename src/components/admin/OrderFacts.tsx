@@ -88,7 +88,12 @@ export function OrderFacts({ order, wishPlace = null }: { order: OrderDetail; wi
           ...((d.finish.vollmacht
             ? [['Vollmacht / Datenschutz', `bestätigt am ${formatDateTime(order.consent_at)}`]]
             : [
-                ['Vollmacht', 'digital über Nect – wird nach dem Anlegen angefordert; Nachweis nur über den Partnerabgleich (signiert + vollständig)'],
+                [
+                  'Vollmacht',
+                  d.service === 'abmeldung'
+                    ? 'noch nicht bestätigt – Original über die Checkliste („Vollmacht im Original eingegangen“)'
+                    : 'digital über Nect – wird nach dem Anlegen angefordert; Nachweis nur über den Partnerabgleich (signiert + vollständig)',
+                ],
                 ['Datenschutz', `bestätigt am ${formatDateTime(order.consent_at)}`],
               ]) as [string, string][]),
           ...order.price.lines.map((l) => [l.label, formatEuro(l.cents)] as [string, string]),

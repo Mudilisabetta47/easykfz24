@@ -598,3 +598,31 @@ describe('Testaufträge nicht in Umsatz, Statistik, Export oder Dublettenprüfun
     assert.ok(!ins.issues.some((i) => i.code === 'doppelt'), JSON.stringify(ins.issues));
   });
 });
+
+describe('Verwaltung: Auftrag ohne vorhandene Vollmacht anlegen', () => {
+  it('ohne Häkchen erlaubt (Vollmacht folgt digital bzw. als Original), Website weiter Pflicht, Freigabe bleibt gesperrt', async () => {
+    for (const s of ['halterwechsel', 'abmeldung'] as const) {
+      const d = draft(s);
+      d.finish = { ...d.finish, vollmacht: false };
+      const web = validateOrder(d);
+      assert.ok(!web.ok && /Ohne Vollmacht/.test(web.errors['finish.vollmacht'] ?? ''), `${s}: Website verlangt die Erklärung`);
+      const os = validateOrder(d, { poaPending: true });
+      assert.ok(os.ok, `${s}: ${JSON.stringify(!os.ok && os.errors)}`);
+      if (!os.ok) continue;
+      assert.equal(os.order.finish.vollmacht, false, 'nichts als vorhanden behauptet');
+      os.order.finish.vorzeitigerBeginnAt = new Date().toISOString();
+      const created = await orders.createOrder(os.order, []);
+      await readyExceptPoa(created.id);
+      const ins = await oa.orderInsights((await orders.getOrder(created.id))!);
+      assert.ok(ins.issues.some((i) => i.code === 'vollmacht' && i.level === 'hinweis'), JSON.stringify(ins.issues));
+      if (s === 'abmeldung') {
+        // Abmeldung: das Pflicht-Häkchen „Vollmacht im Original“ in der Checkliste sichert die Freigabe
+        await (await getDb()).run('UPDATE orders SET checklist_json = ? WHERE id = ?', '{}', created.id);
+        assert.ok(!(await oa.actRelease(created.id, true, owner)).ok);
+      } else {
+        const r = await oa.actRelease(created.id, true, owner);
+        assert.ok(!r.ok && /Digitale Vollmacht/.test(r.error));
+      }
+    }
+  });
+});

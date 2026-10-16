@@ -300,9 +300,16 @@ export function OrderForm({
                 „signiert + vollständig“ meldet.
               </p>
             ) : (
-              <label className={`os-check-field${errors['finish.vollmacht'] ? ' has-error' : ''}`}>
-                <input type="checkbox" checked={!!d.finish.vollmacht} onChange={(e) => set('finish', 'vollmacht', e.target.checked)} /> Vollmacht liegt vor
-              </label>
+              <>
+                <label className={`os-check-field${errors['finish.vollmacht'] ? ' has-error' : ''}`}>
+                  <input type="checkbox" checked={!!d.finish.vollmacht} onChange={(e) => set('finish', 'vollmacht', e.target.checked)} /> Vollmacht liegt bereits vor
+                  (optional)
+                </label>
+                <p className="os-muted os-small os-field--wide">
+                  Ohne Häkchen: Für Zulassung, Ummeldung und Wiederzulassung wird die digitale Vollmacht nach der Zahlung über Nect angefordert; bei der
+                  Abmeldung bestätigen Sie das Original später in der Checkliste. Die Freigabe zur Übermittlung bleibt bis dahin gesperrt.
+                </p>
+              </>
             )}
             {test ? (
               <>

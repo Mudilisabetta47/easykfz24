@@ -276,7 +276,8 @@ export async function createOrderAdmin(raw: unknown, actor: Actor): Promise<{ ok
   const { checkoutState } = await import('../checkout.ts');
   if (!checkoutState().open) return { ok: false, error: 'Auftragsannahme ist gesperrt (BESTELLUNG_AKTIV) – erst nach rechtlicher Freigabe möglich.' };
   // In der Verwaltung bleibt der Geburtsort freiwillig (Nachtrag aus Ausweis möglich); Pflicht nur im Kundenauftrag
-  const v = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs });
+  // Vollmacht darf nachgereicht werden (digital über Nect bzw. Original) – Freigabe sichern QES-Prüfung bzw. Checkliste
+  const v = validateOrder(raw, { plateOffer: await getPlateOffer(), expressOffer: await getExpressOffer(), wishPlace: placeByAgs, poaPending: true });
   if (!v.ok) return { ok: false, error: 'Bitte die markierten Felder prüfen', fields: v.errors };
   const order: ValidatedOrder = v.order;
   const db = await getDb();

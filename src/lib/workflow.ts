@@ -185,12 +185,16 @@ export function orderIssues(o: IssueInput): Issue[] {
           ? { level: 'hinweis', code: 'sepa', text: 'Testauftrag ohne SEPA-Mandat (SEPA: Nein) – nie als Zulassungsantrag einreichbar' }
           : { level: 'fehler', code: 'sepa', text: 'SEPA-Mandat bzw. IBAN für die Kfz-Steuer fehlt', fix: 'angaben' },
       );
+    // Vollmacht noch nicht erteilt: kein Fehler – Zulassung, Ummeldung, Wiederzulassung sichert die QES-Prüfung (digital über
+    // Nect), die Abmeldung das Pflicht-Häkchen „Vollmacht im Original eingegangen“ in der Checkliste
     if (!d.finish.vollmacht)
-      out.push(
-        o.isTest
-          ? { level: 'hinweis', code: 'vollmacht', text: 'Digitale Vollmacht wird über Nect angefordert – gilt erst nach Partnerabgleich (signiert + vollständig)' }
-          : { level: 'fehler', code: 'vollmacht', text: 'Vollmacht nicht bestätigt', fix: 'angaben' },
-      );
+      out.push({
+        level: 'hinweis',
+        code: 'vollmacht',
+        text: POA_SERVICES.includes(o.service)
+          ? 'Digitale Vollmacht wird über Nect angefordert – gilt erst nach Partnerabgleich (signiert + vollständig)'
+          : 'Vollmacht noch nicht bestätigt – Original über die Checkliste bestätigen',
+      });
     if (d.holder.typ === 'privat' && !d.holder.geburtsdatum) out.push({ level: 'warnung', code: 'geburtsdatum', text: 'Geburtsdatum des Halters fehlt', fix: 'angaben' });
     if (o.payment_status !== 'bezahlt' && (o.status === 'bei_zulassungsstelle' || o.released_at)) out.push({ level: 'warnung', code: 'zahlung', text: 'Zahlung noch offen, Vorgang aber schon freigegeben/übergeben', fix: 'zahlung' });
     const complete = isChecklistComplete(o.checklistItems, o.checklist);
