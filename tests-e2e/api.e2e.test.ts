@@ -18,7 +18,7 @@ const KFZ_SECRET = process.env.E2E_KFZ_SECRET ?? '';
 const STRIPE_SECRET = process.env.E2E_STRIPE_SECRET ?? '';
 const MODE = process.env.E2E_MODE ?? 'node';
 /** Anzahl der Verwaltungs-Endpunkte (inkl. Entsperren) – bei neuen Endpunkten bewusst anpassen und Tests ergänzen */
-const EXPECTED_ROUTES = 119;
+const EXPECTED_ROUTES = 128;
 if (!ADMIN_PW) throw new Error('Über scripts/e2e.mjs starten');
 
 /* ---------- Abdeckung: alle Routen aus dem Quelltext ---------- */
@@ -48,6 +48,15 @@ ROUTES.push({ key: 'POST unlock', method: 'POST', path: 'unlock', perm: null, re
 const ordered = [...ROUTES].sort((a, b) => (a.path.match(/:/g)?.length ?? 0) - (b.path.match(/:/g)?.length ?? 0));
 /** Erfolg nur mit echtem externem Dienst möglich – im Test bewusst ohne Schlüssel (keine echten Aktionen). */
 const NEEDS_EXTERNAL: Record<string, string> = {
+  'POST kennzeichen/bezirke': 'KFZ-API-Katalog – im Unit-Test simuliert',
+  'POST kennzeichen/bezirke/:ks/anforderungen': 'KFZ-API-Anforderungen – im Unit-Test simuliert',
+  'POST kennzeichen/search': 'Kostenfreigabe absichtlich gesperrt – im Unit-Test simuliert',
+  'POST kennzeichen/reservations/prepare': 'Aktueller Katalog und Anforderungen nötig – im Unit-Test simuliert',
+  'POST kennzeichen/reservations/import': 'Vorhandene Reservierung – im Unit-Test simuliert',
+  'POST kennzeichen/reservations/:id/refresh': 'Vorhandene Reservierung – im Unit-Test simuliert',
+  'POST kennzeichen/operations/:id/retry': 'Gespeicherte Abfrage – im Unit-Test simuliert',
+  'GET kennzeichen/operations/:id': 'Gespeicherter Entwurf – im Unit-Test simuliert',
+
   'POST finance/payments/:id/refresh': 'Stripe-API (Abruf der Zahlung)',
   'POST messages/send': 'E-Mail-Dienst (Resend/SMTP)',
   'POST orders/:id/vollmacht': 'kfz-api.de Vollmachtsvorgang (kostenpflichtig, nur mit VOLLMACHT_DIGITAL) – Ablauf im Testnachbau: tests/power-of-attorney.test.ts',
@@ -331,6 +340,33 @@ describe('System-Endpunkte', () => {
     await expect(owner, 'POST', `users/${ids.userLe}`, 422, { email: 'keine-mail' });
     await expect(owner, 'GET', 'audit', 200);
     await expect(sb, 'GET', 'audit', 403);
+  });
+
+  it('Kennzeichen: Rechte, Kostensperre, Eingaben und öffentliche Cache-Routen', async () => {
+    const r = await expect(le, 'GET', 'kennzeichen', 200);
+    assert.equal((r.json.policy as { searchEnabled: boolean }).searchEnabled, false);
+    assert.ok(!JSON.stringify(r.json).includes('KFZ_API_PASSWORD'));
+    await expect(bh, 'GET', 'kennzeichen', 403);
+    for (const [p, body, status] of [
+      ['kennzeichen/bezirke', {}, 503],
+      ['kennzeichen/bezirke/invalid/anforderungen', {}, 400],
+      ['kennzeichen/search', { plate: {}, reference: 'e2e:search' }, 423],
+      ['kennzeichen/reservations/prepare', { reservation: {}, reference: 'e2e:draft' }, 422],
+      ['kennzeichen/reservations/import', { jobId: '../search', reference: 'e2e:import' }, 422],
+      ['kennzeichen/reservations/missing/refresh', {}, 404],
+      ['kennzeichen/operations/missing/retry', {}, 404],
+    ] as [string, Record<string, unknown>, number][]) {
+      await expect(le, 'POST', p, 403, body);
+      if (status === 503) {
+        const r = await owner.req('POST', p, { body, tag: 'invalid', allow5xx: true });
+        assert.equal(r.status, 503);
+      } else await expect(owner, 'POST', p, status, body, 'invalid');
+    }
+    await expect(le, 'GET', 'kennzeichen/operations/missing', 403);
+    await expect(owner, 'GET', 'kennzeichen/operations/missing', 404, undefined, 'invalid');
+    assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke')).status, 200);
+    assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke/05314')).status, 200);
+    assert.equal((await anon.req('GET', '/api/kennzeichen/bezirke/invalid')).status, 400);
   });
 
   it('Systemeinstellungen, Unternehmen, Diagnose mit Rechteprüfung', async () => {

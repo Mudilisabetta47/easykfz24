@@ -3,6 +3,7 @@
 // KFZ-API Center: technische Steuerzentrale der kfz-api.de-Anbindung. Liest, prüft, ordnet zu und verarbeitet
 // fehlgeschlagene Ereignisse kontrolliert erneut – übermittelt aber nie einen Antrag. Keine Geheimnisse im Browser.
 
+import { KennzeichenApp } from './Kennzeichen.tsx';
 import { useEffect, useState } from 'react';
 import { dateTime, euro, osFetch, relTime, useOsData } from '../api.ts';
 import { useOs } from '../context.ts';
@@ -48,7 +49,7 @@ interface KfzData {
   submission: { enabled: boolean; reason: string };
 }
 
-type Tab = 'uebersicht' | 'ereignisse' | 'abgleich' | 'erklaerungen' | 'vertrag';
+type Tab = 'kennzeichen' | 'uebersicht' | 'ereignisse' | 'abgleich' | 'erklaerungen' | 'vertrag';
 type Filter = 'alle' | 'probleme' | 'verarbeitet' | 'ping' | 'doppelt';
 
 export function KfzApp({ params, nonce }: { params?: Record<string, unknown>; nonce: number }) {
@@ -86,6 +87,7 @@ export function KfzApp({ params, nonce }: { params?: Record<string, unknown>; no
           onChange={setTab}
           tabs={[
             { id: 'uebersicht', label: 'Übersicht' },
+            { id: 'kennzeichen', label: 'Kennzeichen' },
             { id: 'ereignisse', label: `Ereignisse (${data.stats.total})` },
             { id: 'abgleich', label: 'Datenabgleich' },
             { id: 'erklaerungen', label: 'Status & Fehlercodes' },
@@ -101,6 +103,7 @@ export function KfzApp({ params, nonce }: { params?: Record<string, unknown>; no
         {tab === 'uebersicht' ? <Overview data={data} run={run} onProblems={() => (setTab('ereignisse'), setFilter('probleme'))} /> : null}
         {tab === 'ereignisse' ? <Events data={data} filter={filter} setFilter={setFilter} run={run} /> : null}
         {tab === 'abgleich' ? <Compare /> : null}
+        {tab === 'kennzeichen' ? <KennzeichenApp /> : null}
         {tab === 'erklaerungen' ? <Help data={data} /> : null}
         {tab === 'vertrag' ? <Contract data={data} onSaved={() => void reload(true)} /> : null}
       </div>

@@ -726,6 +726,31 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX poa_evidence_order ON poa_evidence(order_id);
   `,
+  `
+  CREATE TABLE kennzeichen_cache (
+    key TEXT PRIMARY KEY, body TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE kennzeichen_operations (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    actor_id INTEGER NOT NULL,
+    reference TEXT NOT NULL UNIQUE,
+    fingerprint TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    response_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL,
+    job_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX kennzeichen_job ON kennzeichen_operations(job_id) WHERE job_id != '';
+  CREATE TABLE kennzeichen_budget (reference TEXT PRIMARY KEY, day TEXT NOT NULL, cents INTEGER NOT NULL);
+  CREATE INDEX kennzeichen_budget_day ON kennzeichen_budget(day);
+  CREATE INDEX kennzeichen_operations_created ON kennzeichen_operations(created_at);
+  CREATE TABLE kennzeichen_limits (
+    key TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 

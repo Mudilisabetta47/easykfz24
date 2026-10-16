@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { AuthorityCatalog } from './AuthorityCatalog.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { checkWish, normalizeWish, type WishInput } from '../../lib/wish-plate.ts';
@@ -103,7 +104,7 @@ export function PlateConfigurator({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
       if (e.key !== 'Tab' || !dialog.current) return;
-      const items = dialog.current.querySelectorAll<HTMLElement>('button:not([disabled]), a, input');
+      const items = dialog.current.querySelectorAll<HTMLElement>('button:not([disabled]), a, input, select');
       const first = items[0];
       const last = items[items.length - 1];
       if (e.shiftKey && document.activeElement === first) {
@@ -201,6 +202,8 @@ export function PlateConfigurator({
             'Einfach ins Schild tippen: Kürzel oder Ortsname bzw. PLZ, dann Buchstaben und Zahlen. Lässt du die leer, schlagen wir Kombinationen vor.'
           )}
         </p>
+
+        {local.ok ? <AuthorityCatalog cityCode={local.pattern.cityCode} /> : null}
 
         {local.ok ? (
           <section className="pc__results" aria-label="Vorschläge" aria-busy={loading}>

@@ -13,6 +13,7 @@ import { checkPerm, HttpError, matchRoute, str, type Ctx, type Json, type Route 
 import { orderRoutes } from '../../../../../server/os/routes/orders.ts';
 import { customerRoutes } from '../../../../../server/os/routes/customers.ts';
 import { documentRoutes } from '../../../../../server/os/routes/documents.ts';
+import { kennzeichenRoutes } from '../../../../../server/os/routes/kennzeichen.ts';
 import { kfzRoutes } from '../../../../../server/os/routes/kfz.ts';
 import { financeRoutes } from '../../../../../server/os/routes/finance.ts';
 import { teamRoutes } from '../../../../../server/os/routes/team.ts';
@@ -23,7 +24,7 @@ export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ path: string[] }> };
 
-const ROUTES: Route[] = [...systemRoutes, ...orderRoutes, ...customerRoutes, ...documentRoutes, ...kfzRoutes, ...financeRoutes, ...teamRoutes];
+const ROUTES: Route[] = [...systemRoutes, ...orderRoutes, ...customerRoutes, ...documentRoutes, ...kfzRoutes, ...kennzeichenRoutes, ...financeRoutes, ...teamRoutes];
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 

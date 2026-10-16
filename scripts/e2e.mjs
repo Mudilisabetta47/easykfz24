@@ -22,7 +22,7 @@ const secrets = {
   STRIPE_WEBHOOK_SECRET: `whsec_${randomBytes(24).toString('hex')}`,
 };
 // Alles Externe ausdrücklich leer – überschreibt eventuelle Werte aus .env-Dateien
-const blank = { STRIPE_SECRET_KEY: '', RESEND_API_KEY: '', MAIL_FROM: '', SMTP_URL: '', KFZ_API_BASE_URL: '', KFZ_API_LOGIN: '', KFZ_API_PASSWORD: '', PLATE_AVAILABILITY_URL: '' };
+const blank = { KENNZEICHEN_SEARCH_ENABLED: '', KENNZEICHEN_DAILY_BUDGET_CENT: '', STRIPE_SECRET_KEY: '', RESEND_API_KEY: '', MAIL_FROM: '', SMTP_URL: '', KFZ_API_BASE_URL: '', KFZ_API_LOGIN: '', KFZ_API_PASSWORD: '', PLATE_AVAILABILITY_URL: '' };
 // Online-Zahlung nur gegen den lokalen Mollie-Testnachbau (scripts/fake-mollie.mjs) – nie gegen Mollie selbst
 const { createFakeMollie, FAKE_MOLLIE_KEYS } = await import('./fake-mollie.mjs');
 const fakeMollie = createFakeMollie();
