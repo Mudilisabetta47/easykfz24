@@ -1,7 +1,6 @@
-// Datenschutzerklärung für /datenschutz – Fassung 5 (ENTWURF, nur Branch feature/kfz-uebermittlung, nicht veröffentlicht):
-// Fassung 4 vom 17.10.2026 ergänzt um die Verarbeitung der Sicherheitscodes bei der automatischen Abmeldung (Abschnitte 10
-// und 13). Fassung 4 ergänzte Fassung 3 um Aufbewahrung von Antragsunterlagen, Kennzeichen-Verfügbarkeitsprüfung und
-// umgesetzte Löschfristen. Änderungen nur nach Prüfung; Veröffentlichung erst mit Freigabe durch den Inhaber.
+// Datenschutzerklärung für /datenschutz – Fassung 5 vom 17.10.2026, vom Inhaber freigegeben: Fassung 4 ergänzt um die
+// Verarbeitung der Sicherheitscodes bei der automatischen Abmeldung (Abschnitte 10 und 13). Fassung 4 ergänzte Fassung 3 um
+// Aufbewahrung von Antragsunterlagen, Kennzeichen-Verfügbarkeitsprüfung und umgesetzte Löschfristen. Änderungen nur nach Prüfung.
 
 import { PROVIDER, PROVIDER_NAME } from './site.ts';
 

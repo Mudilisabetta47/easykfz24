@@ -21,12 +21,12 @@ aus dem Dashboard. Automatische Übermittlung (Phase 1, Abmeldung): siehe [KFZ-U
 |---|---|---|---|
 | `GET /vehicleDeregistrations/orders?limit=1` | lesend („Erster Aufruf“, prüft Adresse und Anmeldung, legt nichts an) | keine | **aktiv** – „Verbindung prüfen“ im KFZ-API Center (nur Status + Trace-Id, protokolliert ohne Inhalte) |
 | `GET /{prefix}/files/content/{fileAccessKey}` | lesend | keine | **aktiv** – Belege aus Webhooks im Auftrag öffnen (nur mit Recht, protokolliert) |
-| `GET /{prefix}/orders` (Filter u. a. `externalId`, `changedSince`) | lesend | keine | Branch `feature/kfz-uebermittlung`: Klärung einer ungewissen Übermittlung (`externalId` exakt) |
-| `GET /{prefix}/orders/{orderId}` | lesend | keine | Branch `feature/kfz-uebermittlung`: „Stand beim Partner abfragen“ nach verlorenem Webhook |
+| `GET /{prefix}/orders` (Filter u. a. `externalId`, `changedSince`) | lesend | keine | Phase 1 (ausgeschaltet): Klärung einer ungewissen Übermittlung (`externalId` exakt) |
+| `GET /{prefix}/orders/{orderId}` | lesend | keine | Phase 1 (ausgeschaltet): „Stand beim Partner abfragen“ nach verlorenem Webhook |
 | `GET /serviceStatus`, `GET /health` | lesend | keine | nicht genutzt – Empfehlung: Störungsanzeige im KFZ-API Center |
 | `GET /registrationOffices/{districtKey}/availability` | lesend | keine | nicht genutzt |
 | `GET /powerOfAttorneys/{processId}` | lesend | keine | nicht genutzt |
-| `POST /vehicleDeregistrations/deregistrations` (AB) | **schreibend, produktiv ans KBA** | ab 6,35 € netto / 6,73 € brutto | Branch `feature/kfz-uebermittlung`, Schalter `KFZ_UEBERMITTLUNG` (Vorgabe aus) – siehe KFZ-UEBERMITTLUNG.md |
+| `POST /vehicleDeregistrations/deregistrations` (AB) | **schreibend, produktiv ans KBA** | ab 6,35 € netto / 6,73 € brutto | Phase 1, Schalter `KFZ_UEBERMITTLUNG` (Vorgabe aus) – siehe KFZ-UEBERMITTLUNG.md |
 | `POST /vehicleRegistrations/registrations` (NZ), `…/dayRegistrations` (TZ), `/vehicleTransfers/transfers` (UG), `/vehicleReRegistrations/reRegistrations` (WG), `…/sameHolderReRegistrations` (WZ), `/vehicleHolderChanges/holderChanges` (HA) | **schreibend, produktiv ans KBA** | je Vorgang | **gesperrt** (kein Code; Phase 2) |
 | `POST /powerOfAttorneys` | schreibend (Vollmachts-/Signaturvorgang) | Signatur 6,95 €, ggf. 4,99 € | gesperrt |
 | `POST /gksConfigurations` | Kontoeinstellung (eigener KoPa-Schlüssel) | – | nicht genutzt |
@@ -52,7 +52,7 @@ aus dem Dashboard. Automatische Übermittlung (Phase 1, Abmeldung): siehe [KFZ-U
 
 ## Automatische Übermittlung – Stand
 
-Phase 1 (Abmeldung) ist auf dem Branch `feature/kfz-uebermittlung` umgesetzt (Punkte 1–3, 5–6 unten erledigt, 7 offen),
+Phase 1 (Abmeldung) ist umgesetzt und ausgeschaltet (Punkte 1–3, 5–6 unten erledigt, 7 offen),
 Details in [KFZ-UEBERMITTLUNG.md](KFZ-UEBERMITTLUNG.md). Die folgende Liste galt vor der Auswertung der Spezifikation und
 bleibt für Phase 2 (übrige Vorgangsarten) maßgeblich.
 

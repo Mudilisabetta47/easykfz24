@@ -1,6 +1,6 @@
 # Automatische Übermittlung an kfz-api.de – Phase 1: Abmeldung (AB)
 
-Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht veröffentlicht.** Standardmäßig AUS.
+Stand 17.10.2026. Code auf `main` veröffentlicht, **Funktion ausgeschaltet** (`KFZ_UEBERMITTLUNG` nicht gesetzt). Standardmäßig AUS.
 
 ## Quellen
 
@@ -134,7 +134,7 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
 
 1. Vertragspartnernummer im Dashboard ablesen und als `KFZ_VERTRAGSPARTNER` eintragen (Inhaber).
 2. (Kein Kontakt mit kfz-api.de, kein Sandbox-Test – Vorgabe des Inhabers vom 17.10.2026.)
-3. Datenschutzerklärung Fassung 5 (Abschnitt 10 und 13, liegt auf diesem Branch) prüfen und freigeben.
-4. Branch prüfen und mergen; `KFZ_CODES_KEY` als Secret, `KFZ_VERTRAGSPARTNER` setzen, zuerst `KFZ_UEBERMITTLUNG=test`.
+3. Datenschutzerklärung Fassung 5 (Abschnitt 10 und 13) – vom Inhaber am 17.10.2026 freigegeben und veröffentlicht.
+4. `KFZ_CODES_KEY` als Secret und `KFZ_VERTRAGSPARTNER` setzen (Inhaber), dann zuerst `KFZ_UEBERMITTLUNG=test`.
 5. Eine echte, bezahlte Abmeldung mit Testfreigabe senden (ab 6,73 € brutto), Webhooks beobachten.
 6. Danach `KFZ_UEBERMITTLUNG=aktiv`. Der manuelle Weg bleibt jederzeit verfügbar.
