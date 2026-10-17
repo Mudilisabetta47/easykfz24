@@ -117,6 +117,11 @@ export async function actStatus(id: number, to: string, pub: string, internal: s
   }
   const r = await changeStatus(id, to, pub, internal, actor.name);
   if (!r.ok) return r;
+  // Storno: erfasste Sicherheitscodes sofort löschen (Datenschutzerklärung Abschnitt 10)
+  if (to === 'storniert') {
+    const { deleteCodesStmt } = await import('../kfz-submission.ts');
+    await (await getDb()).batch([deleteCodesStmt(id, 'storniert')]);
+  }
   await emitSafe({
     type: 'order.status',
     orderId: id,

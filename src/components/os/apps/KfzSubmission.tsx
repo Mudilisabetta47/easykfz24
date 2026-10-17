@@ -122,6 +122,7 @@ export function KfzSubmissionPanel({
           {accepted ? (
             <p className="os-muted os-small">
               Übermittelt. Weitere Statusmeldungen kommen über den Webhook; fehlt eine Meldung, kann der Stand in der Registerkarte KFZ-API abgefragt werden.
+              Lehnt das KBA ab, erfolgt die Korrektur in Phase 1 im Partner-Dashboard (keine automatische Korrektur, kein erneutes Senden aus dem OS).
             </p>
           ) : null}
           {!accepted && !open ? (

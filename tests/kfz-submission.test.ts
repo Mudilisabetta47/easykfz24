@@ -304,6 +304,26 @@ describe('Sicherheitscodes: nur verschlüsselt, nie zurück, kurzlebig', () => {
     assert.ok(ev.some((e) => /Höchstfrist/.test(e.message)));
   });
 
+  it('Storno und Anonymisierung löschen die Codes sofort', async () => {
+    const d = await released();
+    await withCodes(d.id);
+    assert.ok((await oa.actStatus(d.id, 'storniert', '', 'Test', { id: null, name: 'Test' })).ok);
+    const sec = await (
+      await getDb()
+    ).first<{ ciphertext: string; delete_reason: string }>('SELECT ciphertext, delete_reason FROM order_secrets WHERE order_id = ?', d.id);
+    assert.deepEqual({ ...sec }, { ciphertext: '', delete_reason: 'storniert' });
+
+    const customers = await import('../src/server/os/customers.ts');
+    const e = await released();
+    await withCodes(e.id);
+    const link = await customers.linkOrderToCustomer(e.id);
+    assert.ok(link);
+    await (await getDb()).run("UPDATE orders SET status = 'abgeschlossen' WHERE id = ?", e.id);
+    const an = await customers.anonymizeCustomer(link!.customerId, 'Test');
+    assert.ok(an.ok, JSON.stringify(an));
+    assert.equal((await sub.codesStatus(e.id)).present, false);
+  });
+
   it('Frist und Storno: zeitgesteuert gelöscht; nach Schlüsselwechsel nicht mehr verwendbar', async () => {
     const d = await released();
     await withCodes(d.id);
@@ -578,6 +598,82 @@ describe('Webhooks und Abgleich (Zuordnung laut Webhooks 3.1.0)', () => {
     assert.equal(o?.kfz_display, 'abgeschlossen');
     assert.equal(o?.kfz_order_id, String(head), 'Auftragskopf bleibt verknüpft, nicht die Versuchs-Id');
     assert.equal(o?.status, 'zugelassen');
+  });
+
+  it('verspätetes Ereignis eines älteren Versuchs überschreibt den Stand der Korrektur nicht und mailt den Kunden nicht', async () => {
+    const d = await released();
+    await withCodes(d.id);
+    const r = await send(d.id);
+    assert.ok(r.ok);
+    const head = Number(r.submission.kfzOrderId);
+    const base = { eventType: 'VEHICLE_DEREGISTRATION_XKFZ_EVENT', attemptOf: head, businessTransaction: 'AB', eventTime: '2026-10-17T10:00:00' };
+    await webhook({ ...base, order: { id: head + 70000, externalId: null }, attempt: 2, status: 'ACCEPTED', derivedStatus: 'PENDING' }, `ev-${head}-a2`);
+    const mailsBefore = (await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', d.id)).length;
+    await webhook(
+      { ...base, order: { id: head, externalId: r.submission.externalOrderId }, attempt: 1, status: 'FAILED', derivedStatus: 'LICENSE_PLATE_CODE_INVALID' },
+      `ev-${head}-a1`,
+    );
+    assert.equal((await row(d.id))?.kfz_display, 'in_bearbeitung', 'Stand des jüngeren Versuchs bleibt');
+    assert.equal((await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', d.id)).length, mailsBefore, 'keine Kundenmail');
+  });
+
+  it('ERROR_UNHANDLED (nur AB): fehlgeschlagen für Mitarbeiter, aber keine automatische Kundenmail', async () => {
+    const d = await released();
+    await withCodes(d.id);
+    const r = await send(d.id);
+    assert.ok(r.ok);
+    const head = Number(r.submission.kfzOrderId);
+    const mailsBefore = (await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', d.id)).length;
+    await webhook(
+      {
+        eventType: 'VEHICLE_DEREGISTRATION_XKFZ_EVENT',
+        order: { id: head, externalId: r.submission.externalOrderId },
+        attemptOf: head,
+        attempt: 1,
+        businessTransaction: 'AB',
+        status: 'FAILED',
+        derivedStatus: 'ERROR_UNHANDLED',
+      },
+      `ev-${head}-eu`,
+    );
+    assert.equal((await row(d.id))?.kfz_display, 'fehlgeschlagen');
+    assert.equal((await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', d.id)).length, mailsBefore);
+    const ev = await (await getDb()).all<{ message: string }>('SELECT message FROM events WHERE order_id = ?', d.id);
+    assert.ok(ev.some((e) => /Manuelle Prüfung nötig/.test(e.message) && /keine automatische Kundenmail/.test(e.message)));
+    // Gegenprobe: eine gewöhnliche Ablehnung (FAILURE) legt die Kundenmail an
+    const g = await released();
+    await withCodes(g.id);
+    const rg = await send(g.id);
+    assert.ok(rg.ok);
+    const hg = Number(rg.submission.kfzOrderId);
+    const before = (await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', g.id)).length;
+    await webhook(
+      {
+        eventType: 'VEHICLE_DEREGISTRATION_XKFZ_EVENT',
+        order: { id: hg, externalId: rg.submission.externalOrderId },
+        attemptOf: hg,
+        attempt: 1,
+        businessTransaction: 'AB',
+        status: 'FAILED',
+        derivedStatus: 'FAILURE',
+      },
+      `ev-${hg}-f`,
+    );
+    assert.ok((await (await getDb()).all('SELECT id FROM messages WHERE order_id = ?', g.id)).length > before, 'Gegenprobe: Kundenmail angelegt');
+  });
+
+  it('Klärung übernimmt nie einen Vorgang unter unserer Referenz zu einem anderen Fahrzeug', async () => {
+    const d = await released();
+    await withCodes(d.id);
+    fake.mode.dropNextAbResponse = true;
+    const r = await send(d.id);
+    assert.ok(!r.ok && r.submission?.state === 'ungewiss');
+    const created = fakeFor(r.submission!.externalOrderId)[0] as Record<string, unknown>;
+    created.fin = 'WVWZZZ1KZAW999999';
+    const c = await sub.clarifySubmission(d.id, staff);
+    assert.ok(!c.ok && /anderen Fahrzeug/.test(c.error));
+    assert.equal(c.submission?.state, 'ungewiss');
+    assert.equal((await row(d.id))?.kfz_order_id, '');
   });
 
   it('Abgleich über GET …/orders/{id} nach verlorenem Webhook – gleicher Stand wird nur einmal übernommen', async () => {

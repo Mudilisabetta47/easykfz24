@@ -34,7 +34,7 @@ import { apiAuth, applyKfzSnapshot, kfzApiConfigured } from './kfz-api.ts';
 import { getDb, q, type Stmt } from './db.ts';
 import { eventStmt, getOrder, touchStmt, type OrderDetail } from './orders.ts';
 import { emitSafe } from './os/events.ts';
-import { open, seal, secretBoxConfigured, keyId } from './secret-box.ts';
+import { open as openSealed, seal, secretBoxConfigured, keyId } from './secret-box.ts';
 import { earlyStartWait, waitMessage } from '../lib/withdrawal-period.ts';
 import { parseKfzEvent } from '../lib/kfz-api.ts';
 import { PROVIDER } from '../lib/site.ts';
@@ -144,6 +144,11 @@ function deleteSecretStmt(orderId: number, reason: string): Stmt {
   );
 }
 
+/** Codes sofort löschen (Storno, Anonymisierung) – Befehl für einen gemeinsamen Schreibvorgang */
+export function deleteCodesStmt(orderId: number, reason: 'storniert' | 'anonymisiert'): Stmt {
+  return deleteSecretStmt(orderId, reason);
+}
+
 async function openSubmission(orderId: number): Promise<SubmissionRow | null> {
   return (await getDb()).first<SubmissionRow>(
     "SELECT * FROM kfz_submissions WHERE order_id = ? AND state IN ('sendet', 'angenommen', 'ungewiss', 'konflikt') ORDER BY id DESC LIMIT 1",
@@ -213,7 +218,7 @@ export async function deleteCodes(orderId: number, actor: SubmitActor): Promise<
 async function readCodes(orderId: number): Promise<{ codes: AbCodes; secret: SecretRow } | null> {
   const r = await liveSecret(orderId);
   if (!r || !r.ciphertext || !secretBoxConfigured() || r.key_id !== (await keyId())) return null;
-  const pt = await open({ ciphertext: r.ciphertext, iv: r.iv }, aadFor(orderId));
+  const pt = await openSealed({ ciphertext: r.ciphertext, iv: r.iv }, aadFor(orderId));
   if (!pt) return null;
   const v = JSON.parse(pt) as AbCodes;
   return { codes: { zb1: String(v.zb1), rear: String(v.rear), front: v.front ? String(v.front) : null }, secret: r };
@@ -769,6 +774,18 @@ export async function submitDeregistration(orderId: number, actor: SubmitActor, 
     // Doppelklick bzw. paralleler Aufruf: der andere Aufruf sendet – hier nichts senden
     return { ok: false, error: 'Die Übermittlung läuft bereits – bitte einen Moment warten und den Stand neu laden.', code: 'busy' };
   }
+  // Zwischen Prüfung und Datensatz manuell verknüpft (paralleler Klick im KFZ-API-Reiter)? Dann nichts senden.
+  const linked = await db.first<{ kfz_order_id: string }>('SELECT kfz_order_id FROM orders WHERE id = ?', orderId);
+  if (linked?.kfz_order_id) {
+    await db.run(
+      "UPDATE kfz_submissions SET state = 'abgewiesen', error = ?, resolved_at = ?, updated_at = ? WHERE id = ? AND state = 'sendet'",
+      'Nicht gesendet: Auftrag wurde parallel manuell verknüpft',
+      now(),
+      now(),
+      subId,
+    );
+    return { ok: false, error: `Nicht gesendet – der Auftrag wurde parallel manuell mit Vorgang ${linked.kfz_order_id} verknüpft.`, code: 'denied' };
+  }
   if (mode === 'test') {
     const r = await getSubmitTestRelease();
     if (r && r.orderId === orderId && r.submissionId === null) await saveSubmitTestRelease({ ...r, submissionId: subId }, actor.name);
@@ -869,9 +886,33 @@ export async function clarifySubmission(orderId: number, actor: SubmitActor): Pr
     await db.run('UPDATE kfz_submissions SET checked_at = ?, updated_at = ? WHERE id = ?', at, at, sub.id);
     return { ok: false, error: `${error} – Stand weiterhin offen, nicht erneut senden.`, submission: submissionView((await getSubmission(sub.id))!) };
   }
-  const hits = (res.json.orders as { order?: { id?: unknown; externalId?: unknown } }[]).filter(
+  const hits = (res.json.orders as { order?: { id?: unknown; externalId?: unknown }; vehicleIdentificationNumber?: unknown }[]).filter(
     (o) => o?.order?.externalId === sub.external_order_id && typeof o.order.id === 'number' && Number.isSafeInteger(o.order.id),
   );
+  // Ein Vorgang unter unserer Referenz, aber zu einem anderen Fahrzeug, wird nie übernommen – das klärt ein Mensch
+  const fin = (await db.first<{ fin: string }>('SELECT fin FROM orders WHERE id = ?', orderId))?.fin.trim().toUpperCase() ?? '';
+  const foreign = hits.filter((o) => String(o.vehicleIdentificationNumber ?? '').toUpperCase() !== fin);
+  if (foreign.length) {
+    await db.batch([
+      q(
+        'UPDATE kfz_submissions SET checked_at = ?, error = ?, updated_at = ? WHERE id = ?',
+        at,
+        'Vorgang unter dieser Referenz mit anderer FIN – bitte im Partner-Dashboard prüfen',
+        at,
+        sub.id,
+      ),
+      eventStmt(orderId, {
+        type: 'note',
+        message: `WARNUNG: Unter Referenz ${sub.external_order_id} liegt beim Partner ein Vorgang zu einer anderen FIN – nicht übernommen, bitte manuell prüfen.`,
+        actor: actor.name,
+      }),
+    ]);
+    return {
+      ok: false,
+      error: 'Unter dieser Referenz liegt ein Vorgang zu einem anderen Fahrzeug – nicht übernommen, bitte manuell prüfen.',
+      submission: submissionView((await getSubmission(sub.id))!),
+    };
+  }
   if (hits.length === 1) {
     const id = String(hits[0].order!.id);
     const note =

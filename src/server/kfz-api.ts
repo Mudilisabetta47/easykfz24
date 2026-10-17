@@ -19,6 +19,7 @@ import { publicBaseUrl } from './payments.ts';
 import {
   BUSINESS_TRANSACTIONS,
   DERIVED_TEXT,
+  STAFF_ONLY_DERIVED,
   DISPLAY,
   displayFor,
   KFZ_STATUS_TEXT,
@@ -175,6 +176,8 @@ interface Applied {
   problems: string[];
   /** Automatisch gesetzte Status-Schritte des Auftrags (für Automatisierungen und Benachrichtigungen) */
   transitions: { from: StatusId; to: StatusId }[];
+  /** false = keine automatische Kundenmail (intern zu klärende Ablehnungsart) */
+  mail: boolean;
 }
 
 /** Liest den Auftrag und liefert alle Änderungen für ein Ereignis als Befehle (werden atomar geschrieben). */
@@ -192,10 +195,22 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
   if (!order) return null;
   const stmts: Stmt[] = [];
   const transitions: Applied['transitions'] = [];
-  let display = displayFor(ev.status, ev.derivedStatus, ev.retryable);
+  // Ereignis eines älteren Versuchs (Zustellung ohne garantierte Reihenfolge, Webhooks 3.1.0): Der Stand des jüngeren
+  // Versuchs (Korrektur) bleibt – sonst meldete ein verspätetes FAILED des ersten Versuchs eine laufende Korrektur als gescheitert.
+  const newest = ev.attempt
+    ? ((
+        await db.first<{ a: number | null }>(
+          "SELECT MAX(CAST(json_extract(event_json, '$.attempt') AS INTEGER)) AS a FROM kfz_webhook_events WHERE order_id = ? AND outcome = 'verarbeitet'",
+          orderId,
+        )
+      )?.a ?? null)
+    : null;
+  const superseded = !!ev.attempt && !!newest && ev.attempt < newest;
+  let display = superseded ? null : displayFor(ev.status, ev.derivedStatus, ev.retryable);
   // Verspätete Meldungen dürfen einen abgeschlossenen Vorgang nicht zurückstufen.
   const stale = order.kfz_display === 'abgeschlossen' && display === 'in_bearbeitung';
   if (stale) display = 'abgeschlossen';
+  const mail = !(ev.derivedStatus && STAFF_ONLY_DERIVED.includes(ev.derivedStatus));
 
   const files: KfzFile[] = JSON.parse(order.kfz_files_json || '[]');
   for (const f of ev.files) if (!files.some((x) => x.fileAccessKey === f.fileAccessKey)) files.push(f);
@@ -207,11 +222,11 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
          kfz_messages_json = CASE WHEN ? != '[]' THEN ? ELSE kfz_messages_json END, updated_at = ? WHERE id = ?`,
       ev.attemptOf ?? ev.orderId ?? order.kfz_order_id,
       ev.businessTransaction ?? '',
-      stale ? null : (ev.rawStatus ?? ev.derivedStatus ?? ''),
+      stale || superseded ? null : (ev.rawStatus ?? ev.derivedStatus ?? ''),
       display,
       stamp,
       JSON.stringify(files),
-      JSON.stringify(ev.messages),
+      superseded ? '[]' : JSON.stringify(ev.messages),
       JSON.stringify(ev.messages),
       stamp,
       orderId,
@@ -224,7 +239,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
   stmts.push(
     eventStmt(orderId, {
       type: 'kfz',
-      message: `kfz-api.de${ev.orderId ? ` (Vorgang ${ev.attemptOf && ev.attemptOf !== ev.orderId ? `${ev.attemptOf}, Versuch ${ev.orderId}` : ev.orderId})` : ''}: ${ev.rawStatus ?? ev.derivedStatus ?? '–'} – ${statusText}${derivedText}${ev.applicationId ? ` · KBA-Antrag ${ev.applicationId}` : ''}${stale ? ' (verspätete Meldung, Stand bleibt „abgeschlossen“)' : ''}${msgText ? ` Meldungen: ${msgText}` : ''}${ev.files.length ? ` · ${ev.files.length} Beleg(e)` : ''}`,
+      message: `kfz-api.de${ev.orderId ? ` (Vorgang ${ev.attemptOf && ev.attemptOf !== ev.orderId ? `${ev.attemptOf}, Versuch ${ev.orderId}` : ev.orderId})` : ''}: ${ev.rawStatus ?? ev.derivedStatus ?? '–'} – ${statusText}${derivedText}${ev.applicationId ? ` · KBA-Antrag ${ev.applicationId}` : ''}${stale ? ' (verspätete Meldung, Stand bleibt „abgeschlossen“)' : ''}${superseded ? ` (Meldung zu Versuch ${ev.attempt}, jüngerer Versuch ${newest} vorhanden – Stand bleibt)` : ''}${!mail ? ' – intern zu klären, keine automatische Kundenmail' : ''}${msgText ? ` Meldungen: ${msgText}` : ''}${ev.files.length ? ` · ${ev.files.length} Beleg(e)` : ''}`,
       publicMessage: display && !stale ? DISPLAY[display].label : '',
       actor: 'kfz-api.de',
     }),
@@ -278,7 +293,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
       }),
     );
   stmts.push(touchStmt(orderId));
-  return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions, problems } };
+  return { stmts, applied: { display, previousDisplay: order.kfz_display, transitions, problems, mail } };
 }
 
 /**
@@ -355,7 +370,7 @@ function emitKfzProblem(eventId: string, outcome: 'nicht_zugeordnet' | 'fehler',
 /** Startet die Kunden-E-Mail (falls nötig) und liefert das Promise – für waitUntil bzw. „nach der Antwort“. */
 function scheduleNotify(orderId: number, applied: Applied, eventId: string): Promise<void> | undefined {
   const d = applied.display;
-  if (!d || d === applied.previousDisplay || !NOTIFY_ON.includes(d)) return undefined;
+  if (!d || d === applied.previousDisplay || !NOTIFY_ON.includes(d) || !applied.mail) return undefined;
   return notifyCustomer(orderId, d, eventId).catch((e) => console.error('[kfz-api] Benachrichtigung fehlgeschlagen:', (e as Error).message));
 }
 

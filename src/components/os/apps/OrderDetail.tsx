@@ -1809,6 +1809,7 @@ const OS_EVENT_LABEL: Record<string, string> = {
   'payment.refunded': 'Erstattet',
   'kfz.status': 'KFZ-API-Status',
   'kfz.problem': 'KFZ-API-Problem',
+  'order.submission': 'Automatische Übermittlung',
   'task.created': 'Aufgabe angelegt',
   'customer.returning': 'Bestandskunde erkannt',
   'customer.created': 'Kunde angelegt',

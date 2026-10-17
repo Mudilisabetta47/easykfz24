@@ -49,9 +49,9 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
 | Punkt | Ergebnis | Quelle |
 |---|---|---|
 | Vertragspartnernummer | **Pflicht** ohne eigenen KoPa-Schlüssel: genau die am Konto hinterlegte Nummer (Dashboard „Vertragspartner“, eingetragen von kfz-api.de), sonst 403. Das Schema nennt sie bei der AB zwar „optional“, die öffentliche Entwicklerseite und die 403-Beschreibung verlangen sie. Ohne `KFZ_VERTRAGSPARTNER` sendet EasyKFZ24 nichts. **Die Nummer selbst ist uns nicht bekannt** – im Dashboard ablesen. | `kfz-api.de/api/` („ohne eigenen KoPa-Schlüssel Pflicht“), `spec/api.yaml` ContractPartner, 403 NichtFreigegeben |
-| Sandbox | Es gibt sie: separater Sandbox-Zugang im Dashboard nach Partnervertrag, simulierte Vorgänge ohne Behördenantrag, **keine echten Webhooks**, eigene Zugangsdaten. **Ob sie den Abmelde-Endpunkt abbildet, ist öffentlich nicht beschrieben** und in `spec/api.yaml` nicht erwähnt. Der Satz „Sie arbeiten ausschließlich in der Produktion“ in der Spezifikation betrifft nur die KBA-Umgebung eines eigenen KoPa-Zugangs (`/gksConfigurations`). | FAQ `kfz-api.de/api/`, `kfz-api.de/kontakt/` |
+| Sandbox (nicht weiter verfolgt, kein Sandbox-Test) | Es gibt sie: separater Sandbox-Zugang im Dashboard nach Partnervertrag, simulierte Vorgänge ohne Behördenantrag, **keine echten Webhooks**, eigene Zugangsdaten. **Ob sie den Abmelde-Endpunkt abbildet, ist öffentlich nicht beschrieben** und in `spec/api.yaml` nicht erwähnt. Der Satz „Sie arbeiten ausschließlich in der Produktion“ in der Spezifikation betrifft nur die KBA-Umgebung eines eigenen KoPa-Zugangs (`/gksConfigurations`). | FAQ `kfz-api.de/api/`, `kfz-api.de/kontakt/` |
 | Gebühren AB (ohne eigenen KoPa-Schlüssel) | Leistung kfz-api.de **2,00 € netto** zzgl. 19 % USt (0,38 €); amtliche Gebühren ohne Aufschlag und ohne USt: Amtsgebühr ab 3,30 €, KBA-Gebühr 0,70 €, Abwicklungsgebühr 0,35 €. **Summe ab 6,35 € netto = ab 6,73 € brutto.** Leistung nur bei Erfolg; je vom KBA abgewiesener Übermittlung **0,10 € netto (0,12 € brutto)**. Amtsgebühren je Behörde verschieden („ab“), maßgeblich ist die monatliche Sammelrechnung. | `kfz-api.de/preise/` (Stand 29.09.2026) |
-| E-Mail im Antrag | Pflichtfeld, **Zweck in Spezifikation und öffentlichen Seiten nicht beschrieben** (Beispiele zeigen `kunde@example.de`). EasyKFZ24 sendet die eigene Service-Adresse (keine Kundendaten, keine ungewollten Mails an Kunden). Umstellbar über `KFZ_UEBERMITTLUNG_EMAIL`. **Beim Partner zu bestätigen.** | `spec/api.yaml` (ohne Beschreibung) |
+| E-Mail im Antrag | Pflichtfeld, **Bedeutung nicht abschließend dokumentiert** (Spezifikation ohne Beschreibung, Beispiele zeigen `kunde@example.de`). EasyKFZ24 sendet die eigene, über `KFZ_UEBERMITTLUNG_EMAIL` konfigurierbare Service-Adresse; eine Kunden-E-Mail wird nie automatisch eingesetzt. Keine Rückfrage beim Partner (Vorgabe des Inhabers). | `spec/api.yaml` (ohne Beschreibung) |
 | Codes bei ungewissem Stand | Bleiben verschlüsselt erhalten, solange eine Übermittlung `sendet`, `ungewiss` oder `Konflikt` ist: nicht löschbar, nicht änderbar, nicht von der 30-Tage-Löschung erfasst; Höchstfrist 90 Tage ab Erfassung (dann Löschung mit Verlaufsvermerk). Nach Klärung „angenommen“ sofort gelöscht, nach „nicht angelegt“ für die Wiederholung mit derselben Referenz verfügbar. | Code + Tests |
 
 ## Ablauf und Schutz
@@ -78,10 +78,14 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
      ob etwas angelegt wurde).
 7. **Keine automatische Wiederholung.** „Stand klären“ fragt die Auftragsliste exakt nach der Referenz ab: ein Treffer →
    angenommen; keiner (frühestens 2 Minuten nach dem Senden) → `nicht angelegt`, danach erneut senden mit derselben
-   Referenz; mehrere → manuell. Ein hängengebliebenes „sendet“ gilt nach 2 Minuten als ungewiss, nie als „nicht gesendet“.
+   Referenz; mehrere → manuell. Ein Treffer zu einer **anderen FIN** wird nie übernommen (manuell). Ein hängengebliebenes
+   „sendet“ gilt nach 2 Minuten als ungewiss, nie als „nicht gesendet“.
 8. **Gegenseitiger Ausschluss**: Manuelle Verknüpfung (und deren Lösen) ist gesperrt, solange eine automatische
    Übermittlung läuft oder angenommen ist; die automatische Übermittlung ist gesperrt, wenn manuell verknüpft wurde.
-   Die Freigabe ist nicht zurücknehmbar, solange eine Übermittlung offen ist.
+   Die Freigabe ist nicht zurücknehmbar, solange eine Übermittlung offen ist. Wird zwischen Prüfung und Datensatz parallel
+   manuell verknüpft, wird nicht gesendet.
+10. **Löschung der Codes außerdem** sofort bei Storno (`actStatus`) und bei der Anonymisierung eines Kunden bzw.
+   Testauftrags (außer eine Übermittlung ist noch ungeklärt – dann Höchstfrist 90 Tage).
 9. **Korrekturen** (`correctionOf`) sind in Phase 1 nicht automatisiert: Die 15-Minuten-Regel des Doppelschutzes macht
    eine Korrektur unter derselben Referenz mehrdeutig. Korrekturen erfolgen im Partner-Dashboard; die Ereignisse dazu
    ordnet EasyKFZ24 über `attemptOf` zu.
@@ -97,6 +101,10 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
 - `FAILED` mit korrigierbarer Ablehnungsart → „Angaben erforderlich“; `ERROR_UNHANDLED` (nur AB: manuelle Prüfung, nicht
   erneut einreichen) und `VEHICLE_ALREADY_DEREGISTERED` → „fehlgeschlagen“; Klartext je Art im Verlauf.
 - `messages[]` mit `kind` und `additional`; `applicationId` (KBA-Antragsnummer) im Verlauf.
+- Ereignisse eines **älteren Versuchs**, die nach einem jüngeren eintreffen (Zustellung ohne garantierte Reihenfolge), ändern
+  den Stand nicht und lösen keine Kundenmail aus; sie werden nur im Verlauf vermerkt.
+- Intern zu klärende Ablehnungsarten (`ERROR_UNHANDLED`, `RESERVATION_IMPOSSIBLE`, `INPUT_INVALID`): Stand und
+  Benachrichtigung für Mitarbeiter, **keine automatische Kundenmail**.
 
 ## Umgebung
 
@@ -116,7 +124,7 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
 
 ## Tests (nur Simulation)
 
-- `tests/kfz-submission.test.ts` (24 Tests) gegen den erweiterten Testnachbau `scripts/fake-kfz-api.mjs`
+- `tests/kfz-submission.test.ts` (28 Tests) gegen den erweiterten Testnachbau `scripts/fake-kfz-api.mjs`
   (Schemaprüfung, Doppelschutz 15 Minuten, 409, 500/503/403, verlorene Antwort, Auftragsliste, Vorgangsauskunft).
 - `tests/kfz-submission-migration.test.ts`: Migration 13 → 14 erhält alle Bestandsdaten.
 - Zusätzlich im Browser gegen den Testnachbau geprüft (lokale, getrennte Datenbank, synthetische Daten): Erfassen,
@@ -124,8 +132,8 @@ Stand 17.10.2026, Branch `feature/kfz-uebermittlung`. **Nicht aktiv, nicht verö
 
 ## Aktivierung (nur durch den Inhaber, später)
 
-1. Offene Punkte mit kfz-api.de klären: Vertragspartnernummer ablesen, Zweck des E-Mail-Felds, ob die Sandbox die AB abbildet.
-2. Optional Sandbox-Test: lokale Instanz mit Sandbox-Basisadresse und -Zugangsdaten (nie die produktiven), `KFZ_UEBERMITTLUNG=aktiv`.
+1. Vertragspartnernummer im Dashboard ablesen und als `KFZ_VERTRAGSPARTNER` eintragen (Inhaber).
+2. (Kein Kontakt mit kfz-api.de, kein Sandbox-Test – Vorgabe des Inhabers vom 17.10.2026.)
 3. Datenschutzerklärung Fassung 5 (Abschnitt 10 und 13, liegt auf diesem Branch) prüfen und freigeben.
 4. Branch prüfen und mergen; `KFZ_CODES_KEY` als Secret, `KFZ_VERTRAGSPARTNER` setzen, zuerst `KFZ_UEBERMITTLUNG=test`.
 5. Eine echte, bezahlte Abmeldung mit Testfreigabe senden (ab 6,73 € brutto), Webhooks beobachten.

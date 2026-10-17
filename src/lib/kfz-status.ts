@@ -56,6 +56,13 @@ export const DERIVED_TEXT: Record<DerivedStatus, string> = {
   ERROR_UNHANDLED: 'Manuelle Prüfung nötig (Schemaprüfung des KBA an Registerdaten) – weder korrigieren noch erneut einreichen.',
 };
 
+/**
+ * Ablehnungsarten, die intern zu klären sind (Webhooks 3.1.0): ERROR_UNHANDLED = manuelle Prüfung, weder Kundenkorrektur noch
+ * erneutes Einreichen; RESERVATION_IMPOSSIBLE = ohne Reservierung neu einreichen; INPUT_INVALID = eigener Eingabefehler.
+ * Hierzu geht keine automatische Kundenmail hinaus – der Kunde muss nichts tun.
+ */
+export const STAFF_ONLY_DERIVED: readonly string[] = ['ERROR_UNHANDLED', 'RESERVATION_IMPOSSIBLE', 'INPUT_INVALID'];
+
 /** Ablehnungen, die eine Korrektur der Angaben bzw. Codes zulassen (Kunde wird um Angaben gebeten) */
 const CORRECTABLE: readonly string[] = [
   'VEHICLE_UNKNOWN',
