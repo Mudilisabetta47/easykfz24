@@ -185,3 +185,20 @@ export async function kennzeichenDetail(id: string) {
   if (!row) fail(404, 'Vorgang nicht gefunden.');
   return { id: row!.id, kind: row!.kind, reference: row!.reference, state: row!.state, request: JSON.parse(row!.request_json), result: JSON.parse(row!.response_json) };
 }
+
+/** Aufbewahrung öffentlicher Verfügbarkeitsprüfungen (Website): Abgleich mit der Monatsabrechnung des Partners. */
+export const PUBLIC_SEARCH_RETENTION_DAYS = 90;
+
+/**
+ * Löschroutine (Zeitplan): öffentliche Prüfvorgänge (negatives Pseudonym statt IP) nach PUBLIC_SEARCH_RETENTION_DAYS,
+ * abgelaufene Drosselzähler und Katalog-Zwischenspeicher. Der Kostennachweis je Referenz (Tag, Betrag, ohne
+ * Personenbezug) bleibt für die Buchhaltung erhalten. OS-Vorgänge der Mitarbeitenden sind nicht betroffen.
+ */
+export async function purgeKennzeichenData(now = Date.now()): Promise<{ operations: number }> {
+  const db = await getDb();
+  const cutoff = new Date(now - PUBLIC_SEARCH_RETENTION_DAYS * 86_400_000).toISOString();
+  const ops = await db.run("DELETE FROM kennzeichen_operations WHERE actor_id < 0 AND created_at < ? AND state != 'running'", cutoff);
+  await db.run('DELETE FROM kennzeichen_limits WHERE expires_at < ?', now);
+  await db.run('DELETE FROM kennzeichen_cache WHERE expires_at < ?', now - 86_400_000);
+  return { operations: ops.changes };
+}

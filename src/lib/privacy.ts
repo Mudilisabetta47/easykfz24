@@ -1,5 +1,5 @@
-// Datenschutzerklärung für /datenschutz – Fassung 3 vom 14.10.2026 (Abgleich mit Code, Konfiguration und Anbieterangaben;
-// Quellen und offene Punkte D1–D13: interner Datenschutz-Maßnahmenpaket, nicht im Repository). Änderungen nur nach Prüfung.
+// Datenschutzerklärung für /datenschutz – Fassung 4 vom 17.10.2026 (Fassung 3 ergänzt um Aufbewahrung von Antragsunterlagen,
+// Kennzeichen-Verfügbarkeitsprüfung und umgesetzte Löschfristen; Abgleich mit Code und Konfiguration). Änderungen nur nach Prüfung.
 
 import { PROVIDER, PROVIDER_NAME } from './site.ts';
 
@@ -9,7 +9,7 @@ export interface PrivacySection {
   blocks: PrivacyBlock[];
 }
 
-export const PRIVACY_STAND = 'Stand: 14. Oktober 2026';
+export const PRIVACY_STAND = 'Stand: 17. Oktober 2026';
 
 const RESPONSIBLE = `${PROVIDER_NAME}, ${PROVIDER.street}, ${PROVIDER.zip} ${PROVIDER.city}, Deutschland. Geschäftsführer: ${PROVIDER.managingDirector}. Marke: EasyKFZ24. Website: https://easykfz24.de.${PROVIDER.phone ? ` Telefon: ${PROVIDER.phone}.` : ''} E-Mail: ${PROVIDER.email}.`;
 
@@ -63,6 +63,12 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
       },
       {
         p: 'Bei Wunschkennzeichen speichern wir die gewählte Kombination und Angaben zum zuständigen Bezirk, um die gewünschte Reservierung zu prüfen beziehungsweise zu beauftragen. Eine technisch passende Kombination ist nicht automatisch eine behördlich bestätigte Reservierung.',
+      },
+      {
+        p: 'Verfügbarkeitsprüfung für Wunschkennzeichen: Wenn Sie im Kennzeichen-Konfigurator ausdrücklich „Verfügbarkeit prüfen“ wählen, übermitteln wir die gewählte Kombination (Unterscheidungszeichen, Buchstaben und Ziffern), die ausgewählte Zulassungsbehörde, die Fahrzeugart, die Kennzeichenart (normal, Elektro oder Oldtimer) und eine zufällig erzeugte Vorgangsreferenz an die POWR GmbH (kfz-api.de, siehe Abschnitt 10), die uns das Ergebnis der Verfügbarkeitsprüfung mitteilt. Name, Anschrift oder Kontaktdaten werden dabei nicht übermittelt. Jede beantwortete Abfrage ist für uns kostenpflichtig; für Sie entstehen keine Kosten. Die Auskunft reserviert das Kennzeichen nicht.',
+      },
+      {
+        p: 'Zur Begrenzung dieser Kosten und zum Schutz vor missbräuchlich vielen Abfragen bilden wir aus Ihrer IP-Adresse mit einem geheimen Schlüssel einen gekürzten Hashwert (Pseudonym); die IP-Adresse selbst speichern wir hierfür nicht. Das Pseudonym speichern wir zusammen mit Kombination, Behörde, Ergebnis, Zeitpunkt und Vorgangsreferenz und löschen diese Angaben nach 90 Tagen; die Zähler für die Abfragebegrenzung löschen wir nach spätestens 15 Minuten. Ohne Personenbezug bewahren wir lediglich Referenz, Tag und Kosten der Abfrage für unsere Buchhaltung auf. Rechtsgrundlage der Abfrage ist Art. 6 Abs. 1 lit. b DSGVO (Maßnahmen auf Ihre Anfrage vor Vertragsschluss), für Pseudonymisierung, Begrenzung und Kostenkontrolle Art. 6 Abs. 1 lit. f DSGVO; unser berechtigtes Interesse liegt im Schutz vor Missbrauch und in der Begrenzung der Abfragekosten. Für die beim Aufruf anfallenden Verbindungsdaten gilt Abschnitt 3.',
       },
     ],
   },
@@ -153,6 +159,9 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
       {
         p: 'Für Zulassung, Ummeldung und Wiederzulassung verlangt die elektronische Antragstellung über die Großkundenschnittstelle eine Vollmacht mit qualifizierter elektronischer Signatur. Dafür übermitteln wir an die POWR GmbH (kfz-api.de) Ihren Namen, Ihre Anschrift, Ihr Geburtsdatum und Ihren Geburtsort, Ihre E-Mail-Adresse und die Fahrzeug-Identifizierungsnummer; wählen Sie dabei zusätzlich das SEPA-Mandat zur Kraftfahrzeugsteuer, auch Kontoinhaber und IBAN. Sie erhalten per E-Mail einen Link, identifizieren sich bei der Nect GmbH, Großer Burstah 21, 20457 Hamburg, und unterschreiben die Vollmacht elektronisch. Die POWR GmbH setzt die Nect GmbH hierfür als Dienstleister für Identifizierung und Signatur ein; für die Verarbeitung bei Nect gelten deren Datenschutzhinweise, die Ihnen im Rahmen der Identifizierung angezeigt werden. Wir erhalten den Stand des Vollmachtsvorgangs (z. B. unterschrieben, abgelehnt, abgelaufen). Rechtsgrundlage ist Art. 6 Abs. 1 lit. b und c DSGVO. Für die Abmeldung ist keine solche Vollmacht erforderlich.',
       },
+      {
+        p: 'Die Unterlagen eines bei der Zulassungsbehörde gestellten Antrags – insbesondere die Vollmacht einschließlich des Nachweises der qualifizierten elektronischen Signatur und des Prüfberichts dazu, die Antragsangaben, Ihre Erklärungen, die eingereichten Nachweise und die zugehörige Korrespondenz – bewahren wir mindestens zwei Jahre ab Antragstellung auf. Hierzu haben wir uns gegenüber unserem Zulassungspartner, der POWR GmbH, vertraglich verpflichtet; die Unterlagen dienen dem Nachweis gegenüber dem Zulassungspartner, dem Kraftfahrt-Bundesamt und den Zulassungsbehörden, dass der Antrag ordnungsgemäß beauftragt und bevollmächtigt war. Eine gesetzliche Aufbewahrungspflicht machen wir hierfür nicht geltend. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; unser berechtigtes Interesse besteht in diesem Nachweis und in der Erfüllung unserer Pflichten aus dem Partnervertrag. Ein Löschverlangen in dieser Zeit prüfen wir im Einzelfall gegen diese Interessen; Ihr Widerspruchsrecht nach Art. 21 DSGVO bleibt unberührt. Nach Ablauf der Frist prüfen wir, ob die Unterlagen noch erforderlich sind. Aufträge, die nicht bei einer Behörde eingereicht wurden, unterliegen dieser Aufbewahrung nicht.',
+      },
     ],
   },
   {
@@ -182,6 +191,9 @@ export const PRIVACY_SECTIONS: PrivacySection[] = [
       },
       {
         p: 'Bei Unterlagen, die für steuer- oder handelsrechtliche Zwecke aufzubewahren sind, richten sich die Fristen nach den jeweils anwendbaren gesetzlichen Vorschriften. Andere Daten sind nach Wegfall ihres Verarbeitungszwecks und entgegenstehender Aufbewahrungsgründe zu löschen oder geeignet zu beschränken.',
+      },
+      {
+        p: 'Im Einzelnen gilt derzeit: Rechnungen und Gutschriften bewahren wir nach den steuer- und handelsrechtlichen Vorschriften auf (§ 147 AO, § 14b UStG). Unterlagen eines bei der Zulassungsbehörde gestellten Antrags bewahren wir mindestens zwei Jahre ab Antragstellung auf (Abschnitt 10). Angaben aus der Kennzeichen-Verfügbarkeitsprüfung löschen wir nach 90 Tagen (Abschnitt 5). Protokolle der Aufrufe speichert Cloudflare höchstens sieben Tage (Abschnitt 3). Für die übrigen Auftragsdaten – insbesondere nicht eingereichte oder stornierte Aufträge – und für Widerrufsnachweise ist derzeit keine automatische Löschung eingerichtet; wir löschen oder anonymisieren diese Daten auf Ihren Antrag beziehungsweise, sobald ihr Zweck entfallen ist und keine Aufbewahrungsgründe entgegenstehen.',
       },
     ],
   },
