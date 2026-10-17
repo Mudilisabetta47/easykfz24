@@ -6,8 +6,9 @@
 //   KFZ_API_LOGIN           API-Benutzer (HTTP Basic) – nur für lesende Aufrufe/Belege
 //   KFZ_API_PASSWORD        Passwort des API-Benutzers
 //
-// Es werden hier keine Anträge an kfz-api.de gesendet: Es gibt laut Anbieter keine Testumgebung, jeder gültige
-// Antrag geht produktiv an das KBA. Anträge werden erst nach ausdrücklicher Freigabe angebunden.
+// Hier werden keine Anträge gesendet. Die automatische Übermittlung (zuerst Außerbetriebsetzung) liegt getrennt in
+// kfz-submission.ts – standardmäßig aus (KFZ_UEBERMITTLUNG). Jeder gültige Antrag über die produktiven Zugangsdaten geht
+// an das KBA; die Sandbox des Partners ist ein separater Zugang mit eigenen Zugangsdaten (siehe kfz-submission.ts).
 
 import { eventStmt, getOrder, touchStmt } from './orders.ts';
 import { submissionState } from './os/submission.ts';
@@ -17,6 +18,7 @@ import { getDb, q, type Stmt } from './db.ts';
 import { publicBaseUrl } from './payments.ts';
 import {
   BUSINESS_TRANSACTIONS,
+  DERIVED_TEXT,
   DISPLAY,
   displayFor,
   KFZ_STATUS_TEXT,
@@ -59,6 +61,9 @@ export interface WebhookResult {
 function eventJson(ev: KfzEvent): string {
   return JSON.stringify({
     order: { id: ev.orderId, externalId: ev.externalId },
+    attemptOf: ev.attemptOf,
+    attempt: ev.attempt,
+    applicationId: ev.applicationId,
     businessTransaction: ev.businessTransaction,
     status: ev.rawStatus,
     derivedStatus: ev.derivedStatus,
@@ -105,14 +110,25 @@ function recordStmt(
   );
 }
 
+/**
+ * Zuordnung laut Spezifikation: zuerst die eigene Referenz einer automatischen Übermittlung (externalOrderId), dann der
+ * Auftrag über attemptOf (nicht order.id – ein Korrekturversuch trägt eine eigene Id), zuletzt die Auftragsnummer
+ * (manuell im Dashboard gestellte Anträge mit der Auftragsnummer als Referenz).
+ */
 async function findOrder(ev: KfzEvent): Promise<number | null> {
   const db = await getDb();
   if (ev.externalId) {
-    const r = await db.first<{ id: number }>('SELECT id FROM orders WHERE number = ?', ev.externalId);
+    const s = await db.first<{ order_id: number }>('SELECT order_id FROM kfz_submissions WHERE external_order_id = ?', ev.externalId);
+    if (s) return s.order_id;
+  }
+  for (const id of [...new Set([ev.attemptOf, ev.orderId].filter((x): x is string => !!x))]) {
+    const s = await db.first<{ order_id: number }>("SELECT order_id FROM kfz_submissions WHERE kfz_order_id = ? AND kfz_order_id != ''", id);
+    if (s) return s.order_id;
+    const r = await db.first<{ id: number }>("SELECT id FROM orders WHERE kfz_order_id = ? AND kfz_order_id != ''", id);
     if (r) return r.id;
   }
-  if (ev.orderId) {
-    const r = await db.first<{ id: number }>("SELECT id FROM orders WHERE kfz_order_id = ? AND kfz_order_id != ''", ev.orderId);
+  if (ev.externalId) {
+    const r = await db.first<{ id: number }>('SELECT id FROM orders WHERE number = ?', ev.externalId);
     if (r) return r.id;
   }
   return null;
@@ -189,7 +205,7 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
       `UPDATE orders SET kfz_order_id = ?, kfz_transaction = COALESCE(NULLIF(?, ''), kfz_transaction), kfz_status = COALESCE(?, kfz_status),
          kfz_display = COALESCE(?, kfz_display), kfz_updated_at = ?, kfz_files_json = ?,
          kfz_messages_json = CASE WHEN ? != '[]' THEN ? ELSE kfz_messages_json END, updated_at = ? WHERE id = ?`,
-      ev.orderId ?? order.kfz_order_id,
+      ev.attemptOf ?? ev.orderId ?? order.kfz_order_id,
       ev.businessTransaction ?? '',
       stale ? null : (ev.rawStatus ?? ev.derivedStatus ?? ''),
       display,
@@ -203,11 +219,12 @@ async function planEvent(orderId: number, ev: KfzEvent): Promise<{ stmts: Stmt[]
   );
 
   const statusText = ev.status ? KFZ_STATUS_TEXT[ev.status] : ev.rawStatus ? `Status ${ev.rawStatus}` : `Gesamtstand ${ev.derivedStatus ?? 'unbekannt'}`;
-  const msgText = ev.messages.map((m) => [m.code, m.text].filter(Boolean).join(': ')).join(' · ');
+  const msgText = ev.messages.map((m) => [m.kind, m.code, m.text, m.additional].filter(Boolean).join(': ')).join(' · ');
+  const derivedText = ev.derivedStatus && !['PENDING', 'SUCCESS'].includes(ev.derivedStatus) ? ` (${DERIVED_TEXT[ev.derivedStatus]})` : '';
   stmts.push(
     eventStmt(orderId, {
       type: 'kfz',
-      message: `kfz-api.de${ev.orderId ? ` (Vorgang ${ev.orderId})` : ''}: ${ev.rawStatus ?? ev.derivedStatus ?? '–'} – ${statusText}${stale ? ' (verspätete Meldung, Stand bleibt „abgeschlossen“)' : ''}${msgText ? ` Meldungen: ${msgText}` : ''}${ev.files.length ? ` · ${ev.files.length} Beleg(e)` : ''}`,
+      message: `kfz-api.de${ev.orderId ? ` (Vorgang ${ev.attemptOf && ev.attemptOf !== ev.orderId ? `${ev.attemptOf}, Versuch ${ev.orderId}` : ev.orderId})` : ''}: ${ev.rawStatus ?? ev.derivedStatus ?? '–'} – ${statusText}${derivedText}${ev.applicationId ? ` · KBA-Antrag ${ev.applicationId}` : ''}${stale ? ' (verspätete Meldung, Stand bleibt „abgeschlossen“)' : ''}${msgText ? ` Meldungen: ${msgText}` : ''}${ev.files.length ? ` · ${ev.files.length} Beleg(e)` : ''}`,
       publicMessage: display && !stale ? DISPLAY[display].label : '',
       actor: 'kfz-api.de',
     }),
@@ -495,6 +512,22 @@ export async function retryKfzEvent(eventId: string): Promise<{ ok: true; matche
   return { ok: true, matched: true, notify: afterKfz(eventId, orderId, ev, plan.applied) };
 }
 
+/**
+ * Stand aus der Vorgangsauskunft (GET …/orders/{id}) wie ein Ereignis übernehmen – für den Abgleich nach einem verlorenen
+ * Webhook. Gleicher Stand ⇒ gleiche Kennung ⇒ wird nie doppelt angewendet. Kein Rohinhalt wird gespeichert.
+ */
+export async function applyKfzSnapshot(orderId: number, ev: KfzEvent, snapshotKey: string): Promise<{ ok: true; applied: boolean } | { ok: false; error: string }> {
+  const db = await getDb();
+  const eventId = `abgleich:${snapshotKey}`.slice(0, 200);
+  const seen = await db.first<{ outcome: WebhookOutcome }>('SELECT outcome FROM kfz_webhook_events WHERE event_id = ?', eventId);
+  if (seen && seen.outcome === 'verarbeitet') return { ok: true, applied: false };
+  const plan = await planEvent(orderId, ev);
+  if (!plan) return { ok: false, error: 'Auftrag nicht gefunden' };
+  await db.batch([...plan.stmts, recordStmt(eventId, 'verarbeitet', sha256Hex(eventJson(ev)), ev, orderId, '', false)]);
+  await afterKfz(eventId, orderId, ev, plan.applied);
+  return { ok: true, applied: true };
+}
+
 /** Vorgangsnummer von kfz-api.de von Hand mit einem Auftrag verknüpfen (z. B. bei Erfassung im Dashboard). */
 export async function linkKfzOrder(orderId: number, kfzOrderId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const id = kfzOrderId.trim();
@@ -512,6 +545,12 @@ export async function linkKfzOrder(orderId: number, kfzOrderId: string): Promise
     const other = await db.first<{ number: string }>('SELECT number FROM orders WHERE kfz_order_id = ? AND id != ?', id, orderId);
     if (other) return { ok: false, error: `Vorgang ist bereits mit ${other.number} verknüpft` };
   }
+  // Manuelle Verknüpfung und automatische Übermittlung schließen sich aus (auch das Lösen einer automatisch gesetzten Verknüpfung)
+  const auto = await db.first<{ state: string; external_order_id: string }>(
+    "SELECT state, external_order_id FROM kfz_submissions WHERE order_id = ? AND state IN ('sendet', 'angenommen', 'ungewiss', 'konflikt') LIMIT 1",
+    orderId,
+  );
+  if (auto) return { ok: false, error: `Automatische Übermittlung ${auto.external_order_id} (${auto.state}) – keine manuelle Verknüpfung möglich` };
   await db.batch([
     q('UPDATE orders SET kfz_order_id = ? WHERE id = ?', id, orderId),
     eventStmt(orderId, { type: 'kfz', message: id ? `Mit kfz-api.de-Vorgang ${id} verknüpft` : 'Verknüpfung mit kfz-api.de gelöst', actor: 'Admin' }),

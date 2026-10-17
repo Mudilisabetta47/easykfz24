@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { mollieModes } from '../../../../server/mollie.ts';
 import { runScheduledRules } from '../../../../server/os/automation.ts';
 import { purgeKennzeichenData } from '../../../../server/kennzeichen.ts';
+import { purgeSecrets } from '../../../../server/kfz-submission.ts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,8 @@ export async function POST(req: Request) {
   const r = await runScheduledRules(true, ZEITPLAN_REGELN);
   // Löschfristen der Kennzeichenprüfung (siehe Datenschutzerklärung) – Fehler dürfen die übrigen Regeln nicht stören
   const kennzeichen = await purgeKennzeichenData().catch((e: unknown) => ({ error: (e as Error).message.slice(0, 120) }));
+  // Sicherheitscodes: nach Frist bzw. Storno löschen (nur Geheimtext, der Nachweis der Erfassung bleibt)
+  const codes = await purgeSecrets().catch((e: unknown) => ({ error: (e as Error).message.slice(0, 120) }));
   // Im privaten Worker-Protokoll sichtbar: nur Modus der Mollie-Schlüssel (test/live) und Schalter – nie Schlüsselwerte
-  return NextResponse.json({ ok: true, ...r, kennzeichen, mollie: mollieModes() }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ ok: true, ...r, kennzeichen, codes, mollie: mollieModes() }, { headers: { 'Cache-Control': 'no-store' } });
 }

@@ -751,6 +751,51 @@ export const MIGRATIONS: string[] = [
     key TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL
   );
   `,
+  // v14: Automatische Übermittlung an kfz-api.de (zuerst Außerbetriebsetzung). order_secrets: Sicherheitscodes nur als
+  // AES-256-GCM-Geheimtext, kurzlebig (gelöscht nach Annahme, Storno oder Frist). kfz_submissions: jeder Sendeversuch,
+  // angelegt VOR dem Senden, eindeutige Referenz, höchstens ein laufender Versuch je Auftrag. Nur neue Tabellen.
+  `
+  CREATE TABLE order_secrets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    purpose TEXT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    iv TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT '',
+    delete_reason TEXT NOT NULL DEFAULT ''
+  );
+  CREATE UNIQUE INDEX order_secrets_live ON order_secrets(order_id, purpose) WHERE deleted_at = '';
+  CREATE INDEX order_secrets_expiry ON order_secrets(deleted_at, expires_at);
+  CREATE TABLE kfz_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    business_transaction TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    external_order_id TEXT NOT NULL UNIQUE,
+    fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL,
+    kfz_order_id TEXT NOT NULL DEFAULT '',
+    http_status INTEGER,
+    trace_id TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL,
+    request_json TEXT NOT NULL DEFAULT '{}',
+    confirmed_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    sent_at TEXT NOT NULL DEFAULT '',
+    resolved_at TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    UNIQUE (order_id, business_transaction, attempt)
+  );
+  CREATE UNIQUE INDEX kfz_submissions_open ON kfz_submissions(order_id) WHERE state IN ('sendet', 'angenommen', 'ungewiss', 'konflikt');
+  CREATE INDEX kfz_submissions_kfz ON kfz_submissions(kfz_order_id);
+  `,
 ];
 
 

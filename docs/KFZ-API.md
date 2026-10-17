@@ -1,8 +1,8 @@
 # kfz-api.de – Anbindung in EasyKFZ24 OS
 
-Stand 12.10.2026. Quellen: öffentliche Entwicklerseite `kfz-api.de/api/` (inkl. FAQ) und Preisliste
-`kfz-api.de/preise/` (Stand 29.09.2026). Die vollständige Doku (`api.kfz-api.de/docs`, Pflichtfelder je Vorgang,
-Meldungscodes, OpenAPI) liegt hinter dem Dashboard-Login und ist hier **nicht** ausgewertet.
+Stand 12.10.2026, ergänzt 17.10.2026. Quellen: öffentliche Entwicklerseite `kfz-api.de/api/` (inkl. FAQ), Preisliste
+`kfz-api.de/preise/` (Stand 29.09.2026) und – seit 17.10.2026 – die offizielle OpenAPI **API 2.3.0** und **Webhooks 3.1.0**
+aus dem Dashboard. Automatische Übermittlung (Phase 1, Abmeldung): siehe [KFZ-UEBERMITTLUNG.md](KFZ-UEBERMITTLUNG.md).
 
 ## Zugang
 
@@ -11,7 +11,7 @@ Meldungscodes, OpenAPI) liegt hinter dem Dashboard-Login und ist hier **nicht** 
 | Basisadresse | `KFZ_API_BASE_URL` = `https://api.kfz-api.de/dropshipping-api/10/2.3.0` (normale Variable im Worker) |
 | Anmeldung | HTTP Basic mit API-Benutzer aus dem Dashboard (`KFZ_API_LOGIN`, `KFZ_API_PASSWORD`, Secrets) – laut FAQ; Server bestätigt `WWW-Authenticate: Basic realm="dropshipping-api"` |
 | Pfade | relativ zur Basisadresse; Client entfernt einen abschließenden `/`, hängt Endpunkte genau einmal an (lokal in workerd geprüft) |
-| Testumgebung | **keine** – gültige Anträge gehen produktiv ans KBA; Test laut Anbieter nur mit lesenden Aufrufen und Webhook-PING |
+| Testumgebung | Separater **Sandbox-Zugang** im Dashboard (nach Partnervertrag; simulierte Vorgänge, keine echten Webhooks, eigene Zugangsdaten). Ob er die Abmeldung abbildet, ist öffentlich nicht beschrieben. Anträge über die produktiven Zugangsdaten gehen immer an das KBA. |
 | Kosten | API „ohne Aufpreis“, keine Grundgebühr; Kosten **je Vorgang** (Abmeldung ab 6,35 €, Zulassung/Umschreibung ab 32,60 €, Adressänderung ab 22,40 €), je vom KBA abgewiesener Übermittlung 0,10 €, Signatur 6,95 €, Handelsregisterabgleich 4,99 € |
 | Fehlerverfolgung | Antwort-Header `X-Trace-Id`; Fehlerkörper `{"error": "…", "traceId": "…"}` |
 
@@ -21,12 +21,13 @@ Meldungscodes, OpenAPI) liegt hinter dem Dashboard-Login und ist hier **nicht** 
 |---|---|---|---|
 | `GET /vehicleDeregistrations/orders?limit=1` | lesend („Erster Aufruf“, prüft Adresse und Anmeldung, legt nichts an) | keine | **aktiv** – „Verbindung prüfen“ im KFZ-API Center (nur Status + Trace-Id, protokolliert ohne Inhalte) |
 | `GET /{prefix}/files/content/{fileAccessKey}` | lesend | keine | **aktiv** – Belege aus Webhooks im Auftrag öffnen (nur mit Recht, protokolliert) |
-| `GET /{prefix}/orders` (Filter u. a. `changedSince`) | lesend | keine | nicht genutzt – Empfehlung: Abgleich verpasster Webhooks |
-| `GET /{prefix}/orders/{orderId}` | lesend | keine | nicht genutzt – Empfehlung: „Vorgangsauskunft“ im Auftrag |
+| `GET /{prefix}/orders` (Filter u. a. `externalId`, `changedSince`) | lesend | keine | Branch `feature/kfz-uebermittlung`: Klärung einer ungewissen Übermittlung (`externalId` exakt) |
+| `GET /{prefix}/orders/{orderId}` | lesend | keine | Branch `feature/kfz-uebermittlung`: „Stand beim Partner abfragen“ nach verlorenem Webhook |
 | `GET /serviceStatus`, `GET /health` | lesend | keine | nicht genutzt – Empfehlung: Störungsanzeige im KFZ-API Center |
 | `GET /registrationOffices/{districtKey}/availability` | lesend | keine | nicht genutzt |
 | `GET /powerOfAttorneys/{processId}` | lesend | keine | nicht genutzt |
-| `POST /vehicleRegistrations/registrations` (NZ), `…/dayRegistrations` (TZ), `/vehicleTransfers/transfers` (UG), `/vehicleReRegistrations/reRegistrations` (WG), `…/sameHolderReRegistrations` (WZ), `/vehicleHolderChanges/holderChanges` (HA), `/vehicleDeregistrations/deregistrations` (AB) | **schreibend, produktiv ans KBA** | je Vorgang | **gesperrt** (kein Code, `submission.enabled: false`) |
+| `POST /vehicleDeregistrations/deregistrations` (AB) | **schreibend, produktiv ans KBA** | ab 6,35 € netto / 6,73 € brutto | Branch `feature/kfz-uebermittlung`, Schalter `KFZ_UEBERMITTLUNG` (Vorgabe aus) – siehe KFZ-UEBERMITTLUNG.md |
+| `POST /vehicleRegistrations/registrations` (NZ), `…/dayRegistrations` (TZ), `/vehicleTransfers/transfers` (UG), `/vehicleReRegistrations/reRegistrations` (WG), `…/sameHolderReRegistrations` (WZ), `/vehicleHolderChanges/holderChanges` (HA) | **schreibend, produktiv ans KBA** | je Vorgang | **gesperrt** (kein Code; Phase 2) |
 | `POST /powerOfAttorneys` | schreibend (Vollmachts-/Signaturvorgang) | Signatur 6,95 €, ggf. 4,99 € | gesperrt |
 | `POST /gksConfigurations` | Kontoeinstellung (eigener KoPa-Schlüssel) | – | nicht genutzt |
 
@@ -35,8 +36,9 @@ Meldungscodes, OpenAPI) liegt hinter dem Dashboard-Login und ist hier **nicht** 
 - Empfang: `POST https://easykfz24.de/api/webhooks/kfz-api`; Signatur `X-Signature` = HMAC-SHA256 (hex) über den Rohtext
   mit `KFZ_API_WEBHOOK_SECRET`, zeitkonstanter Vergleich; ohne/mit falscher Signatur → 401, nichts gespeichert.
 - Zustellung durch kfz-api.de bis zu 7-mal in ~31 Stunden mit gleicher `X-Event-Id` → bei uns als Dublette erkannt.
-- Zuordnung: `order.externalId` = EasyKFZ24-Auftragsnummer, sonst verknüpfte kfz-api-Vorgangsnummer (`order.id`);
-  nicht zuordenbare Meldungen → KFZ-API Center „zu prüfen“ (manuell zuordnen, erneut verarbeiten).
+- Zuordnung (Webhooks 3.1.0): eigene Referenz einer automatischen Übermittlung, dann `attemptOf` (Auftrag, nicht
+  `order.id` des Versuchs), dann `order.id`, zuletzt `order.externalId` = EasyKFZ24-Auftragsnummer; nicht zuordenbare
+  Meldungen → KFZ-API Center „zu prüfen“ (manuell zuordnen, erneut verarbeiten).
 - Status (alle dokumentierten Werte abgedeckt):
 
 | kfz-api.de | Anzeige | Auftrag (automatisch, soweit Übergang erlaubt) |
@@ -44,10 +46,15 @@ Meldungscodes, OpenAPI) liegt hinter dem Dashboard-Login und ist hier **nicht** 
 | `ACCEPTED`, `FORWARDED` | in Bearbeitung | bei Zulassungsstelle |
 | `APPROVED`, `APPROVED_WITH_DOCUMENTS` | abgeschlossen | zugelassen (+ Kennzeichen aus `licensePlate`, Belege aus `files[]`) |
 | `REJECTED`, `REJECTED_WITH_DOCUMENTS` | Angaben erforderlich | Unterlagen fehlen (+ Aufgabe, Meldungen aus `messages[]`) |
-| `FAILED` | fehlgeschlagen (`retryable` berücksichtigt) | Hinweis, kein Rückschritt |
-| `derivedStatus` `PENDING`/`SUCCESS`/`FAILURE` | Ersatz, wenn `status` fehlt | wie oben |
+| `FAILED` | fehlgeschlagen (`retryable` berücksichtigt); korrigierbare Ablehnungsart (falscher Code, Fahrzeug unbekannt …) → Angaben erforderlich | Hinweis, kein Rückschritt |
+| `PROCESSED`, `UNKNOWN` | nach `derivedStatus` | wie oben |
+| `derivedStatus` (11 Werte laut 3.1.0, u. a. `ERROR_UNHANDLED` = manuelle Prüfung, nicht erneut einreichen) | Ersatz bzw. Einordnung | wie oben |
 
-## Spätere automatische Übermittlung – was noch fehlt
+## Automatische Übermittlung – Stand
+
+Phase 1 (Abmeldung) ist auf dem Branch `feature/kfz-uebermittlung` umgesetzt (Punkte 1–3, 5–6 unten erledigt, 7 offen),
+Details in [KFZ-UEBERMITTLUNG.md](KFZ-UEBERMITTLUNG.md). Die folgende Liste galt vor der Auswertung der Spezifikation und
+bleibt für Phase 2 (übrige Vorgangsarten) maßgeblich.
 
 Zuordnung der Leistungen: Abmeldung → AB · Halterwechsel → UG · Umzug → HA (gleicher Bezirk) bzw. UG ·
 Wiederzulassung → WG/WZ · Neuzulassung → NZ.

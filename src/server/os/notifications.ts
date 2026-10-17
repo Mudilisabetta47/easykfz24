@@ -57,6 +57,14 @@ async function draftFor(ev: OsEvent): Promise<Draft | null> {
       const text = st === 'signiert' ? (p.ready ? 'Vollmacht unterschrieben' : 'Unterschrieben, Angaben unvollständig') : st === 'abgelehnt' ? 'Vollmacht abgelehnt' : st === 'verfallen' ? 'Vollmacht abgelaufen' : 'Technischer Fehler bei der Vollmacht';
       return { kind: 'vollmacht', title: text, text: label, priority: st === 'signiert' && p.ready ? 'normal' : 'wichtig' };
     }
+    case 'order.submission': {
+      // Automatische Übermittlung an kfz-api.de: angenommen = Hinweis; ungewiss/Konflikt/abgewiesen = sofort prüfen
+      const st = String(p.state ?? '');
+      if (st === 'angenommen')
+        return { kind: 'kfz_status', title: p.clash ? 'Übermittelt, Vorgang doppelt verknüpft – prüfen' : 'Abmeldung automatisch übermittelt', text: label, priority: p.clash ? 'kritisch' : 'normal' };
+      const title = st === 'ungewiss' ? 'Übermittlung ungewiss – Stand klären, nicht erneut senden' : st === 'konflikt' ? 'Übermittlung: Konflikt beim Partner' : 'Übermittlung abgewiesen (nichts gesendet)';
+      return { kind: 'webhook_fehler', title, text: `${label}${p.error ? ` · ${p.error}` : ''}`, priority: st === 'abgewiesen' ? 'wichtig' : 'kritisch' };
+    }
     case 'order.compliance': {
       // Extern eingereicht ohne interne Freigabe, ohne bestätigte QES oder als Testauftrag – sofort prüfen
       const problems = Array.isArray(ev.payload.problems) ? (ev.payload.problems as string[]).join('; ') : '';

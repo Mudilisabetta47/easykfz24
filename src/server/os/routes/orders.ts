@@ -41,6 +41,16 @@ import { orderWishPlace } from '../../regions.ts';
 import { attemptView, listAttempts, mollieMode, mollieTestAvailable, reconcileAttempt, startMolliePayment } from '../../mollie.ts';
 import { publicBaseUrl } from '../../payments.ts';
 import { getTestRelease, latestPoa, listPoas, poaCreationEnabled, poaMode, previewPoa, requestPoa, setBirthPlace, setTestRelease, verifyPoa, viewOf } from '../../power-of-attorney.ts';
+import {
+  clarifySubmission,
+  deleteCodes,
+  previewSubmission,
+  reconcileOrder,
+  saveCodes,
+  setSubmitTestRelease,
+  submissionPanel,
+  submitDeregistration,
+} from '../../kfz-submission.ts';
 
 function filterFrom(url: URL): OrderFilter {
   const p = url.searchParams;
@@ -120,6 +130,8 @@ async function orderBundle(c: Ctx, id: number) {
     poaEnabled: poaCreationEnabled(),
     poaMode: poaMode(),
     poaTest: await poaTestInfo(c, id),
+    // Automatische Übermittlung an kfz-api.de (Phase 1: Abmeldung) – Codes nur als Status, nie als Wert
+    submission: await submissionPanel(id, c.s.user.role),
     // Online-Zahlung (Mollie): Versuche mit bestätigtem Stand; Modus nur am Schlüssel-Präfix
     paymentAttempts: (await listAttempts(id)).map(attemptView),
     mollieMode: mollieMode(),
@@ -303,6 +315,101 @@ export const orderRoutes: Route[] = [
       const r = await revokeEvidence(id, int(c.body.evidenceId, 'Nachweis-ID'), str(c.body.grund, 300), c.actor.name);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
       await audit(c.audit, 'vollmacht.nachweis_widerrufen', String(id), str(c.body.grund, 120));
+      return r;
+    },
+  },
+  {
+    // Sicherheitscodes für die automatische Abmeldung verschlüsselt erfassen – Werte kommen nie zurück, auch nicht ins Audit
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/codes',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await saveCodes(id, { zb1: c.body.zb1, rear: c.body.rear, front: c.body.front, plates: c.body.plates }, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, fields: r.fields ?? {} }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'uebermittlung.codes_erfasst', String(id), `${r.codes.plates ?? '?'} Schild(er)`);
+      return NextResponse.json(r, { headers: { 'Cache-Control': 'no-store' } });
+    },
+  },
+  {
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/codes/loeschen',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await deleteCodes(id, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'uebermittlung.codes_geloescht', String(id));
+      return r;
+    },
+  },
+  {
+    // Vorschau vor dem Senden: Angaben, Kosten, Hinweise, Prüfsumme – ruft den Partner nicht auf
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/vorschau',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await previewSubmission(id, { name: c.actor.name, role: c.s.user.role }, { reservePlate: c.body.reservieren === true });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, reasons: r.reasons ?? [] }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json(r, { headers: { 'Cache-Control': 'no-store' } });
+    },
+  },
+  {
+    // Antrag an kfz-api.de senden (kostenpflichtig, geht an das KBA) – nur mit bestätigter Vorschau, je Auftrag einzeln
+    method: 'POST',
+    path: 'orders/:id/uebermittlung',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (c.body.bestaetigt !== true || typeof c.body.fingerprint !== 'string')
+        return NextResponse.json({ ok: false, error: 'Bitte zuerst die Vorschau prüfen und Kosten und Hinweise bestätigen.', reasons: [] }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      const r = await submitDeregistration(id, { name: c.actor.name, role: c.s.user.role }, { reservePlate: c.body.reservieren === true, fingerprint: str(c.body.fingerprint, 100) });
+      const sub = 'submission' in r ? r.submission : undefined;
+      if (sub) await audit(c.audit, `uebermittlung.${sub.state}`, String(id), `${sub.externalOrderId}${sub.kfzOrderId ? ` → ${sub.kfzOrderId}` : ''}`);
+      if (!r.ok) {
+        const status = r.code === 'denied' ? 403 : r.code === 'changed' || r.code === 'busy' ? 409 : 422;
+        return NextResponse.json({ ok: false, error: r.error, code: r.code ?? null, reasons: r.reasons ?? [], submission: r.submission ?? null }, { status, headers: { 'Cache-Control': 'no-store' } });
+      }
+      return NextResponse.json(r, { headers: { 'Cache-Control': 'no-store' } });
+    },
+  },
+  {
+    // Ungewisse Übermittlung klären: Auftragsliste exakt nach Referenz (lesend, kostenlos)
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/klaeren',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await clarifySubmission(id, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, submission: r.submission ?? null }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, 'uebermittlung.geklaert', String(id), `${r.submission.externalOrderId}: ${r.found ? `Vorgang ${r.submission.kfzOrderId}` : 'nicht angelegt'}`);
+      return r;
+    },
+  },
+  {
+    // Stand des verknüpften Vorgangs abfragen (GET …/orders/{id}, lesend, kostenlos) – nach verlorenem Webhook
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/abgleich',
+    perm: 'kfz.write',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      const r = await reconcileOrder(id);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      return r;
+    },
+  },
+  {
+    // Testmodus: genau diesen Auftrag für eine echte Übermittlung freigeben bzw. zurückziehen (nur Inhaber)
+    method: 'POST',
+    path: 'orders/:id/uebermittlung/testfreigabe',
+    perm: 'settings.manage',
+    handler: async (c) => {
+      const id = int(c.params.id, 'Auftrags-ID');
+      if (c.s.user.role !== 'inhaber') throw new HttpError(403, 'Nur der Inhaber kann eine Testfreigabe erteilen.');
+      const r = await setSubmitTestRelease(id, c.body.aktiv === true, { name: c.actor.name, role: c.s.user.role });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+      await audit(c.audit, c.body.aktiv === true ? 'uebermittlung.testfreigabe' : 'uebermittlung.testfreigabe_entzogen', String(id), r.release ? `bis ${r.release.expiresAt}` : '');
       return r;
     },
   },

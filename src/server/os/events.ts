@@ -32,6 +32,7 @@ export type OsEventType =
   | 'invoice.issued'
   | 'order.withdrawal'
   | 'order.poa'
+  | 'order.submission'
   | 'order.compliance';
 
 export interface OsEventInput {

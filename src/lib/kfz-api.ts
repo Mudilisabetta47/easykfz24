@@ -1,15 +1,13 @@
 // Anbindung an kfz-api.de (KBA-Großkundenschnittstelle): Webhook-Statuswerte, Signatur, Auswertung.
 //
-// Grundlage sind ausschließlich die öffentlich dokumentierten Angaben unter https://kfz-api.de/api/ und
-// https://kfz-api.de/software-anbieter/ (Stand Oktober 2026):
-//   - Header X-Signature: HMAC-SHA256 (hex) über den Rohtext des Rumpfs
-//   - Header X-Event-Id: bleibt bei Wiederholungen gleich (bis zu sieben Zustellversuche in rund 31 Stunden)
-//   - Rumpf: order.id, order.externalId, businessTransaction (NZ, TZ, UG, WG, WZ, HA, AB), status, derivedStatus,
-//     licensePlate, files[] (purposeType, fileAccessKey), messages[] (Code und Klartext), retryable
-//   - status: ACCEPTED, FORWARDED, APPROVED, APPROVED_WITH_DOCUMENTS, REJECTED, REJECTED_WITH_DOCUMENTS, FAILED
-//   - derivedStatus: PENDING, SUCCESS, FAILURE
-// Die vollständige Spezifikation (Feldnamen in messages[], Format des PING) steht nur in der Dokumentation nach dem
-// Login (api.kfz-api.de/docs). Die Auswertung ist deshalb bewusst tolerant und speichert Unbekanntes nachvollziehbar.
+// Grundlage ist die offizielle Spezifikation (Webhooks 3.1.0, spec/webhooks.yaml; API 2.3.0, spec/api.yaml):
+//   - Header X-Signature: HMAC-SHA256 (hex) über den Rohtext des Rumpfs (UTF-8)
+//   - Header X-Event-Id: bleibt bei Wiederholungen gleich (sieben Zustellversuche in rund 31 Stunden, Rumpf bitgleich)
+//   - Rumpf (XkfzEventPayload, flach neben eventType/eventTime): attemptOf, attempt, order.id, order.externalId,
+//     businessTransaction (AB, HA, UG, WG, WZ, NZ, TZ), status, derivedStatus, applicationId, licensePlate, files[],
+//     messages[] (type, kind, code, text, additional), retryable
+//   - Zuordnung laut Spezifikation über attemptOf (Auftrag), nicht über order.id (Versuch); externalId ist die eigene Referenz
+// Die Auswertung bleibt tolerant: Unbekannte Statuswerte werden gespeichert, nicht verworfen.
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -44,13 +42,22 @@ export interface KfzFile {
 export interface KfzMessage {
   code: string;
   text: string;
+  /** Quittungsart in Worten (Hinweis, Warnung, Fehler) – fehlt bei Ablehnungsgründen */
+  kind?: string;
+  /** Zusatztext des KBA, bei Ablehnungen der Grund */
+  additional?: string;
 }
 
 export interface KfzEvent {
   /** false = kein order-Objekt (z. B. PING zum Erreichbarkeitstest) */
   hasOrder: boolean;
   orderId: string | null;
+  /** Auftrag, zu dem der Versuch gehört (beim ersten Versuch = orderId) – maßgeblich für die Zuordnung */
+  attemptOf: string | null;
+  attempt: number | null;
   externalId: string | null;
+  /** Antragsnummer des KBA (20 Ziffern), erst nach der Quittung */
+  applicationId: string | null;
   businessTransaction: BusinessTransaction | null;
   status: KfzStatus | null;
   /** Unbekannter, aber gelieferter Statuswert – wird gespeichert, nicht verworfen */
@@ -96,13 +103,18 @@ export function parseKfzEvent(body: unknown): KfzEvent {
         const r = m as Record<string, unknown>;
         const code = str(r.code) ?? '';
         const text = pickText(r);
-        return code || text ? [{ code, text }] : [];
+        const kind = str(r.kind);
+        const additional = str(r.additional);
+        return code || text || additional ? [{ code, text, ...(kind ? { kind: kind.slice(0, 20) } : {}), ...(additional ? { additional: additional.slice(0, 1000) } : {}) }] : [];
       })
     : [];
   return {
     hasOrder: !!order,
     orderId: order ? str(order.id) : null,
+    attemptOf: order ? (str(b.attemptOf) ?? str(order.id)) : null,
+    attempt: typeof b.attempt === 'number' && Number.isInteger(b.attempt) && b.attempt > 0 ? b.attempt : null,
     externalId: order ? str(order.externalId) : null,
+    applicationId: str(b.applicationId)?.slice(0, 40) ?? null,
     businessTransaction: bt && bt in BUSINESS_TRANSACTIONS ? (bt as BusinessTransaction) : null,
     status,
     rawStatus,
@@ -121,7 +133,8 @@ export function normalizeKfzPlate(v: string | null): string | null {
   return m ? `${m[1]}-${m[2]} ${m[3]}` : null;
 }
 
-/** Belegart (purposeType) – die Werteliste ist nur in der Dokumentation nach Login beschrieben, daher unverändert. */
+/** Belegart (purposeType laut webhooks.yaml 3.1.0: CERTIFICATE, RECEIPT, APPLICATION, UNSPECIFIED) */
+const PURPOSE: Record<string, string> = { CERTIFICATE: 'Bescheinigung', RECEIPT: 'Quittung', APPLICATION: 'Antrag', UNSPECIFIED: 'Beleg' };
 export function purposeLabel(purposeType: string): string {
-  return purposeType || 'Beleg';
+  return PURPOSE[purposeType] ?? (purposeType || 'Beleg');
 }

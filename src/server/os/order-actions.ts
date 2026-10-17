@@ -249,6 +249,8 @@ export async function actRelease(id: number, release: boolean, actor: Actor): Pr
   const db = await getDb();
   if (!release) {
     if (o.status !== 'in_pruefung') return { ok: false, error: 'Freigabe kann nur vor der Übergabe zurückgenommen werden' };
+    const auto = await db.first<{ state: string }>("SELECT state FROM kfz_submissions WHERE order_id = ? AND state IN ('sendet', 'angenommen', 'ungewiss', 'konflikt') LIMIT 1", id);
+    if (auto) return { ok: false, error: `Automatische Übermittlung ist ${auto.state} – Freigabe nicht zurücknehmbar, erst den Stand klären` };
     await db.batch([
       { sql: "UPDATE orders SET released_at = '', released_by = '', updated_at = ? WHERE id = ?", params: [now(), id] },
       { sql: "INSERT INTO events (order_id, at, type, from_status, to_status, message, public_message, actor) VALUES (?, ?, 'note', NULL, NULL, 'Freigabe zur Übermittlung zurückgenommen', '', ?)", params: [id, now(), actor.name] },

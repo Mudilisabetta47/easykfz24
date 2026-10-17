@@ -37,6 +37,8 @@ import type { PoaPreview, PoaTestRelease, PoaView } from '../../../server/power-
 import type { EvidenceView } from '../../../server/os/poa-evidence.ts';
 import type { AttemptView } from '../../../server/mollie.ts';
 import { Preview } from './Preview.tsx';
+import { KfzSubmissionPanel } from './KfzSubmission.tsx';
+import type { SubmissionPanel } from '../../../server/kfz-submission.ts';
 
 interface Transition {
   to: StatusId;
@@ -109,6 +111,8 @@ export interface OrderBundle {
   mollieMode: 'test' | 'live' | null;
   mollieTest: { available: boolean; canStart: boolean };
   poaTest: { canGrant: boolean; isInhaber: boolean; release: (PoaTestRelease & { active: boolean }) | null; otherOrder: string | null };
+  /** Automatische Übermittlung (nur bei Abmeldungen, sonst null) */
+  submission: SubmissionPanel | null;
   transitions: Transition[];
   checklistProgress: { done: number; total: number };
   canWrite: boolean;
@@ -248,7 +252,18 @@ export function OrderDetailView({ id, initialTab, onBack, onChanged, onDuplicate
             }}
           />
         ) : null}
-        {tab === 'freigabe' ? <ReleaseTab data={data} busy={busy} act={act} /> : null}
+        {tab === 'freigabe' ? (
+          <ReleaseTab
+            data={data}
+            busy={busy}
+            act={act}
+            done={async (ok, text) => {
+              flash.show(ok, text);
+              await reload(true);
+              onChanged();
+            }}
+          />
+        ) : null}
         {tab === 'unterlagen' ? <DocsTab data={data} busy={busy} act={act} reload={() => void reload(true)} flash={flash.show} /> : null}
         {tab === 'angaben' ? (
           <div className="os-facts">
@@ -256,7 +271,17 @@ export function OrderDetailView({ id, initialTab, onBack, onChanged, onDuplicate
           </div>
         ) : null}
         {tab === 'zahlung' ? <PaymentTab data={data} busy={busy} act={act} reload={() => void reload(true)} flash={flash.show} /> : null}
-        {tab === 'kfz' ? <KfzTab data={data} busy={busy} act={act} /> : null}
+        {tab === 'kfz' ? (
+          <KfzTab
+            data={data}
+            busy={busy}
+            act={act}
+            done={async (ok, text) => {
+              flash.show(ok, text);
+              await reload(true);
+            }}
+          />
+        ) : null}
         {tab === 'kommunikation' ? <CommTab data={data} reload={() => void reload(true)} /> : null}
         {tab === 'aufgaben' ? <TasksTab data={data} reload={() => void reload(true)} /> : null}
         {tab === 'verlauf' ? <LogTab data={data} busy={busy} act={act} /> : null}
@@ -510,7 +535,7 @@ function OverviewTab({ data, busy, act, onFix, poaDone }: { data: OrderBundle; b
 
 /* ---------- Freigabe & Zulassung ---------- */
 
-function ReleaseTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act: Act }) {
+function ReleaseTab({ data, busy, act, done }: { data: OrderBundle; busy: boolean; act: Act; done: (ok: boolean, text: string) => Promise<void> }) {
   const o = data.order;
   const ins = data.insights;
   const released = !!o.released_at;
@@ -545,8 +570,10 @@ function ReleaseTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act
         </Panel>
         <Panel title="Sicherheitscodes (i-Kfz)">
           <p className="os-muted os-small">
-            Nur bestätigen, dass die Codes aus den Originalen vorliegen und geprüft wurden. Die Codes selbst werden hier bewusst nicht gespeichert. Welche Codes der
-            Zulassungspartner verlangt, richtet sich nach dessen API-Dokumentation.
+            Nur bestätigen, dass die Codes aus den Originalen vorliegen und geprüft wurden – hier werden keine Werte gespeichert.
+            {data.submission && data.submission.mode !== 'aus'
+              ? ' Für die automatische Abmeldung werden die Werte gesondert verschlüsselt erfasst (Panel „Automatische Übermittlung“) und nach der Übermittlung gelöscht.'
+              : ' Welche Codes der Zulassungspartner verlangt, richtet sich nach dessen API-Dokumentation.'}
           </p>
           <ul className="os-checklist" role="list">
             {ins.codes.map((c) => {
@@ -605,10 +632,24 @@ function ReleaseTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act
             <p className="os-muted os-small">Freigeben dürfen Rollen mit dem Recht „KFZ-API: Ereignisse zuordnen“.</p>
           )}
         </Panel>
-        <Panel title="Übermittlung an kfz-api.de">
+        {data.submission ? (
+          <KfzSubmissionPanel
+            orderId={o.id}
+            orderNumber={o.number}
+            panel={data.submission}
+            released={released}
+            linkedManually={!!data.kfz?.kfzOrderId && !data.submission.submissions.some((s) => s.state === 'angenommen')}
+            canKfz={data.canKfz}
+            done={done}
+          />
+        ) : null}
+        <Panel title="Übermittlung an kfz-api.de (manuell)">
           <p className="os-muted os-small">
-            Gesperrt: Es wird nichts automatisch übermittelt (keine Produktivfreigabe für kostenpflichtige Anträge). Nach der Freigabe den Vorgang beim
-            Zulassungspartner einreichen und hier „Bei Zulassungsstelle“ setzen (Registerkarte Übersicht). Statusmeldungen kommen über den Webhook.
+            {data.submission && data.submission.mode !== 'aus'
+              ? 'Alternativ manuell: '
+              : 'Es wird nichts automatisch übermittelt (keine Produktivfreigabe für kostenpflichtige Anträge). '}
+            Nach der Freigabe den Vorgang beim Zulassungspartner einreichen, ihn in der Registerkarte KFZ-API verknüpfen und „Bei Zulassungsstelle“ setzen
+            (Registerkarte Übersicht). Statusmeldungen kommen über den Webhook.
           </p>
           {o.data.plate.schilder ? (
             <p className="os-small">
@@ -1476,7 +1517,7 @@ function PaymentTab({ data, busy, act, reload, flash }: { data: OrderBundle; bus
 
 /* ---------- KFZ-API ---------- */
 
-function KfzTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act: Act }) {
+function KfzTab({ data, busy, act, done }: { data: OrderBundle; busy: boolean; act: Act; done: (ok: boolean, text: string) => Promise<void> }) {
   const { openApp } = useOs();
   const k = data.kfz;
   const [link, setLink] = useState(k?.kfzOrderId ?? '');
@@ -1512,6 +1553,24 @@ function KfzTab({ data, busy, act }: { data: OrderBundle; busy: boolean; act: Ac
               Verknüpfen
             </button>
           </form>
+        ) : null}
+        {data.canKfz && k?.kfzOrderId ? (
+          <button
+            type="button"
+            className="os-linkbtn os-small"
+            disabled={busy}
+            onClick={async () => {
+              try {
+                const r = await osFetch<{ ok: true; applied: boolean; state: string; derivedStatus: string }>(`orders/${data.order.id}/uebermittlung/abgleich`, { method: 'POST', body: {} });
+                await done(true, r.applied ? `Stand übernommen: ${r.state} · ${r.derivedStatus}` : `Stand unverändert: ${r.state} · ${r.derivedStatus}`);
+                timeline.reload(true);
+              } catch (e) {
+                await done(false, (e as Error).message);
+              }
+            }}
+          >
+            Stand beim Partner abfragen (lesend, kostenlos)
+          </button>
         ) : null}
         <h4 className="os-subhead">Statusverlauf</h4>
         {timeline.data?.length ? (
